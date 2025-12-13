@@ -1,9 +1,14 @@
 package com.yu.yuaifather.service;
 
+import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
+import com.yu.yuaifather.model.dto.UserQueryRequest;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.vo.LoginUserVO;
+import com.yu.yuaifather.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
+
+import java.util.List;
 
 /**
  * 用户 服务层。
@@ -57,4 +62,11 @@ public interface UserService extends IService<User> {
     boolean userLogout(HttpServletRequest request);
 
 
+    String getEncryptPassword(String defaultPassword);
+
+    UserVO getUserVO(User user);
+
+    QueryWrapper getQueryWrapper(UserQueryRequest userQueryRequest);
+
+    List<UserVO> getUserVOList(List<User> records);
 }
