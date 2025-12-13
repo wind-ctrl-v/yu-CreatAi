@@ -1,4 +1,6 @@
 spring:
+  profiles:
+    active: local
   application:
     name: yu-ai-code-father
   # mysql
@@ -21,3 +23,6 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
+
+
+
