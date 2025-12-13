@@ -5,7 +5,10 @@ import com.yu.yuaifather.common.BaseResponse;
 import com.yu.yuaifather.common.ResultUtils;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.exception.ThrowUtils;
+import com.yu.yuaifather.model.dto.UserLoginRequest;
 import com.yu.yuaifather.model.dto.UserRegisterRequest;
+import com.yu.yuaifather.model.vo.LoginUserVO;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -106,5 +109,15 @@ public class UserController {
         long result = userService.userRegister(userAccount, userPassword, checkPassword);
         return ResultUtils.success(result);
     }
+
+    @PostMapping("/login")
+    public BaseResponse<LoginUserVO> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
+        ThrowUtils.throwIf(userLoginRequest == null, ErrorCode.PARAMS_ERROR);
+        String userAccount = userLoginRequest.getUserAccount();
+        String userPassword = userLoginRequest.getUserPassword();
+        LoginUserVO loginUserVO = userService.userLogin(userAccount, userPassword, request);
+        return ResultUtils.success(loginUserVO);
+    }
+
 
 }
