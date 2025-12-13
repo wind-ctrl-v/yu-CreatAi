@@ -1,6 +1,11 @@
 package com.yu.yuaifather.controller;
 
 import com.mybatisflex.core.paginate.Page;
+import com.yu.yuaifather.common.BaseResponse;
+import com.yu.yuaifather.common.ResultUtils;
+import com.yu.yuaifather.exception.ErrorCode;
+import com.yu.yuaifather.exception.ThrowUtils;
+import com.yu.yuaifather.model.dto.UserRegisterRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -89,6 +94,17 @@ public class UserController {
     @GetMapping("page")
     public Page<User> page(Page<User> page) {
         return userService.page(page);
+    }
+
+
+    @PostMapping("register")
+    public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest userRegisterRequest) {
+        ThrowUtils.throwIf(userRegisterRequest == null, ErrorCode.PARAMS_ERROR);
+        String userAccount = userRegisterRequest.getUserAccount();
+        String userPassword = userRegisterRequest.getUserPassword();
+        String checkPassword = userRegisterRequest.getCheckPassword();
+        long result = userService.userRegister(userAccount, userPassword, checkPassword);
+        return ResultUtils.success(result);
     }
 
 }
