@@ -1,12 +1,16 @@
 package com.yu.yuaifather.ai.core;
 
 import com.yu.yuaifather.ai.enums.CodeGenTypeEnum;
+import dev.langchain4j.model.chat.ChatModel;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import reactor.core.publisher.Flux;
 
 import java.io.File;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -16,9 +20,27 @@ class AiCodeGeneratorFacadeTest {
     @Resource
     private AiCodeGeneratorFacade aiCodeGeneratorFacade;
 
+    @MockBean
+    private ChatModel chatModel;
+
     @Test
     void generateAndSaveCode() {
-        File file = aiCodeGeneratorFacade.generateAndSaveCode("生成一个以我的世界这个游戏为主题的网站", CodeGenTypeEnum.MULTI_FILE);
+        File file = aiCodeGeneratorFacade.generateAndSaveCode("任务记录网站", CodeGenTypeEnum.MULTI_FILE);
         Assertions.assertNotNull(file);
     }
+
+    @Test
+    void generateAndSaveCodeStream() {
+        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream("做一个登陆页面不超过20行代码", CodeGenTypeEnum.MULTI_FILE);
+        // 阻塞等待所有数据收集完成
+        List<String> result = codeStream.collectList().block();
+        // 验证结果
+        Assertions.assertNotNull(result);
+        String completeContent = String.join("", result);
+        Assertions.assertNotNull(completeContent);
+    }
+
+
+
+
 }

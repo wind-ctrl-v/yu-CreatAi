@@ -3,25 +3,21 @@ package com.yu.yuaifather.ai.core;
 import com.yu.yuaifather.ai.model.HtmlCodeResult;
 import com.yu.yuaifather.ai.model.MultiFileCodeResult;
 
-import java.util.regex.Pattern;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 代码解析器
  * 提供静态方法解析不同类型的代码内容
  *
- * @author yu
+ * @author yupi
  */
 public class CodeParser {
 
-    private static final Pattern HTML_CODE_PATTERN =
-            Pattern.compile("html\\s*格式\\s*\\n([\\s\\S]*?)(?=\\s*css\\s*格式|```css|\\s*js\\s*格式|```js|$)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTML_CODE_PATTERN = Pattern.compile("```html\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CSS_CODE_PATTERN = Pattern.compile("```css\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
+    private static final Pattern JS_CODE_PATTERN = Pattern.compile("```(?:js|javascript)\\s*\\n([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE);
 
-    private static final Pattern CSS_CODE_PATTERN =
-            Pattern.compile("css\\s*格式\\s*\\n([\\s\\S]*?)(?=\\s*js\\s*格式|```js|```javascript|$)", Pattern.CASE_INSENSITIVE);
-
-    private static final Pattern JS_CODE_PATTERN =
-            Pattern.compile("(?:js\\s*格式\\s*\\n|```(?:js|javascript)\\s*\\n)([\\s\\S]*?)(?=\\s*文件创建完成|$)", Pattern.CASE_INSENSITIVE);
     /**
      * 解析 HTML 单文件代码
      */
