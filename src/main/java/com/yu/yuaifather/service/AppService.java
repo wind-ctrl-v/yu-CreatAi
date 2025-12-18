@@ -32,4 +32,7 @@ public interface AppService extends IService<App> {
 
     //调用ai大模型接口
     Flux<String> chatToGenCode(Long appId, String message, User loginUser);
+
+    //部署应用
+    String deployApp(Long appId, User loginUser);
 }
