@@ -5,7 +5,9 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import com.yu.yuaifather.common.AppQueryRequest;
 import com.yu.yuaifather.model.entity.App;
+import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.vo.AppVO;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -27,4 +29,7 @@ public interface AppService extends IService<App> {
     List<AppVO> getAppVOList(List<App> records);
 
     QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest);
+
+    //调用ai大模型接口
+    Flux<String> chatToGenCode(Long appId, String message, User loginUser);
 }
