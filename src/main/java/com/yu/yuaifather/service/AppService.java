@@ -16,6 +16,7 @@ import java.util.List;
  *
  * @author yu
  */
+
 public interface AppService extends IService<App> {
 
     /**
