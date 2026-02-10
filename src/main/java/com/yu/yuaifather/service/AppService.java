@@ -3,6 +3,7 @@ package com.yu.yuaifather.service;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
+import com.yu.yuaifather.common.AppAddRequest;
 import com.yu.yuaifather.common.AppQueryRequest;
 import com.yu.yuaifather.model.entity.App;
 import com.yu.yuaifather.model.entity.User;
@@ -39,4 +40,7 @@ public interface AppService extends IService<App> {
 
     //生成应用截图
     void generateAppScreenshotAsync(Long appId, String appUrl);
+
+    //创建应用
+    Long createApp(AppAddRequest appAddRequest, User loginUser);
 }

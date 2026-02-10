@@ -15,9 +15,16 @@ public enum StreamMessageTypeEnum {
     private final String value;
     private final String text;
 
+/**
+ * 枚举类型的构造方法
+ * @param value 枚举值，用于标识枚举的唯一值
+ * @param text 枚举显示文本，用于在前端展示或描述枚举的含义
+ */
     StreamMessageTypeEnum(String value, String text) {
-        this.value = value;
-        this.text = text;
+
+    // 为枚举实例赋值
+        this.value = value;  // 设置枚举的值
+        this.text = text;    // 设置枚举的显示文本
     }
 
     /**
