@@ -57,6 +57,9 @@ public class FileDeleteTool extends BaseTool{
 
     /**
      * 判断是否是重要文件，不允许删除
+     * 该方法通过检查文件名是否在预定义的重要文件列表中来确定文件是否重要
+     * @param fileName 要检查的文件名
+     * @return 如果文件是重要文件则返回true，否则返回false
      */
     private boolean isImportantFile(String fileName) {
         String[] importantFiles = {

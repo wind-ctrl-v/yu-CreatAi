@@ -68,13 +68,22 @@ public class JsonMessageStreamHandler {
 
     /**
      * 解析并收集 TokenStream 数据
+     * 该方法处理不同类型的消息流，包括AI响应、工具请求和工具执行结果
+     * @param chunk 接收到的消息块
+     * @param chatHistoryStringBuilder 用于构建聊天历史记录的字符串构建器
+     * @param seenToolIds 已处理的工具ID集合，用于避免重复处理
+     * @return 返回处理后的消息内容，用于显示或进一步处理
      */
     private String handleJsonMessageChunk(String chunk, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
-        // 解析 JSON
+        // 解析 JSON 消息块为 StreamMessage 对象
         StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
+        // 根据消息类型获取对应的枚举值
         StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
+        // 根据不同的消息类型进行相应的处理
         switch (typeEnum) {
+            // 处理 AI 响应类型消息
             case AI_RESPONSE -> {
+                // 将消息块解析为 AiResponseMessage 对象
                 AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
                 String data = aiMessage.getData();
                 // 直接拼接响应
