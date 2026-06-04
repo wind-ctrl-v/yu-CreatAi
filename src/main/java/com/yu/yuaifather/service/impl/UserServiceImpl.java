@@ -20,6 +20,7 @@ import org.springframework.util.DigestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.yu.yuaifather.constant.UserConstant.USER_LOGIN_STATE;
@@ -164,6 +165,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
         return userList.stream().map(this::getUserVO).collect(Collectors.toList());
     }
 
+    /**
+     * 允许排序的字段白名单（对应数据库列名），防止 SQL/排序注入
+     */
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+            "id", "userAccount", "userName", "userProfile", "userRole",
+            "createTime", "updateTime", "editTime"
+    );
+
     @Override
     public QueryWrapper getQueryWrapper(UserQueryRequest userQueryRequest) {
         if (userQueryRequest == null) {
@@ -176,13 +185,20 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
         String userRole = userQueryRequest.getUserRole();
         String sortField = userQueryRequest.getSortField();
         String sortOrder = userQueryRequest.getSortOrder();
-        return QueryWrapper.create()
+        QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq("id", id)
                 .eq("userRole", userRole)
                 .like("userAccount", userAccount)
                 .like("userName", userName)
-                .like("userProfile", userProfile)
-                .orderBy(sortField, "ascend".equals(sortOrder));
+                .like("userProfile", userProfile);
+        // 仅当排序字段合法（在白名单内）时才排序，防止 SQL 注入
+        if (StrUtil.isNotBlank(sortField)) {
+            if (!ALLOWED_SORT_FIELDS.contains(sortField)) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的排序字段: " + sortField);
+            }
+            queryWrapper.orderBy(sortField, "ascend".equals(sortOrder));
+        }
+        return queryWrapper;
     }
 
 

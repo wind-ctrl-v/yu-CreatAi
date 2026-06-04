@@ -87,6 +87,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         return appVO;
     }
 
+    /**
+     * 允许排序的字段白名单（对应数据库列名），防止 SQL/排序注入
+     */
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+            "id", "appName", "initPrompt", "codeGenType", "priority",
+            "userId", "createTime", "updateTime", "editTime", "deployedTime"
+    );
+
     @Override
     public QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest) {
         if (appQueryRequest == null) {
@@ -102,7 +110,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         Long userId = appQueryRequest.getUserId();
         String sortField = appQueryRequest.getSortField();
         String sortOrder = appQueryRequest.getSortOrder();
-        return QueryWrapper.create()
+        QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq("id", id)
                 .like("appName", appName)
                 .like("cover", cover)
@@ -110,8 +118,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
                 .eq("codeGenType", codeGenType)
                 .eq("deployKey", deployKey)
                 .eq("priority", priority)
-                .eq("userId", userId)
-                .orderBy(sortField, "ascend".equals(sortOrder));
+                .eq("userId", userId);
+        // 仅当排序字段合法（在白名单内）时才排序，防止 SQL 注入
+        if (StrUtil.isNotBlank(sortField)) {
+            ThrowUtils.throwIf(!ALLOWED_SORT_FIELDS.contains(sortField),
+                    ErrorCode.PARAMS_ERROR, "不支持的排序字段: " + sortField);
+            queryWrapper.orderBy(sortField, "ascend".equals(sortOrder));
+        }
+        return queryWrapper;
     }
 
     @Override
