@@ -1,0 +1,397 @@
+<script setup lang="ts">
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { message, Modal } from 'ant-design-vue'
+import {
+  buildDownloadUrl,
+  buildPreviewUrl,
+  deployApp,
+  getAppVOById,
+} from '../api/app'
+import { listAppChatHistory } from '../api/chatHistory'
+import { connectChatSSE } from '../utils/sse'
+import type { AppVO } from '../types'
+
+interface ChatMessage {
+  type: 'user' | 'ai'
+  content: string
+}
+
+const route = useRoute()
+const router = useRouter()
+const appId = Number(route.params.id)
+
+const app = ref<AppVO | null>(null)
+const messages = ref<ChatMessage[]>([])
+const input = ref('')
+const generating = ref(false)
+const deploying = ref(false)
+
+const previewUrl = ref('')
+const previewKey = ref(0) // 用于强制刷新 iframe
+const deployUrl = ref('')
+
+const chatListRef = ref<HTMLElement | null>(null)
+let closeSSE: (() => void) | null = null
+
+const appName = computed(() => app.value?.appName || `应用 #${appId}`)
+const canPreview = computed(() => !!previewUrl.value)
+
+function scrollToBottom() {
+  nextTick(() => {
+    const el = chatListRef.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+function refreshPreview() {
+  if (!app.value) return
+  previewUrl.value = buildPreviewUrl(app.value.codeGenType, appId)
+  previewKey.value += 1
+}
+
+function openPreviewInNewTab() {
+  if (previewUrl.value) window.open(previewUrl.value, '_blank')
+}
+
+async function loadApp() {
+  const res = await getAppVOById(appId).catch(() => null)
+  if (res && res.code === 0) {
+    app.value = res.data
+  } else {
+    message.error('应用不存在')
+    router.replace('/')
+  }
+}
+
+async function loadHistory() {
+  const res = await listAppChatHistory(appId, 20).catch(() => null)
+  if (res && res.code === 0) {
+    // 后端按创建时间倒序返回，需反转为正序展示
+    const records = [...(res.data.records || [])].reverse()
+    messages.value = records.map((r) => ({
+      type: r.messageType === 'ai' ? 'ai' : 'user',
+      content: r.message,
+    }))
+    scrollToBottom()
+  }
+}
+
+function sendMessage(text: string) {
+  const content = text.trim()
+  if (!content || generating.value) return
+
+  messages.value.push({ type: 'user', content })
+  const aiMsg: ChatMessage = { type: 'ai', content: '' }
+  messages.value.push(aiMsg)
+  generating.value = true
+  scrollToBottom()
+
+  closeSSE = connectChatSSE(appId, content, {
+    onChunk: (chunk) => {
+      aiMsg.content += chunk
+      scrollToBottom()
+    },
+    onDone: () => {
+      generating.value = false
+      refreshPreview()
+    },
+    onError: () => {
+      generating.value = false
+      if (!aiMsg.content) {
+        aiMsg.content = '⚠️ 生成中断，请重试。'
+      }
+    },
+  })
+}
+
+function handleSend() {
+  const text = input.value
+  input.value = ''
+  sendMessage(text)
+}
+
+async function handleDeploy() {
+  deploying.value = true
+  const res = await deployApp(appId).catch(() => null)
+  deploying.value = false
+  if (res && res.code === 0) {
+    deployUrl.value = res.data
+    Modal.success({
+      title: '部署成功 🎉',
+      content: h('div', {}, [
+        h('span', '访问地址：'),
+        h('a', { href: deployUrl.value, target: '_blank' }, deployUrl.value),
+      ]),
+    })
+  }
+}
+
+function handleDownload() {
+  window.open(buildDownloadUrl(appId), '_blank')
+}
+
+onMounted(async () => {
+  await loadApp()
+  await loadHistory()
+  // 从首页带 init=1 进入：自动发起首轮生成
+  if (route.query.init === '1' && app.value?.initPrompt) {
+    sendMessage(app.value.initPrompt)
+    router.replace({ name: 'appChat', params: { id: String(appId) } })
+  } else {
+    refreshPreview()
+  }
+})
+
+onBeforeUnmount(() => {
+  closeSSE?.()
+})
+</script>
+
+<template>
+  <div class="chat-page">
+    <div class="toolbar">
+      <div class="left">
+        <a-button type="text" @click="router.push('/')">← 返回</a-button>
+        <span class="app-name">{{ appName }}</span>
+        <a-tag v-if="app" color="blue">{{ app.codeGenType }}</a-tag>
+      </div>
+      <div class="right">
+        <a-button @click="handleDownload">下载代码</a-button>
+        <a-button type="primary" :loading="deploying" @click="handleDeploy">
+          部署
+        </a-button>
+      </div>
+    </div>
+
+    <div class="body">
+      <!-- 左：对话区 -->
+      <section class="chat-panel">
+        <div ref="chatListRef" class="chat-list">
+          <div
+            v-for="(m, i) in messages"
+            :key="i"
+            class="msg-row"
+            :class="m.type"
+          >
+            <a-avatar
+              class="avatar"
+              :style="{
+                background: m.type === 'ai' ? '#1677ff' : '#52c41a',
+              }"
+            >
+              {{ m.type === 'ai' ? 'AI' : '我' }}
+            </a-avatar>
+            <div class="bubble">
+              <pre v-if="m.content">{{ m.content }}</pre>
+              <span v-else class="typing">正在生成<i></i><i></i><i></i></span>
+            </div>
+          </div>
+          <a-empty
+            v-if="!messages.length"
+            description="开始你的第一句需求描述吧"
+          />
+        </div>
+
+        <div class="chat-input">
+          <a-textarea
+            v-model:value="input"
+            :auto-size="{ minRows: 1, maxRows: 4 }"
+            placeholder="继续描述需求，回车发送"
+            :disabled="generating"
+            @keydown.enter.exact.prevent="handleSend"
+          />
+          <a-button
+            type="primary"
+            :loading="generating"
+            :disabled="!input.trim()"
+            @click="handleSend"
+          >
+            发送
+          </a-button>
+        </div>
+      </section>
+
+      <!-- 右：预览区 -->
+      <section class="preview-panel">
+        <div class="preview-head">
+          <span>实时预览</span>
+          <a-button
+            type="link"
+            size="small"
+            :disabled="!canPreview"
+            @click="openPreviewInNewTab"
+          >
+            在新窗口打开
+          </a-button>
+        </div>
+        <div class="preview-body">
+          <iframe
+            v-if="canPreview"
+            :key="previewKey"
+            :src="previewUrl"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          />
+          <div v-else class="preview-empty">
+            生成完成后，这里将实时展示你的网站
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.chat-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+.toolbar .left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.app-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+.toolbar .right {
+  display: flex;
+  gap: 10px;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+.chat-panel,
+.preview-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+}
+.msg-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.msg-row.user {
+  flex-direction: row-reverse;
+}
+.avatar {
+  flex-shrink: 0;
+  color: #fff;
+  font-size: 12px;
+}
+.bubble {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #f5f7fa;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.msg-row.user .bubble {
+  background: #e6f0ff;
+}
+.bubble pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+.typing i {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: #1677ff;
+  animation: blink 1.2s infinite both;
+}
+.typing i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+.chat-input {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  align-items: flex-end;
+}
+
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 14px;
+  font-weight: 500;
+}
+.preview-body {
+  flex: 1;
+  min-height: 0;
+  background: #fafafa;
+}
+.preview-body iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.preview-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .body {
+    flex-direction: column;
+  }
+}
+</style>

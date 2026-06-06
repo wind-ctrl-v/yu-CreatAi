@@ -1,0 +1,49 @@
+:root {
+  --brand-primary: #1677ff;
+  --brand-primary-hover: #4096ff;
+  --brand-primary-active: #0958d9;
+  --bg-page: #f5f7fa;
+  --bg-card: #ffffff;
+  --text-primary: #1f1f1f;
+  --text-secondary: #595959;
+
+  font-family: 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg-page);
+}
+
+a {
+  color: var(--brand-primary);
+  text-decoration: none;
+}
+
+/* 全局滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
