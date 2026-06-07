@@ -10,6 +10,11 @@ import {
 } from '../api/app'
 import { listAppChatHistory } from '../api/chatHistory'
 import { connectChatSSE } from '../utils/sse'
+import {
+  attachElementPicker,
+  buildEditContext,
+  type PickedElement,
+} from '../utils/visualEditor'
 import type { AppVO } from '../types'
 
 interface ChatMessage {
@@ -37,7 +42,54 @@ const previewKey = ref(0) // 用于强制刷新 iframe
 const deployUrl = ref('')
 
 const chatListRef = ref<HTMLElement | null>(null)
+const previewIframeRef = ref<HTMLIFrameElement | null>(null)
 let closeSSE: (() => void) | null = null
+
+// —— 可视化修改 ——
+const selecting = ref(false) // 是否处于元素选择模式
+const picked = ref<PickedElement | null>(null) // 当前选中的元素
+let pickerDetach: (() => void) | null = null
+
+function attachPicker() {
+  if (!selecting.value) return
+  const iframe = previewIframeRef.value
+  if (!iframe) return
+  pickerDetach?.()
+  pickerDetach = attachElementPicker(iframe, (el) => {
+    picked.value = el
+  })
+  if (!pickerDetach) {
+    message.warning('当前预览暂不支持可视化选择')
+    selecting.value = false
+  }
+}
+
+function exitSelecting() {
+  selecting.value = false
+  pickerDetach?.()
+  pickerDetach = null
+}
+
+function toggleSelecting() {
+  if (!canPreview.value) {
+    message.warning('请先生成页面后再选择元素')
+    return
+  }
+  if (selecting.value) {
+    exitSelecting()
+  } else {
+    selecting.value = true
+    nextTick(attachPicker)
+  }
+}
+
+function clearPicked() {
+  picked.value = null
+}
+
+function onIframeLoad() {
+  if (selecting.value) nextTick(attachPicker)
+}
 
 const appName = computed(() => app.value?.appName || `应用 #${appId.value}`)
 const canPreview = computed(() => !!previewUrl.value)
@@ -83,18 +135,18 @@ async function loadHistory() {
   }
 }
 
-function sendMessage(text: string) {
-  const content = text.trim()
-  if (!content || generating.value) return
+function sendMessage(content: string, displayText?: string) {
+  const real = content.trim()
+  if (!real || generating.value) return
 
-  messages.value.push({ id: ++msgSeq, type: 'user', content })
+  messages.value.push({ id: ++msgSeq, type: 'user', content: displayText ?? real })
   messages.value.push({ id: ++msgSeq, type: 'ai', content: '' })
   // 记录 AI 消息索引，通过响应式代理修改以触发视图更新
   const aiIndex = messages.value.length - 1
   generating.value = true
   scrollToBottom()
 
-  closeSSE = connectChatSSE(appId.value, content, {
+  closeSSE = connectChatSSE(appId.value, real, {
     onChunk: (chunk) => {
       messages.value[aiIndex].content += chunk
       scrollToBottom()
@@ -124,9 +176,21 @@ function sendMessage(text: string) {
 }
 
 function handleSend() {
-  const text = input.value
+  const userText = input.value.trim()
   input.value = ''
-  sendMessage(text)
+  if (picked.value) {
+    const target = picked.value
+    const real =
+      buildEditContext(target) + (userText || '请优化这个元素的样式与交互体验')
+    const display = `🎯 已选中 <${target.tagName}>${
+      target.text ? ` “${target.text.slice(0, 20)}”` : ''
+    }\n${userText || '请优化这个元素的样式与交互体验'}`
+    clearPicked()
+    exitSelecting()
+    sendMessage(real, display)
+  } else {
+    sendMessage(userText)
+  }
 }
 
 async function handleDeploy() {
@@ -154,6 +218,8 @@ async function init() {
   // 切换应用前清理上一次的 SSE 连接与状态
   closeSSE?.()
   closeSSE = null
+  exitSelecting()
+  clearPicked()
   generating.value = false
   messages.value = []
   app.value = null
@@ -182,6 +248,7 @@ watch(
 
 onBeforeUnmount(() => {
   closeSSE?.()
+  pickerDetach?.()
 })
 </script>
 
@@ -214,7 +281,10 @@ onBeforeUnmount(() => {
             <a-avatar
               class="avatar"
               :style="{
-                background: m.type === 'ai' ? '#1677ff' : '#52c41a',
+                background:
+                  m.type === 'ai'
+                    ? 'linear-gradient(135deg, #5b6cff, #7c5cff)'
+                    : 'linear-gradient(135deg, #36cfc9, #52c41a)',
               }"
             >
               {{ m.type === 'ai' ? 'AI' : '我' }}
@@ -233,46 +303,74 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="chat-input">
-          <a-textarea
-            v-model:value="input"
-            :auto-size="{ minRows: 1, maxRows: 4 }"
-            placeholder="继续描述需求，回车发送"
-            :disabled="generating"
-            @keydown.enter.exact.prevent="handleSend"
-          />
-          <a-button
-            type="primary"
-            :loading="generating"
-            :disabled="!input.trim()"
-            @click="handleSend"
-          >
-            发送
-          </a-button>
+          <div v-if="picked" class="picked-bar">
+            <span class="picked-tag">🎯 {{ picked.tagName }}</span>
+            <span class="picked-text">{{
+              picked.text || picked.selector
+            }}</span>
+            <a-button type="text" size="small" @click="clearPicked">✕</a-button>
+          </div>
+          <div class="chat-input-row">
+            <a-textarea
+              v-model:value="input"
+              :auto-size="{ minRows: 1, maxRows: 4 }"
+              :placeholder="
+                picked
+                  ? '描述如何修改选中的元素，回车发送'
+                  : '继续描述需求，回车发送'
+              "
+              :disabled="generating"
+              @keydown.enter.exact.prevent="handleSend"
+            />
+            <a-button
+              type="primary"
+              :loading="generating"
+              :disabled="!input.trim() && !picked"
+              @click="handleSend"
+            >
+              发送
+            </a-button>
+          </div>
         </div>
       </section>
 
       <!-- 右：预览区 -->
       <section class="preview-panel">
         <div class="preview-head">
-          <span>实时预览</span>
-          <a-button
-            type="link"
-            size="small"
-            :disabled="!canPreview"
-            @click="openPreviewInNewTab"
-          >
-            在新窗口打开
-          </a-button>
+          <span class="preview-title">实时预览</span>
+          <div class="preview-tools">
+            <a-button
+              :type="selecting ? 'primary' : 'default'"
+              size="small"
+              :disabled="!canPreview"
+              @click="toggleSelecting"
+            >
+              {{ selecting ? '✓ 选择中…点击页面元素' : '🎯 选择元素修改' }}
+            </a-button>
+            <a-button
+              type="link"
+              size="small"
+              :disabled="!canPreview"
+              @click="openPreviewInNewTab"
+            >
+              在新窗口打开
+            </a-button>
+          </div>
         </div>
-        <div class="preview-body">
+        <div class="preview-body" :class="{ selecting }">
           <iframe
             v-if="canPreview"
+            ref="previewIframeRef"
             :key="previewKey"
             :src="previewUrl"
-            sandbox="allow-scripts allow-forms allow-popups"
+            sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+            @load="onIframeLoad"
           />
           <div v-else class="preview-empty">
             生成完成后，这里将实时展示你的网站
+          </div>
+          <div v-if="selecting" class="selecting-hint">
+            选择模式已开启：将鼠标移到页面上，点击你想修改的元素
           </div>
         </div>
       </section>
@@ -293,8 +391,9 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 24px;
-  background: #fff;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(20, 22, 40, 0.06);
 }
 .toolbar .left {
   display: flex;
@@ -324,9 +423,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
@@ -357,7 +456,7 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 .msg-row.user .bubble {
-  background: #e6f0ff;
+  background: rgba(91, 108, 255, 0.1);
 }
 .bubble pre {
   margin: 0;
@@ -372,7 +471,7 @@ onBeforeUnmount(() => {
   height: 5px;
   margin-left: 3px;
   border-radius: 50%;
-  background: #1677ff;
+  background: var(--brand-primary);
   animation: blink 1.2s infinite both;
 }
 .typing i:nth-child(2) {
@@ -394,10 +493,65 @@ onBeforeUnmount(() => {
 
 .chat-input {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.chat-input-row {
+  display: flex;
+  gap: 10px;
   align-items: flex-end;
+}
+.picked-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  background: rgba(124, 92, 255, 0.08);
+  border: 1px solid rgba(124, 92, 255, 0.25);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.picked-tag {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: #7c5cff;
+}
+.picked-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preview-body {
+  position: relative;
+}
+.preview-body.selecting iframe {
+  outline: 2px solid #7c5cff;
+  outline-offset: -2px;
+}
+.selecting-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(124, 92, 255, 0.92);
+  color: #fff;
+  font-size: 12px;
+  box-shadow: 0 6px 20px rgba(124, 92, 255, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .preview-head {

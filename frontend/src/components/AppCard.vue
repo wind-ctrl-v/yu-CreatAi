@@ -27,23 +27,24 @@ const fallbackCover =
 
 <style scoped>
 .app-card {
-  background: #fff;
-  border-radius: 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
-  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  border: 1px solid rgba(20, 22, 40, 0.05);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
 }
 .app-card:hover {
   transform: translateY(-6px);
-  box-shadow: 0 16px 36px rgba(22, 119, 255, 0.16);
+  border-color: rgba(91, 108, 255, 0.3);
+  box-shadow: var(--shadow-brand);
 }
 
 .cover {
   aspect-ratio: 16 / 10;
   overflow: hidden;
-  background: #f0f4ff;
+  background: linear-gradient(135deg, #eef0ff, #f3ecff);
 }
 .cover img {
   width: 100%;

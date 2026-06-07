@@ -107,18 +107,23 @@ function handleLogout() {
   justify-content: center;
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, #1677ff, #4096ff);
+  border-radius: 10px;
+  background: var(--brand-gradient);
   color: #fff;
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(91, 108, 255, 0.4);
 }
 
 .logo-text {
   font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: var(--brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .header-right {
