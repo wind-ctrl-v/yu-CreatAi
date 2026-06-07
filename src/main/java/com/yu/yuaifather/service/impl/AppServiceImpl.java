@@ -2,8 +2,6 @@ package com.yu.yuaifather.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
@@ -216,22 +214,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         if (!app.getUserId().equals(loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限部署该应用");
         }
-        // 4. 检查是否已有 deployKey
-        String deployKey = app.getDeployKey();
-        // 没有则生成 6 位 deployKey（大小写字母 + 数字）
-        if (StrUtil.isBlank(deployKey)) {
-            deployKey = RandomUtil.randomString(6);
-        }
-        // 5. 获取代码生成类型，构建源目录路径
+        // 4. 获取代码生成类型，构建源目录路径
         String codeGenType = app.getCodeGenType();
-        String sourceDirName = codeGenType + "_" + appId;
-        String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName;
-        // 6. 检查源目录是否存在
+        // deployKey 格式为 codeGenType_appId，与 StaticResourceController 的预览路径一致
+        String deployKey = codeGenType + "_" + appId;
+        String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + deployKey;
+        // 5. 检查源目录是否存在
         File sourceDir = new File(sourceDirPath);
         if (!sourceDir.exists() || !sourceDir.isDirectory()) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用代码不存在，请先生成代码");
         }
-        // 7. Vue 项目特殊处理：执行构建
+        // 6. Vue 项目特殊处理：执行构建
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
         if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
             // Vue 项目需要构建
@@ -240,18 +233,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             // 检查 dist 目录是否存在
             File distDir = new File(sourceDirPath, "dist");
             ThrowUtils.throwIf(!distDir.exists(), ErrorCode.SYSTEM_ERROR, "Vue 项目构建完成但未生成 dist 目录");
-            // 将 dist 目录作为部署源
-            sourceDir = distDir;
-            log.info("Vue 项目构建成功，将部署 dist 目录: {}", distDir.getAbsolutePath());
+            log.info("Vue 项目构建成功，dist 目录: {}", distDir.getAbsolutePath());
         }
-       // 8. 复制文件到部署目录
-        String deployDirPath = AppConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
-        try {
-            FileUtil.copyContent(sourceDir, new File(deployDirPath), true);
-        } catch (Exception e) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署失败：" + e.getMessage());
-        }
-        // 9. 更新应用的 deployKey 和部署时间
+        // 7. 更新应用的 deployKey 和部署时间
         App updateApp = new App();
         updateApp.setId(appId);
         updateApp.setDeployKey(deployKey);
@@ -259,8 +243,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         boolean updateResult = this.updateById(updateApp);
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "更新应用部署信息失败");
 
-        // 10. 构建应用访问 URL
-        String appDeployUrl = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        // 8. 构建应用访问 URL（通过后端静态资源服务访问）
+        String appDeployUrl = String.format("%s:%d/api/static/%s/",
+                AppConstant.CODE_DEPLOY_HOST, AppConstant.CODE_DEPLOY_PORT, deployKey);
 
         generateAppScreenshotAsync(appId, appDeployUrl);
         return appDeployUrl;

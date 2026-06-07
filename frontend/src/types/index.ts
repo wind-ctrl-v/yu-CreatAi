@@ -24,7 +24,7 @@ export interface PageRequest {
 
 /** 当前登录用户信息 */
 export interface LoginUserVO {
-  id: number
+  id: string
   userAccount: string
   userName?: string
   userAvatar?: string
@@ -36,7 +36,7 @@ export interface LoginUserVO {
 
 /** 应用创建者信息 */
 export interface UserVO {
-  id: number
+  id: string
   userAccount: string
   userName?: string
   userAvatar?: string
@@ -50,7 +50,7 @@ export type CodeGenType = 'html' | 'multi_file' | 'vue_project'
 
 /** 应用视图对象 */
 export interface AppVO {
-  id: number
+  id: string
   appName: string
   cover?: string
   initPrompt: string
@@ -58,7 +58,7 @@ export interface AppVO {
   deployKey?: string
   deployedTime?: string
   priority?: number
-  userId: number
+  userId: string
   createTime?: string
   updateTime?: string
   user?: UserVO
@@ -66,19 +66,19 @@ export interface AppVO {
 
 /** 对话历史记录 */
 export interface ChatHistory {
-  id: number
+  id: string
   message: string
   messageType: 'user' | 'ai'
-  appId: number
-  userId: number
+  appId: string
+  userId: string
   createTime?: string
   updateTime?: string
 }
 
 /** 应用查询请求 */
 export interface AppQueryRequest extends PageRequest {
-  id?: number
+  id?: string
   appName?: string
   codeGenType?: string
-  userId?: number
+  userId?: string
 }

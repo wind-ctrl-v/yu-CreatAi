@@ -3,7 +3,7 @@ import type { BaseResponse, ChatHistory, Page } from '../types'
 
 /** 分页查询某应用的对话历史（游标查询） */
 export function listAppChatHistory(
-  appId: number,
+  appId: string,
   pageSize = 10,
   lastCreateTime?: string,
 ) {

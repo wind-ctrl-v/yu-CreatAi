@@ -7,7 +7,7 @@ export function register(params: {
   userPassword: string
   checkPassword: string
 }) {
-  return request.post<any, BaseResponse<number>>('/user/register', params)
+  return request.post<any, BaseResponse<string>>('/user/register', params)
 }
 
 /** 用户登录 */

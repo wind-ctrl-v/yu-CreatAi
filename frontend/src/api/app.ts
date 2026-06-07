@@ -3,11 +3,11 @@ import type { AppQueryRequest, AppVO, BaseResponse, Page } from '../types'
 
 /** 创建应用（返回 appId） */
 export function addApp(params: { initPrompt: string }) {
-  return request.post<any, BaseResponse<number>>('/app/add', params)
+  return request.post<any, BaseResponse<string>>('/app/add', params)
 }
 
 /** 根据 id 获取应用详情 */
-export function getAppVOById(id: number) {
+export function getAppVOById(id: string) {
   return request.get<any, BaseResponse<AppVO>>('/app/get/vo', { params: { id } })
 }
 
@@ -22,26 +22,26 @@ export function listGoodAppByPage(params: AppQueryRequest) {
 }
 
 /** 更新应用（改名） */
-export function updateApp(params: { id: number; appName: string }) {
+export function updateApp(params: { id: string; appName: string }) {
   return request.post<any, BaseResponse<boolean>>('/app/update', params)
 }
 
 /** 删除应用 */
-export function deleteApp(id: number) {
+export function deleteApp(id: string) {
   return request.post<any, BaseResponse<boolean>>('/app/delete', { id })
 }
 
 /** 部署应用，返回访问 URL */
-export function deployApp(appId: number) {
+export function deployApp(appId: string) {
   return request.post<any, BaseResponse<string>>('/app/deploy', { appId })
 }
 
 /** 构建下载 ZIP 的直链（GET，浏览器带 Cookie 直接访问） */
-export function buildDownloadUrl(appId: number) {
+export function buildDownloadUrl(appId: string) {
   return `${API_BASE_URL}/app/download/${appId}`
 }
 
 /** 构建生成产物的实时预览 URL */
-export function buildPreviewUrl(codeGenType: string, appId: number) {
+export function buildPreviewUrl(codeGenType: string, appId: string) {
   return `${API_BASE_URL}/static/${codeGenType}_${appId}/`
 }

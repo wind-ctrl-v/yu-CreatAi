@@ -21,7 +21,8 @@ interface ChatMessage {
 const route = useRoute()
 const router = useRouter()
 // 用 computed 让应用切换（路由参数变化）时能够响应
-const appId = computed(() => Number(route.params.id))
+// 注意：后端雪花 ID 为 18 位，JS Number 会丢失精度，必须用 String
+const appId = computed(() => String(route.params.id))
 // 本地消息自增 id，保证 v-for key 唯一且稳定
 let msgSeq = 0
 
@@ -164,7 +165,7 @@ async function init() {
   // 从首页带 init=1 进入：自动发起首轮生成
   if (route.query.init === '1' && app.value?.initPrompt) {
     sendMessage(app.value.initPrompt)
-    router.replace({ name: 'appChat', params: { id: String(appId.value) } })
+    router.replace({ name: 'appChat', params: { id: appId.value } })
   } else {
     refreshPreview()
   }

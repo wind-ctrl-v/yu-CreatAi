@@ -50,6 +50,11 @@ public class StaticResourceController {
             }
             // 计算部署目录根路径（绝对、规范化）
             Path deployRoot = Paths.get(PREVIEW_ROOT_DIR, deployKey).toAbsolutePath().normalize();
+            // 如果目录下存在 dist 子目录（Vue 项目构建产物），自动使用 dist 作为根目录
+            File distDir = deployRoot.resolve("dist").toFile();
+            if (distDir.exists() && distDir.isDirectory()) {
+                deployRoot = deployRoot.resolve("dist");
+            }
             // 去掉前导斜杠后基于部署目录解析，并规范化以消除 ../ 等片段
             String relativePath = resourcePath.startsWith("/") ? resourcePath.substring(1) : resourcePath;
             Path filePath = deployRoot.resolve(relativePath).normalize();

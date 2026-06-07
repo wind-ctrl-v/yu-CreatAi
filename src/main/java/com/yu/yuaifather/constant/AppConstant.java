@@ -18,13 +18,13 @@ public interface AppConstant {
     String CODE_OUTPUT_ROOT_DIR = System.getProperty("user.dir") + "/tmp/code_output";
 
     /**
-     * 应用部署目录
-     */
-    String CODE_DEPLOY_ROOT_DIR = System.getProperty("user.dir") + "/tmp/code_deploy";
-
-    /**
      * 应用部署域名
      */
     String CODE_DEPLOY_HOST = "http://localhost";
+
+    /**
+     * 应用部署端口（与 server.port 保持一致）
+     */
+    int CODE_DEPLOY_PORT = 8123;
 
 }

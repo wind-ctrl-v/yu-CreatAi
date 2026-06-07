@@ -19,7 +19,7 @@ export interface SSECallbacks {
  * @returns 关闭连接的函数
  */
 export function connectChatSSE(
-  appId: number,
+  appId: string,
   message: string,
   callbacks: SSECallbacks,
 ): () => void {
