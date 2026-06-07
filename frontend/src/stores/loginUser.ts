@@ -10,6 +10,8 @@ export const useLoginUserStore = defineStore('loginUser', () => {
 
   function setLoginUser(user: LoginUserVO | null) {
     loginUser.value = user
+    // 标记已获取登录态，避免后续守卫/布局重复请求
+    fetched.value = true
   }
 
   /** 拉取当前登录用户（失败返回 null，不抛出） */
