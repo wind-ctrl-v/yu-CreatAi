@@ -1,0 +1,91 @@
+package com.yu.yuaifather.agent.workers;
+
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.yu.yuaifather.agent.AgentAiService;
+import com.yu.yuaifather.agent.core.Agent;
+import com.yu.yuaifather.agent.core.AgentContext;
+import com.yu.yuaifather.agent.core.AgentEvent;
+import com.yu.yuaifather.agent.support.JsonExtractor;
+import com.yu.yuaifather.ai.model.dto.GenerationPlan;
+import com.yu.yuaifather.constant.AppConstant;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
+
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * StyleAgent：根据 plan.colorTheme 生成 variables.css 与 global.css，落盘到项目 styles 目录。
+ */
+@Slf4j
+@Component
+public class StyleAgent implements Agent {
+
+    public static final String AGENT_NAME = "StyleAgent";
+
+    private final AgentAiService agentAiService;
+
+    @Autowired
+    public StyleAgent(AgentAiService agentAiService) {
+        this.agentAiService = agentAiService;
+    }
+
+    @Override
+    public String name() {
+        return AGENT_NAME;
+    }
+
+    @Override
+    public Flux<AgentEvent> handle(AgentContext ctx) {
+        return Flux.<AgentEvent>create(sink -> {
+            sink.next(AgentEvent.status(AGENT_NAME, "生成全局样式"));
+            try {
+                GenerationPlan plan = ctx.getBlackboard().getPlan();
+                if (plan == null) {
+                    throw new IllegalStateException("缺少 plan，请先执行 ArchitectAgent");
+                }
+                ObjectNode input = JsonExtractor.mapper().createObjectNode();
+                input.set("colorTheme", JsonExtractor.mapper().valueToTree(plan.getColorTheme()));
+                input.put("instruction", "请输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
+                String raw = agentAiService.generateStyleSheets(input.toString());
+                JsonNode node = JsonExtractor.mapper().readTree(JsonExtractor.extract(raw));
+                String variables = node.path("variables_css").asText("");
+                String global = node.path("global_css").asText("");
+                if (StrUtil.isBlank(variables) || StrUtil.isBlank(global)) {
+                    throw new IllegalStateException("StyleAgent 输出缺少 variables_css 或 global_css");
+                }
+                Path projectRoot = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR,
+                        "vue_project_" + ctx.getAppId()).toAbsolutePath().normalize();
+                writeFile(projectRoot, "src/styles/variables.css", variables);
+                writeFile(projectRoot, "src/styles/global.css", global);
+                ctx.getBlackboard().addGeneratedFile("src/styles/variables.css");
+                ctx.getBlackboard().addGeneratedFile("src/styles/global.css");
+                sink.next(AgentEvent.status(AGENT_NAME, "全局样式已生成"));
+                sink.complete();
+            } catch (Exception e) {
+                log.error("StyleAgent 失败 appId={}", ctx.getAppId(), e);
+                sink.next(AgentEvent.error(AGENT_NAME, "样式生成失败: " + e.getMessage()));
+                sink.error(e);
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private void writeFile(Path projectRoot, String relative, String content) {
+        Path target = projectRoot.resolve(relative).normalize();
+        if (!target.startsWith(projectRoot)) {
+            throw new SecurityException("非法路径: " + relative);
+        }
+        File parent = target.getParent().toFile();
+        FileUtil.mkdir(parent);
+        FileUtil.writeString(content, target.toFile(), StandardCharsets.UTF_8);
+        log.info("StyleAgent 写文件成功: {}", target);
+    }
+}

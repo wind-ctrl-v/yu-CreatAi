@@ -1,6 +1,7 @@
 package com.yu.yuaifather.ai.core;
 
 import cn.hutool.json.JSONUtil;
+import com.yu.yuaifather.agent.support.ImagePlaceholderReplacer;
 import com.yu.yuaifather.ai.AiCodeGeneratorService;
 import com.yu.yuaifather.ai.AiCodeGeneratorServiceFactory;
 import com.yu.yuaifather.ai.core.parser.CodeParserExecutor;
@@ -34,7 +35,8 @@ public class AiCodeGeneratorFacade {
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
 
-
+    @Resource
+    private ImagePlaceholderReplacer imagePlaceholderReplacer;
 
     /**
      * 统一入口：根据类型生成并保存代码（使用 appId）
@@ -89,7 +91,7 @@ public class AiCodeGeneratorFacade {
             }
             case VUE_PROJECT -> {
                 TokenStream codeStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
-                yield processTokenStream(codeStream);
+                yield processTokenStream(codeStream, appId);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
@@ -100,12 +102,15 @@ public class AiCodeGeneratorFacade {
 
 
     /**
-     * 将 TokenStream 转换为 Flux<String>，并传递工具调用信息
+     * 将 TokenStream 转换为 Flux<String>，并传递工具调用信息。
+     * <p>
+     * 在流完成后，对 Vue 项目目录中的 {@code {{IMG:keyword}}} 占位符进行真实图片替换。
      *
      * @param tokenStream TokenStream 对象
+     * @param appId       应用 ID（用于定位项目目录与替换图片占位符）
      * @return Flux<String> 流式响应
      */
-    private Flux<String> processTokenStream(TokenStream tokenStream) {
+    private Flux<String> processTokenStream(TokenStream tokenStream, Long appId) {
         return Flux.create(sink -> {
             tokenStream.onPartialResponse((String partialResponse) -> {
                         AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
@@ -120,10 +125,16 @@ public class AiCodeGeneratorFacade {
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
                     .onCompleteResponse((ChatResponse response) -> {
+                        // 流结束后异步替换图片占位符（失败不影响主流程）
+                        try {
+                            imagePlaceholderReplacer.replaceAll(appId);
+                        } catch (Exception e) {
+                            log.warn("图片占位符替换失败 appId={} msg={}", appId, e.getMessage());
+                        }
                         sink.complete();
                     })
                     .onError((Throwable error) -> {
-                        error.printStackTrace();
+                        log.error("Vue 项目流式生成失败 appId={}", appId, error);
                         sink.error(error);
                     })
                     .start();

@@ -1,0 +1,128 @@
+package com.yu.yuaifather.agent.core;
+
+import com.yu.yuaifather.ai.model.dto.CriticReport;
+import com.yu.yuaifather.ai.model.dto.GenerationPlan;
+import com.yu.yuaifather.ai.model.dto.RequirementDoc;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * 共享黑板（Blackboard）。
+ * <p>
+ * 多 Agent 协作的共享状态存储，线程安全。各 Agent 通过语义化方法读写中间产物：
+ * <ul>
+ *   <li>ProductAgent → {@link #putRequirementDoc(RequirementDoc)}</li>
+ *   <li>ArchitectAgent → {@link #putPlan(GenerationPlan)}</li>
+ *   <li>ImageAgent → {@link #putImageMap(Map)}</li>
+ *   <li>CriticAgent → {@link #putCriticReport(CriticReport)}</li>
+ * </ul>
+ */
+public class Blackboard {
+
+    private static final String KEY_REQUIREMENT_DOC = "requirementDoc";
+    private static final String KEY_PLAN = "plan";
+    private static final String KEY_IMAGE_MAP = "imageMap";
+    private static final String KEY_CRITIC_REPORT = "criticReport";
+    private static final String KEY_GENERATED_FILES = "generatedFiles";
+    private static final String KEY_DEPLOY_URL = "deployUrl";
+
+    private final Map<String, Object> store = new ConcurrentHashMap<>();
+
+    // ---------- requirementDoc ----------
+
+    public void putRequirementDoc(RequirementDoc doc) {
+        if (doc != null) {
+            store.put(KEY_REQUIREMENT_DOC, doc);
+        }
+    }
+
+    public RequirementDoc getRequirementDoc() {
+        return (RequirementDoc) store.get(KEY_REQUIREMENT_DOC);
+    }
+
+    // ---------- plan ----------
+
+    public void putPlan(GenerationPlan plan) {
+        if (plan != null) {
+            store.put(KEY_PLAN, plan);
+        }
+    }
+
+    public GenerationPlan getPlan() {
+        return (GenerationPlan) store.get(KEY_PLAN);
+    }
+
+    // ---------- imageMap ----------
+
+    /**
+     * 写入 imageMap（slotId/keyword → 真实图片 URL）。
+     * 内部包裹为 ConcurrentHashMap 保证线程安全。
+     */
+    @SuppressWarnings("unchecked")
+    public void putImageMap(Map<String, String> imageMap) {
+        if (imageMap == null) {
+            return;
+        }
+        Map<String, String> safe = (Map<String, String>) store.computeIfAbsent(
+                KEY_IMAGE_MAP, k -> new ConcurrentHashMap<String, String>());
+        safe.putAll(imageMap);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, String> getImageMap() {
+        Map<String, String> m = (Map<String, String>) store.get(KEY_IMAGE_MAP);
+        return m == null ? Collections.emptyMap() : m;
+    }
+
+    // ---------- criticReport ----------
+
+    public void putCriticReport(CriticReport report) {
+        if (report != null) {
+            store.put(KEY_CRITIC_REPORT, report);
+        }
+    }
+
+    public CriticReport getCriticReport() {
+        return (CriticReport) store.get(KEY_CRITIC_REPORT);
+    }
+
+    // ---------- generatedFiles ----------
+
+    @SuppressWarnings("unchecked")
+    public void addGeneratedFile(String relativePath) {
+        if (relativePath == null) {
+            return;
+        }
+        Map<String, Boolean> files = (Map<String, Boolean>) store.computeIfAbsent(
+                KEY_GENERATED_FILES, k -> new ConcurrentHashMap<String, Boolean>());
+        files.put(relativePath, Boolean.TRUE);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Boolean> getGeneratedFiles() {
+        Map<String, Boolean> m = (Map<String, Boolean>) store.get(KEY_GENERATED_FILES);
+        return m == null ? Collections.emptyMap() : m;
+    }
+
+    // ---------- deployUrl ----------
+
+    public void putDeployUrl(String url) {
+        if (url != null) {
+            store.put(KEY_DEPLOY_URL, url);
+        }
+    }
+
+    public String getDeployUrl() {
+        return (String) store.get(KEY_DEPLOY_URL);
+    }
+
+    /**
+     * 获取黑板的快照（仅用于调试与日志输出，不包含敏感数据时使用）。
+     */
+    public Map<String, Object> snapshot() {
+        return new HashMap<>(store);
+    }
+}

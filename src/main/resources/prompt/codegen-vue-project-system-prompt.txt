@@ -88,7 +88,11 @@ const router = createRouter({
 
 - 基础布局：各个页面统一布局，必须有导航栏，尤其是主页内容必须丰富
 - 文本内容：使用真实、有意义的中文内容
-- 图片资源：使用 `https://picsum.photos` 服务或其他可靠的占位符
+- 图片资源：所有图片 src 必须使用语义化占位标记，格式为 `{{IMG:英文搜索关键词}}`
+  例如：`<img src="{{IMG:coffee shop interior warm light}}" alt="咖啡厅内景">`
+  关键词要求：3-6 个英文单词，准确描述图片内容与风格（如 photo / illustration / minimal）。
+  禁止使用 picsum / placeholder / unsplash 等任意随机或固定 URL，
+  运行时系统会自动将占位符替换为语义匹配的真实图片。
 - 示例数据：提供真实场景的模拟数据，便于演示
 
 ## 严格输出约束

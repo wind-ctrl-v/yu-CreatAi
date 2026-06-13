@@ -68,6 +68,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     @Autowired
     private VueProjectBuilder vueProjectBuilder;
 
+    @Autowired
+    private OrchestratorAgent orchestratorAgent;
+
+    /** 多 Agent 流水线开关：仅对 VUE_PROJECT 生效，默认关闭，避免影响存量。 */
+    @Value("${agent.orchestrator.enabled:false}")
+    private boolean orchestratorEnabled;
+
     @Override
     public AppVO getAppVO(App app) {
         if (app == null) {
@@ -198,6 +205,26 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         // 7. 收集 AI 响应内容并在完成后记录到对话历史
         return streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum);
 
+    }
+
+    /**
+     * 将 OrchestratorAgent 输出的 AgentEvent 序列化为前端 SSE 文本，复用既有 StreamHandlerExecutor 的解析格式。
+     * <ul>
+     *   <li>TEXT_CHUNK / TOOL_CALL / TOOL_RESULT 已是 SSE 协议字符串，原样透传；</li>
+     *   <li>STATUS_CHANGE / ERROR 以 AiResponseMessage 包装为可读文本。</li>
+     * </ul>
+     */
+    private String toStreamPayload(AgentEvent event) {
+        if (event.getType() == AgentEvent.EventType.TEXT_CHUNK
+                || event.getType() == AgentEvent.EventType.TOOL_CALL
+                || event.getType() == AgentEvent.EventType.TOOL_RESULT) {
+            return event.getContent() == null ? "" : event.getContent();
+        }
+        String prefix = event.getType() == AgentEvent.EventType.ERROR ? "[错误]" : "[阶段]";
+        String text = String.format("\n%s %s：%s\n", prefix,
+                event.getAgentName() == null ? "" : event.getAgentName(),
+                event.getContent() == null ? "" : event.getContent());
+        return JSONUtil.toJsonStr(new AiResponseMessage(text));
     }
 
 
