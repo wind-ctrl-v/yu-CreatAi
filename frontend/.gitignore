@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# TypeScript / Vite 编译缓存（本地构建产物，不提交）
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
