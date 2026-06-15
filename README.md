@@ -1,209 +1,277 @@
-# yu-ai-father
+# CreatAi
 
-基于 **Spring Boot 3** 的后端服务：面向「应用」的 **AI 对话生成代码**、本地构建与预览、打包下载，以及用户与会话管理。对外 API 统一挂在 **`/api` 上下文路径**下。
+> 用一句话，创造属于你的产品。
+
+**CreatAi** 是一个 AI 驱动的全栈网站生成平台。用户只需用自然语言描述需求，系统即可通过大模型实时生成完整的前端项目代码，并支持在线预览、对话式迭代修改、一键部署与打包下载。
+
+---
+
+## 演示截图
+
+| 登录页 | 首页 | 对话生成 |
+|--------|------|---------|
+| Vercel 极简风格，带打字机动效 | 大标题 + 输入框 + 横向 Chip | 左侧对话 + 右侧实时预览 |
+
+---
 
 ## 技术栈
 
-| 类别 | 说明 |
+### 后端
+
+| 类别 | 技术 |
 |------|------|
-| 运行时 | Java **21** |
-| 框架 | Spring Boot **3.2.10**（Web、AOP） |
-| 持久化 | **MyBatis-Flex** + MySQL（HikariCP） |
-| 缓存 / 会话 | **Redis**（Spring Session 存 Redis） |
-| 分布式限流 | **Redisson**（配合自定义 `@RateLimit`） |
-| AI | **LangChain4j**（OpenAI 兼容接口，流式对话 + 工具调用） |
+| 运行时 | Java **21**（虚拟线程） |
+| 框架 | Spring Boot **3.2** · WebFlux（SSE） · Spring AOP |
+| 持久化 | **MyBatis-Flex** + MySQL |
+| 缓存 / 会话 | **Redis**（Spring Session） |
+| 限流 | **Redisson** + 自定义 `@RateLimit` 注解 |
+| AI | **LangChain4j**（兼容 OpenAI 协议，支持 DeepSeek 等） |
 | 对象存储 | 腾讯云 **COS** |
-| 其他 | **Knife4j**（OpenAPI3）、**Hutool**、**Caffeine**、**Selenium**（截图相关能力） |
+| 其他 | Knife4j · Hutool · Caffeine · Selenium |
+
+### 前端
+
+| 类别 | 技术 |
+|------|------|
+| 框架 | **Vue 3** + TypeScript |
+| UI | **Ant Design Vue 4** + `@ant-design/icons-vue` |
+| 路由 | **Vue Router 4** |
+| 状态管理 | **Pinia** |
+| 构建 | **Vite 5** + vue-tsc |
+| HTTP | **Axios**（`withCredentials` + 响应拦截） |
+| 实时流 | 原生 **EventSource**（SSE）|
 
 ---
 
 ## 核心功能
 
-### 代码生成模式
+### 🤖 AI 代码生成（三种模式自动路由）
 
-系统支持三种生成类型，由路由器（`codegen-routing-system-prompt.txt`）根据用户需求自动判断：
+系统根据用户需求自动判断最优生成类型：
 
-| 类型 | 适用场景 |
-|------|---------|
-| `HTML` | 单页应用（任务清单、计算器、小工具等）|
-| `MULTI_FILE` | 多文件前端（无路由跳转需求）|
-| `VUE_PROJECT` | **多页面路由跳转**（博客、商城、管理后台等）|
+| 类型 | 适用场景 | 说明 |
+|------|---------|------|
+| `HTML` | 单页小工具（计算器、待办等）| 生成单个 HTML 文件，快速轻量 |
+| `MULTI_FILE` | 多文件前端（无路由跳转）| 生成组件化多文件结构 |
+| `VUE_PROJECT` | 多页面路由应用（博客、商城、管理后台）| 生成完整 Vue 项目 + 路由配置 |
 
-> **路由判断核心原则**：只有明确需要 ≥ 2 个独立页面间路由跳转时才选 VUE_PROJECT，任务清单类单页应用走 HTML。
+### 🖼️ 图片语义占位符
 
-### 图片语义占位符
-
-Vue 项目生成时，图片 src 使用语义化占位标记替代随机 picsum：
+生成代码时 AI 输出语义化图片占位符，生成完成后自动替换为真实图片：
 
 ```html
 <img src="{{IMG:coffee shop interior warm light}}" alt="咖啡厅内景">
+<!-- 自动替换为 Unsplash / Pexels 真实图片 URL -->
 ```
 
-代码生成流完成后，系统自动扫描所有文件，将占位符替换为真实语义图片（Unsplash → Pexels → picsum 兜底）。
+搜图链路：**Unsplash → Pexels → picsum 兜底**，支持并发搜图（可配置并发数）。
+
+### 💬 对话式迭代修改
+
+生成后可在对话框中继续描述修改需求，AI 实时更新代码并刷新预览。支持**可视化元素选择**：在预览页点击元素，AI 精准修改对应组件。
+
+### 🚀 部署 & 下载
+
+- **一键部署**：将生成产物通过后端静态资源服务发布，获得可分享的访问链接
+- **ZIP 下载**：下载完整源码压缩包，本地继续开发
 
 ---
 
 ## 多 Agent 流水线（可选）
 
-通过环境变量 `AGENT_ORCHESTRATOR_ENABLED=true` 启用，仅对 `VUE_PROJECT` 生效，默认关闭（不影响存量流程）。
+通过环境变量 `AGENT_ORCHESTRATOR_ENABLED=true` 启用，默认关闭，仅对 `VUE_PROJECT` 生效。
 
 ```
 用户 Prompt
-  └─ ProductAgent    需求文档（RequirementDoc JSON）
-  └─ ArchitectAgent  生成计划（GenerationPlan JSON，含 fileStructure / imageSlots）
-  └─ ImageAgent      搜图（imageMap：keyword → 真实 URL）
-  └─ CoderAgent  ┐  并发执行
-  └─ StyleAgent  ┘  生成组件代码 + 全局 CSS
-  └─ CriticAgent     质检（score ≥ 80 通过，最多 3 轮反馈修复）
-  └─ DeployAgent     npm build → 上传 COS（需 AGENT_DEPLOY_ENABLED=true）
+  │
+  ├─① ProductAgent    ── 解析需求 → 结构化 RequirementDoc（JSON）
+  │
+  ├─② ArchitectAgent  ── 技术选型 + 规划 → GenerationPlan（文件列表、路由、图片槽）
+  │
+  ├─③ ImageAgent      ── 并发搜图 → imageMap（keyword → 真实 URL）
+  │
+  ├─④ CoderAgent  ┐
+  │   StyleAgent  ┘ ── 并发执行：逐文件生成代码 + 全局 CSS
+  │
+  ├─⑤ CriticAgent     ── 质检（静态检查 + LLM 评分，score ≥ 80 通过）
+  │                       未通过 → 回到 CoderAgent 修复，最多 3 轮
+  │
+  └─⑥ DeployAgent     ── （可选）npm build → 上传 COS（需 AGENT_DEPLOY_ENABLED=true）
 ```
 
-各 Agent 通过线程安全的 **Blackboard（黑板）** 传递中间产物，全程以 `Flux<AgentEvent>` 事件流推送给前端 SSE。
+各 Agent 通过线程安全的 **Blackboard（黑板）** 传递中间产物，全程以 `Flux<AgentEvent>` 事件流实时推送给前端 SSE。
+
+**Critic 质检分级**：
+- **P0 核心文件**（`package.json` / `index.html` / `src/main.js` / `src/App.vue`）缺失 → 强制重新生成
+- **P1 推荐文件**（`vite.config.js` / 全局样式）缺失 → 仅记录警告，不阻塞流水线
 
 ---
 
 ## 项目结构
 
 ```
-src/main/java/com/yu/yuaifather/
-├── YuAiFatherApplication.java
-├── controller/         REST：用户、应用、对话历史、静态资源、健康检查
-├── service/            业务实现（AppServiceImpl 为核心入口）
-├── mapper/             MyBatis-Flex Mapper
-├── model/              实体、VO、DTO
-├── ai/
-│   ├── core/           AiCodeGeneratorFacade（生成门面）、VueProjectBuilder、StreamHandler
-│   ├── tools/          File 工具（写/读/改/删/目录列举）、ToolManager
-│   ├── enums/          CodeGenTypeEnum（HTML / MULTI_FILE / VUE_PROJECT）
-│   └── model/          HtmlCodeResult、MultiFileCodeResult、SSE 消息模型、DTO
-├── agent/              ★ 多 Agent 流水线（本次新增）
-│   ├── core/           Agent 接口、AgentContext、AgentEvent、Blackboard
-│   ├── orchestrator/   OrchestratorAgent（编排 + Critic 反馈循环）
-│   ├── workers/        Product / Architect / Image / Coder / Style / Critic / Deploy
-│   ├── tools/          ImageSearchTool（Unsplash / Pexels / picsum，含 SSRF 防护）
-│   ├── support/        ImagePlaceholderReplacer、JsonExtractor
-│   ├── AgentAiService  LangChain4j AI 服务接口（绑定各 Agent prompt）
-│   └── AgentAiServiceFactory
-├── config/             Redis 对话记忆、推理流式模型、COS、ImageProperties
-├── ratelimiter/        限流注解与 AOP、Redisson 配置
-├── exception/          全局异常与错误码
-├── manager/            CosManager、部署生命周期
-├── constant/           AppConstant（生成目录、部署目录）
-└── utils/              工具类（截图等）
+CreatAi/
+├── frontend/                          # 前端（Vue 3 + TypeScript）
+│   └── src/
+│       ├── api/                       # Axios 接口封装（user / app / chatHistory）
+│       ├── components/                # 公共组件（AppCard 等）
+│       ├── layouts/                   # BasicLayout（左侧边栏 + 右侧内容区）
+│       ├── pages/                     # 页面（HomePage / AppChatPage / 登录注册）
+│       ├── router/                    # 路由守卫（登录鉴权）
+│       ├── stores/                    # Pinia 状态（loginUser）
+│       ├── styles/                    # 全局样式（Vercel Design Token）
+│       ├── types/                     # TypeScript 类型定义
+│       └── utils/                     # SSE 工具、可视化编辑器
+│
+└── src/main/java/com/yu/yuaifather/   # 后端（Spring Boot）
+    ├── controller/                    # REST：用户 / 应用 / 对话历史 / 静态资源
+    ├── service/                       # 业务逻辑（AppServiceImpl 为核心入口）
+    ├── mapper/                        # MyBatis-Flex Mapper
+    ├── model/                         # 实体、VO、枚举
+    ├── ai/
+    │   ├── core/                      # AiCodeGeneratorFacade、StreamHandlerExecutor
+    │   ├── tools/                     # 文件工具（写/读/改/删/列目录）
+    │   └── model/                     # SSE 消息、代码结果 DTO
+    ├── agent/                         # ★ 多 Agent 流水线
+    │   ├── core/                      # Agent 接口、AgentContext、AgentEvent、Blackboard
+    │   ├── orchestrator/              # OrchestratorAgent（编排 + Critic 循环）
+    │   ├── workers/                   # Product / Architect / Image / Coder / Style / Critic / Deploy
+    │   ├── tools/                     # ImageSearchTool（含 SSRF 防护）
+    │   └── support/                   # ImagePlaceholderReplacer、JsonExtractor
+    ├── config/                        # Redis 对话记忆、流式模型、COS、图片配置
+    ├── ratelimiter/                   # 限流注解与 AOP
+    ├── exception/                     # 全局异常处理与错误码
+    └── constant/                      # AppConstant（生成目录、部署目录）
 ```
 
-生成与部署使用的本地目录（相对进程工作目录）：
-
-| 用途 | 路径 |
-|------|------|
-| 生成输出 | `tmp/code_output` |
-| 部署输出 | `tmp/code_deploy` |
-
 ---
 
-## 对外接口
+## 快速开始
 
-全局前缀：`http://localhost:8123/api`
+### 环境要求
 
-| 前缀 | 说明 |
-|------|------|
-| `/user` | 用户注册、登录、信息管理 |
-| `/app` | 应用 CRUD、**SSE 流式生成代码**、部署、ZIP 下载等 |
-| `/chatHistory` | 按应用分页查询对话历史；管理员全量分页 |
-| `/static/{deployKey}/**` | 本地生成物静态访问（默认 `index.html`） |
-| `/health/` | 健康检查 |
+- **JDK 21+** · **Maven 3.6+**
+- **MySQL**（默认库名 `yu_ai_code_mother`）
+- **Redis**
+- **Node.js 18+**（前端开发 / Vue 项目构建）
 
-流式接口：`GET /app/chat/gen/code`（`text/event-stream`），带用户维度限流。
+### 后端启动
 
----
-
-## 运行前准备
-
-### 基础依赖
-
-1. **JDK 21**、**Maven 3.6+**
-2. **MySQL**：创建数据库（默认库名 `yu_ai_code_mother`）
-3. **Redis**：Spring Session 与对话记忆均依赖 Redis
-
-### 环境变量
-
-所有敏感配置**仅**通过环境变量注入，禁止硬编码。
-
-| 变量 | 说明 | 是否必须 |
-|------|------|---------|
-| `MYSQL_URL` | MySQL 连接串 | 否（默认 localhost） |
-| `MYSQL_USERNAME` / `MYSQL_PASSWORD` | 数据库凭证 | 按实际情况 |
-| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | Redis 连接 | 否（默认 localhost:6379） |
-| `UNSPLASH_ACCESS_KEY` | Unsplash 图片搜索 | 否（未配置跳过该提供商） |
-| `PEXELS_API_KEY` | Pexels 图片搜索 | 否（未配置跳过该提供商） |
-| `AGENT_ORCHESTRATOR_ENABLED` | 是否启用多 Agent 流水线 | 否（默认 false） |
-| `AGENT_DEPLOY_ENABLED` | 是否启用 DeployAgent 自动构建上传 | 否（默认 false） |
-| `IMAGE_FALLBACK_ENABLED` | 是否启用文生图兜底（搜图无结果时） | 否（默认 false） |
-
-AI 模型端点与密钥在 **profile 配置文件**（`application-local.yml`）中配置，**请勿提交真实密钥到 Git**。
-
----
-
-## 构建与启动
+**1. 复制并填写本地配置**
 
 ```bash
-# 编译打包（跳过测试）
-mvn -q -DskipTests package
-
-# 启动
-mvn spring-boot:run
-
-# 或直接运行 jar
-java -jar target/yu-ai-father-*.jar
+cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
 ```
 
-也可在 IDE 中运行 `com.yu.yuaifather.YuAiFatherApplication`。
+编辑 `application-local.yml`，填写数据库密码、Redis 密码和 LLM API Key（默认支持 DeepSeek，可替换为任意 OpenAI 兼容服务）：
 
-默认 `spring.profiles.active=local`，叠加加载 `application-local.yml`。
+```yaml
+spring:
+  datasource:
+    password: "your-mysql-password"
+
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: https://api.deepseek.com/v1
+      api-key: "your-llm-api-key"
+      model-name: deepseek-chat
+    streaming-chat-model:
+      base-url: https://api.deepseek.com/v1
+      api-key: "your-llm-api-key"
+      model-name: deepseek-chat
+```
+
+**2. 启动后端**
+
+```bash
+./mvnw spring-boot:run
+# 或跳过测试打包后运行
+./mvnw -q -DskipTests package && java -jar target/yu-ai-father-*.jar
+```
+
+后端默认运行在 `http://localhost:8123`，API 前缀 `/api`。
+
+**3. 查看 API 文档**
+
+启动后访问：[http://localhost:8123/api/doc.html](http://localhost:8123/api/doc.html)
+
+### 前端启动
+
+```bash
+cd frontend
+npm install
+npm run dev
+# 默认运行在 http://localhost:5173
+```
+
+Vite 已配置代理，`/api` 请求自动转发到后端 `localhost:8123`，无需手动处理跨域。
+
+---
+
+## 环境变量参考
+
+所有敏感配置仅通过环境变量注入，**禁止硬编码到代码或 yml 中**。
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `MYSQL_URL` | MySQL 连接串 | `jdbc:mysql://localhost:3306/yu_ai_code_mother` |
+| `MYSQL_USERNAME` | 数据库用户名 | `root` |
+| `MYSQL_PASSWORD` | 数据库密码 | 空 |
+| `REDIS_HOST` | Redis 地址 | `localhost` |
+| `REDIS_PORT` | Redis 端口 | `6379` |
+| `REDIS_PASSWORD` | Redis 密码 | 空 |
+| `UNSPLASH_ACCESS_KEY` | Unsplash 搜图 API Key | 空（跳过该提供商） |
+| `PEXELS_API_KEY` | Pexels 搜图 API Key | 空（跳过该提供商） |
+| `APP_DEPLOY_BASE_URL` | 部署访问基础 URL | `http://localhost:8123/api/static` |
+| `CORS_ALLOWED_ORIGINS` | 跨域允许来源（逗号分隔）| `http://localhost:5173,...` |
+| `AGENT_ORCHESTRATOR_ENABLED` | 启用多 Agent 流水线 | `false` |
+| `AGENT_DEPLOY_ENABLED` | 启用 DeployAgent 自动构建上传 | `false` |
+| `IMAGE_FALLBACK_ENABLED` | 搜图无结果时启用文生图兜底 | `false` |
 
 ---
 
 ## 分阶段上线指引
 
-### 第 1 步：启用图片语义替换（P0，推荐立刻上线）
+### 第 1 步：基础功能（默认开启）
 
-只需配置图片 API Key，**不改任何开关**。Vue 项目生成完成后将自动用真实语义图替换占位符，任务清单类需求自动走 HTML。
+无需额外配置，启动即可使用 HTML / MULTI_FILE / VUE_PROJECT 三种模式生成代码。
+
+### 第 2 步：启用语义图片替换
 
 ```bash
-export UNSPLASH_ACCESS_KEY=your_key   # 或 PEXELS_API_KEY
+export UNSPLASH_ACCESS_KEY=your_key   # 推荐
+export PEXELS_API_KEY=your_key        # 备选
 ```
 
-### 第 2 步：灰度启用多 Agent 流水线
+### 第 3 步：灰度启用多 Agent 流水线
 
 ```bash
 export AGENT_ORCHESTRATOR_ENABLED=true
 ```
 
-此时 VUE_PROJECT 走 7 Agent 流水线 + CriticAgent 质检循环（最多 3 轮）。
+VUE_PROJECT 类型将走 7 Agent 流水线 + Critic 质检循环（最多 3 轮）。
 
-### 第 3 步：开启自动部署
+### 第 4 步：开启自动部署到 COS
 
 ```bash
-export AGENT_DEPLOY_ENABLED=true   # npm build + 上传 COS
+export AGENT_DEPLOY_ENABLED=true
+# 同时确保 application-local.yml 中 COS 配置已填写
 ```
-
----
-
-## API 文档
-
-启动后访问：`http://localhost:8123/api/doc.html`
 
 ---
 
 ## 安全说明
 
-- **SSRF 防护**：`ImageSearchTool` 对图片 URL 做 https + 白名单域名 + 私有网段拒绝（防 SSRF）
-- **目录穿越防护**：`StyleAgent`、`DeployAgent`、`ImagePlaceholderReplacer` 写文件前均做 `startsWith(projectRoot)` 校验
-- **密钥安全**：所有外部 API Key 仅经环境变量注入，禁止写入代码或 yml 明文
-- **SQL 注入**：使用 MyBatis-Flex 参数绑定，不拼接 SQL
+- **SSRF 防护**：`ImageSearchTool` 对外部图片 URL 做 HTTPS 校验 + 域名白名单 + 私有网段拒绝
+- **路径穿越防护**：所有文件写入操作前均做 `path.startsWith(projectRoot)` 校验
+- **SQL 注入防护**：MyBatis-Flex 参数绑定，排序字段白名单过滤
+- **接口限流**：SSE 生成接口按用户维度限流（5次/60秒），防止滥用
+- **权限校验**：`@AuthCheck` AOP 注解 + Session Cookie，管理员接口单独鉴权
+- **密钥安全**：所有 API Key 仅经环境变量注入，禁止写入代码或 yml 明文
 
 ---
 
-## 许可证
+## License
 
-未在仓库中统一声明时，以项目所有者约定为准。
+MIT
