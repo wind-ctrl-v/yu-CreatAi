@@ -29,7 +29,9 @@ import com.yu.yuaifather.service.UserService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
@@ -74,6 +76,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     /** 多 Agent 流水线开关：仅对 VUE_PROJECT 生效，默认关闭，避免影响存量。 */
     @Value("${agent.orchestrator.enabled:false}")
     private boolean orchestratorEnabled;
+
+    /**
+     * 应用部署基础 URL，用于拼接部署访问地址。
+     * 格式示例：{@code http://localhost:8123/api/static}
+     * 通过 {@code app.deploy.base-url} 配置注入，生产环境替换为真实域名，避免重新编译。
+     */
+    @Value("${app.deploy.base-url:http://localhost:8123/api/static}")
+    private String deployBaseUrl;
 
     @Override
     public AppVO getAppVO(App app) {
@@ -174,8 +184,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的代码生成类型");
         }
-        // 5. 通过校验后，添加用户消息到对话历史
-        chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
+        // 5. 通过校验后，添加用户消息到对话历史（写入失败仅记录日志，不阻断 AI 生成流程）
+        try {
+            chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
+        } catch (Exception e) {
+            log.warn("用户消息写入历史失败，appId={}，不影响生成流程: {}", appId, e.getMessage());
+        }
         // 6. 调用 AI 生成代码（流式）
         Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
         // 7. 收集 AI 响应内容并在完成后记录到对话历史
@@ -246,9 +260,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         boolean updateResult = this.updateById(updateApp);
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "更新应用部署信息失败");
 
-        // 8. 构建应用访问 URL（通过后端静态资源服务访问）
-        String appDeployUrl = String.format("%s:%d/api/static/%s/",
-                AppConstant.CODE_DEPLOY_HOST, AppConstant.CODE_DEPLOY_PORT, deployKey);
+        // 8. 构建应用访问 URL（通过后端静态资源服务访问，deployBaseUrl 通过配置注入）
+        String appDeployUrl = deployBaseUrl + "/" + deployKey + "/";
 
         generateAppScreenshotAsync(appId, appDeployUrl);
         return appDeployUrl;
@@ -257,33 +270,51 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
 
     /**
-     * 异步生成应用截图并更新封面
+     * 异步生成应用截图并更新封面。
+     * <p>
+     * 使用虚拟线程异步执行，不阻塞部署主流程。
+     * 截图失败时仅记录错误日志，不影响应用正常访问。
+     * </p>
      *
      * @param appId  应用ID
      * @param appUrl 应用访问URL
      */
     @Override
     public void generateAppScreenshotAsync(Long appId, String appUrl) {
-        // 使用虚拟线程异步执行
         Thread.startVirtualThread(() -> {
-            // 调用截图服务生成截图并上传
-            String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
-            // 更新应用封面字段
-            App updateApp = new App();
-            updateApp.setId(appId);
-            updateApp.setCover(screenshotUrl);
-            boolean updated = this.updateById(updateApp);
-            ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+            try {
+                // 调用截图服务生成截图并上传
+                String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
+                if (StrUtil.isBlank(screenshotUrl)) {
+                    log.warn("截图 URL 为空，跳过封面更新 appId={}", appId);
+                    return;
+                }
+                // 更新应用封面字段
+                App updateApp = new App();
+                updateApp.setId(appId);
+                updateApp.setCover(screenshotUrl);
+                boolean updated = this.updateById(updateApp);
+                if (!updated) {
+                    log.warn("更新应用封面失败 appId={}", appId);
+                }
+            } catch (Exception e) {
+                // 截图或上传失败不影响应用正常使用，仅记录日志
+                log.error("异步截图生成失败 appId={}: {}", appId, e.getMessage(), e);
+            }
         });
     }
 
 
     /**
-     * 删除应用时关联删除对话历史
+     * 删除应用时关联删除对话历史，事务保证原子性。
+     * <p>
+     * 若历史删除成功但应用删除失败，事务回滚，避免出现"历史已删但应用仍存在"的数据不一致情况。
+     * </p>
      *
      * @param id 应用ID
      * @return 是否成功
      */
+    @Transactional(rollbackFor = Exception.class)
     @Override
     public boolean removeById(Serializable id) {
         if (id == null) {
@@ -294,13 +325,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         if (appId <= 0) {
             return false;
         }
-        // 先删除关联的对话历史
-        try {
-            chatHistoryService.deleteByAppId(appId);
-        } catch (Exception e) {
-            // 记录日志但不阻止应用删除
-            log.error("删除应用关联对话历史失败: {}", e.getMessage());
-        }
+        // 先删除关联的对话历史（在同一事务中，任一失败均触发回滚）
+        chatHistoryService.deleteByAppId(appId);
+        log.info("删除应用关联对话历史成功 appId={}", appId);
         // 删除应用
         return super.removeById(id);
     }

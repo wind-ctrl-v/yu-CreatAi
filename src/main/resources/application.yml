@@ -64,6 +64,11 @@ image:
     concurrency: 4
     cache-ttl-seconds: 3600
 
+# 应用部署基础 URL（生产环境通过环境变量 APP_DEPLOY_BASE_URL 覆盖为真实域名）
+app:
+  deploy:
+    base-url: ${APP_DEPLOY_BASE_URL:http://localhost:8123/api/static}
+
 # 多 Agent 编排开关
 agent:
   orchestrator:
