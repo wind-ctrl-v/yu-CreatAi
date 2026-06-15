@@ -1,23 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
+import {
+  HomeOutlined,
+  AppstoreOutlined,
+  CompassOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+} from '@ant-design/icons-vue'
 import { useLoginUserStore } from '../stores/loginUser'
 
 const router = useRouter()
+const route = useRoute()
 const store = useLoginUserStore()
 
 const loginUser = computed(() => store.loginUser)
+const sidebarCollapsed = ref(false)
 
 onMounted(() => {
-  if (!store.fetched) {
-    store.fetchLoginUser()
-  }
+  if (!store.fetched) store.fetchLoginUser()
 })
 
-function goHome() {
-  router.push('/')
-}
+function goHome() { router.push('/') }
 
 function handleLogout() {
   Modal.confirm({
@@ -31,24 +36,75 @@ function handleLogout() {
     },
   })
 }
+
+const navItems = [
+  { key: 'home',    label: '首页',   icon: 'home',     path: '/' },
+  { key: 'myApps',  label: '我的作品', icon: 'appstore', path: '/?tab=mine' },
+  { key: 'explore', label: '精选应用', icon: 'compass',  path: '/?tab=good' },
+]
+
+function isActive(path: string) {
+  if (path === '/') return route.path === '/' && !route.query.tab
+  if (path === '/?tab=mine') return route.path === '/' && route.query.tab === 'mine'
+  if (path === '/?tab=good') return route.path === '/' && route.query.tab === 'good'
+  return false
+}
+function navTo(path: string) { router.push(path) }
 </script>
 
 <template>
   <div class="layout">
-    <header class="header">
-      <div class="logo" @click="goHome">
-        <span class="logo-mark">YU</span>
-        <span class="logo-text">Code Father</span>
+    <!-- 侧边栏 -->
+    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+      <!-- Logo -->
+      <div class="sidebar-logo" @click="goHome">
+        <div class="logo-mark">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M8 1L15 14H1L8 1Z" fill="currentColor"/>
+          </svg>
+        </div>
+        <transition name="fade-label">
+          <span v-if="!sidebarCollapsed" class="logo-text">CreatAi</span>
+        </transition>
       </div>
 
-      <div class="header-right">
+      <!-- 分隔线 -->
+      <div class="sidebar-divider" />
+
+      <!-- 导航 -->
+      <nav class="sidebar-nav">
+        <div
+          v-for="item in navItems"
+          :key="item.key"
+          class="nav-item"
+          :class="{ active: isActive(item.path) }"
+          @click="navTo(item.path)"
+        >
+          <span class="nav-icon">
+            <HomeOutlined     v-if="item.icon === 'home'" />
+            <AppstoreOutlined v-else-if="item.icon === 'appstore'" />
+            <CompassOutlined  v-else-if="item.icon === 'compass'" />
+          </span>
+          <transition name="fade-label">
+            <span v-if="!sidebarCollapsed" class="nav-label">{{ item.label }}</span>
+          </transition>
+        </div>
+      </nav>
+
+      <!-- 底部区域 -->
+      <div class="sidebar-footer">
+        <!-- 用户信息 -->
         <template v-if="loginUser">
-          <a-dropdown placement="bottomRight">
-            <div class="user-chip">
-              <a-avatar :src="loginUser.userAvatar" size="small">
+          <a-dropdown placement="topRight">
+            <div class="user-row">
+              <a-avatar :src="loginUser.userAvatar" :size="26" class="user-avatar">
                 {{ (loginUser.userName || loginUser.userAccount || 'U').charAt(0) }}
               </a-avatar>
-              <span class="user-name">{{ loginUser.userName || loginUser.userAccount }}</span>
+              <transition name="fade-label">
+                <span v-if="!sidebarCollapsed" class="user-name">
+                  {{ loginUser.userName || loginUser.userAccount }}
+                </span>
+              </transition>
             </div>
             <template #overlay>
               <a-menu>
@@ -58,12 +114,24 @@ function handleLogout() {
           </a-dropdown>
         </template>
         <template v-else>
-          <a-button type="primary" @click="router.push('/user/login')">登录</a-button>
+          <div class="login-btn-wrap">
+            <a-button size="small" block @click="router.push('/user/login')" class="login-btn">
+              <span v-if="!sidebarCollapsed">登录</span>
+              <span v-else>→</span>
+            </a-button>
+          </div>
         </template>
-      </div>
-    </header>
 
-    <main class="content">
+        <!-- 折叠按钮 -->
+        <div class="collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed" :title="sidebarCollapsed ? '展开' : '折叠'">
+          <MenuFoldOutlined   v-if="!sidebarCollapsed" />
+          <MenuUnfoldOutlined v-else />
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="content" :style="{ marginLeft: sidebarCollapsed ? '56px' : '200px' }">
       <router-view />
     </main>
   </div>
@@ -72,88 +140,193 @@ function handleLogout() {
 <style scoped>
 .layout {
   display: flex;
-  flex-direction: column;
   height: 100%;
+  background: var(--bg-page);
 }
 
-.header {
+/* ======= 侧边栏 ======= */
+.sidebar {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 60px;
-  z-index: 100;
+  top: 0; left: 0; bottom: 0;
+  width: 200px;
+  background: var(--bg-sidebar);
+  box-shadow: var(--shadow-border);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 28px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  flex-direction: column;
+  z-index: 200;
+  transition: width 0.22s var(--smooth);
+  overflow: hidden;
 }
+.sidebar.collapsed { width: 56px; }
 
-.logo {
+/* Logo */
+.sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
+  padding: 18px 14px 16px;
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  flex-shrink: 0;
 }
+.sidebar-logo:hover .logo-mark { background: var(--gray-900); }
 
 .logo-mark {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: var(--brand-gradient);
-  color: #fff;
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.5px;
-  box-shadow: 0 4px 12px rgba(91, 108, 255, 0.4);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-base);
+  background: var(--geist-black);
+  color: var(--geist-white);
+  transition: background var(--duration-fast) ease;
 }
 
 .logo-text {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  background: var(--brand-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--geist-black);
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
 }
 
-.header-right {
-  display: flex;
-  align-items: center;
+.sidebar-divider {
+  height: 1px;
+  background: var(--gray-100);
+  margin: 0 14px;
+  flex-shrink: 0;
 }
 
-.user-chip {
+/* 导航 */
+.sidebar-nav {
+  flex: 1;
+  padding: 8px 8px;
+  overflow: hidden;
+}
+
+.nav-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
-  border-radius: 20px;
+  padding: 7px 8px;
+  border-radius: var(--r-card);
   cursor: pointer;
-  transition: background 0.2s;
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+  white-space: nowrap;
+  overflow: hidden;
+  margin-bottom: 1px;
 }
-.user-chip:hover {
-  background: rgba(22, 119, 255, 0.08);
+.nav-item:hover {
+  background: var(--gray-50);
+  color: var(--geist-black);
 }
+.nav-item.active {
+  background: var(--gray-50);
+  color: var(--geist-black);
+  font-weight: 600;
+  box-shadow: var(--shadow-border);
+}
+
+.nav-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: inherit;
+}
+.nav-label { white-space: nowrap; }
+
+/* 底部 */
+.sidebar-footer {
+  padding: 10px 8px 14px;
+  border-top: 1px solid var(--gray-100);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px;
+  border-radius: var(--r-card);
+  cursor: pointer;
+  transition: background var(--duration-fast) ease;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.user-row:hover { background: var(--gray-50); }
+
+.user-avatar { flex-shrink: 0; }
 
 .user-name {
-  font-size: 14px;
-  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--geist-black);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: var(--tracking-label);
 }
 
+.login-btn-wrap { padding: 0 2px; }
+.login-btn {
+  border-radius: var(--r-base) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  box-shadow: var(--shadow-ring) !important;
+  border: none !important;
+  color: var(--geist-black) !important;
+  background: var(--geist-white) !important;
+}
+.login-btn:hover {
+  background: var(--gray-50) !important;
+  box-shadow: var(--shadow-border) !important;
+}
+
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  border-radius: var(--r-card);
+  cursor: pointer;
+  color: var(--gray-400);
+  font-size: 13px;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+.collapse-btn:hover {
+  background: var(--gray-50);
+  color: var(--geist-black);
+}
+
+/* ======= 主内容区 ======= */
 .content {
   flex: 1;
-  padding-top: 60px;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  transition: margin-left 0.22s var(--smooth);
+  overflow: hidden;
+}
+
+/* label 动画 */
+.fade-label-enter-active, .fade-label-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.fade-label-enter-from, .fade-label-leave-to {
+  opacity: 0;
+  transform: translateX(-4px);
 }
 </style>

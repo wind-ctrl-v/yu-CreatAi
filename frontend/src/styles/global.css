@@ -1,64 +1,107 @@
+/* ============================================================
+   CreatAi × Vercel — 工程纯白设计系统
+   K24 Vercel + D01 宏观留白 + B09 发光按钮 + E05 弹性反馈
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
 :root {
-  /* 现代靛蓝—紫渐变品牌色 */
-  --brand-primary: #5b6cff;
-  --brand-primary-hover: #7c8aff;
-  --brand-primary-active: #4250e0;
-  --brand-accent: #9b6cff;
-  --brand-gradient: linear-gradient(135deg, #5b6cff 0%, #7c5cff 50%, #4f8cff 100%);
+  /* ── Core Palette (Vercel achromatic system) ── */
+  --geist-black:   #171717;
+  --geist-white:   #ffffff;
+  --gray-900:      #171717;
+  --gray-600:      #4d4d4d;
+  --gray-500:      #666666;
+  --gray-400:      #808080;
+  --gray-100:      #ebebeb;
+  --gray-50:       #fafafa;
 
-  --bg-page: #f6f7fb;
-  --bg-card: #ffffff;
-  --text-primary: #16161d;
-  --text-secondary: #5b5f6e;
+  /* Accent — Vercel Develop Blue (唯一彩色) */
+  --accent:        #0a72ef;
+  --accent-subtle: rgba(10, 114, 239, 0.08);
+  --accent-ring:   rgba(10, 114, 239, 0.24);
 
-  /* 统一柔和阴影 */
-  --shadow-sm: 0 2px 10px rgba(20, 22, 40, 0.05);
-  --shadow-md: 0 10px 30px rgba(20, 22, 40, 0.08);
-  --shadow-brand: 0 16px 40px rgba(91, 108, 255, 0.18);
-  --radius-lg: 18px;
+  /* ── Semantic Aliases ── */
+  --bg-page:       #fafafa;
+  --bg-sidebar:    #ffffff;
+  --bg-card:       #ffffff;
+  --text-primary:  var(--gray-900);
+  --text-secondary:var(--gray-600);
+  --text-muted:    var(--gray-400);
+  --border-subtle: var(--gray-100);
 
-  font-family: 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* ── Shadow-as-Border (Vercel核心哲学) ── */
+  --shadow-border: rgba(0,0,0,0.08) 0px 0px 0px 1px;
+  --shadow-ring:   rgb(235,235,235) 0px 0px 0px 1px;
+  --shadow-card:
+    rgba(0,0,0,0.08) 0px 0px 0px 1px,
+    rgba(0,0,0,0.04) 0px 2px 2px,
+    rgba(0,0,0,0.04) 0px 8px 8px -8px,
+    #fafafa 0px 0px 0px 1px;
+  --shadow-card-hover:
+    rgba(0,0,0,0.12) 0px 0px 0px 1px,
+    rgba(0,0,0,0.06) 0px 4px 8px,
+    rgba(0,0,0,0.06) 0px 16px 24px -8px,
+    #fafafa 0px 0px 0px 1px;
+
+  /* ── Typography ── */
+  --tracking-display: -2.4px;
+  --tracking-heading: -1.28px;
+  --tracking-sub:     -0.96px;
+  --tracking-label:   -0.32px;
+
+  /* ── Radius Scale ── */
+  --r-micro:  2px;
+  --r-subtle: 4px;
+  --r-base:   6px;
+  --r-card:   8px;
+  --r-image:  12px;
+  --r-pill:   9999px;
+
+  /* ── Motion (E05 超弹力果冻) ── */
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --smooth: cubic-bezier(0.16, 1, 0.30, 1);
+  --duration-fast: 0.18s;
+  --duration-base: 0.24s;
+
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-feature-settings: 'liga' 1, 'kern' 1;
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
-html,
-body,
-#app {
+html, body, #app {
   margin: 0;
   padding: 0;
   height: 100%;
 }
 
 body {
-  /* 带冷暖光斑的柔和渐变背景 */
   background-color: var(--bg-page);
-  background-image:
-    radial-gradient(circle at 12% 8%, rgba(124, 92, 255, 0.12), transparent 42%),
-    radial-gradient(circle at 88% 6%, rgba(79, 140, 255, 0.12), transparent 40%);
-  background-attachment: fixed;
 }
 
 a {
-  color: var(--brand-primary);
+  color: var(--accent);
   text-decoration: none;
 }
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
-/* 全局滚动条美化 */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+/* ── 滚动条 (极细，Vercel 风) ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(20, 22, 40, 0.16);
-  border-radius: 4px;
+  background: var(--gray-100);
+  border-radius: 2px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(20, 22, 40, 0.28);
+::-webkit-scrollbar-thumb:hover { background: var(--gray-400); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ── 全局选中色 ── */
+::selection {
+  background: rgba(10,114,239,0.15);
+  color: var(--geist-black);
 }
