@@ -9,6 +9,7 @@ import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
 import com.yu.yuaifather.agent.support.JsonExtractor;
+import com.yu.yuaifather.ai.model.dto.DesignEvidence;
 import com.yu.yuaifather.ai.model.dto.DesignSpec;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
 import com.yu.yuaifather.constant.AppConstant;
@@ -66,6 +67,19 @@ public class StyleAgent implements Agent {
                             + "值可结合 colorTheme 微调；global.css 只能引用这些变量。输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
                 } else {
                     input.put("instruction", "请输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
+                }
+                // 阶段三：召回证据作为参考（仅补充调性/推荐写法，tokenGroups 变量名契约仍以 DesignSpec 为准）
+                DesignEvidence evidence = ctx.getBlackboard().getDesignEvidence();
+                if (evidence != null && !evidence.isEmpty()) {
+                    java.util.List<String> evidencePreferred = new java.util.ArrayList<>();
+                    for (DesignEvidence.Item item : evidence.getItems()) {
+                        if (item.getPreferredPatterns() != null) {
+                            evidencePreferred.addAll(item.getPreferredPatterns());
+                        }
+                    }
+                    if (!evidencePreferred.isEmpty()) {
+                        input.set("evidencePreferred", JsonExtractor.mapper().valueToTree(evidencePreferred));
+                    }
                 }
                 String raw = agentAiService.generateStyleSheets(input.toString());
                 JsonNode node = JsonExtractor.mapper().readTree(JsonExtractor.extract(raw));

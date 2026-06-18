@@ -80,3 +80,14 @@ agent:
   deploy:
     # 是否在流水线末尾自动执行 DeployAgent（构建并上传 COS）
     enabled: ${AGENT_DEPLOY_ENABLED:false}
+  # 阶段三：运行时召回（默认关闭，启用需 design_fingerprint 表就绪；关闭时仅用阶段一静态规范）
+  retrieve:
+    enabled: ${AGENT_RETRIEVE_ENABLED:false}
+    # 召回 top-k（最大不超过 3）
+    top-k: ${AGENT_RETRIEVE_TOP_K:2}
+
+# 设计指纹提炼（阶段二，离线）
+design:
+  extractor:
+    # 截图视觉模型解析开关，默认关闭（仅走 HTML 摘要路径，零额外依赖）
+    vision-enabled: ${DESIGN_EXTRACTOR_VISION_ENABLED:false}

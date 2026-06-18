@@ -1,6 +1,7 @@
 package com.yu.yuaifather.agent.core;
 
 import com.yu.yuaifather.ai.model.dto.CriticReport;
+import com.yu.yuaifather.ai.model.dto.DesignEvidence;
 import com.yu.yuaifather.ai.model.dto.DesignSpec;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
 import com.yu.yuaifather.ai.model.dto.RequirementDoc;
@@ -30,6 +31,7 @@ public class Blackboard {
     private static final String KEY_GENERATED_FILES = "generatedFiles";
     private static final String KEY_DEPLOY_URL = "deployUrl";
     private static final String KEY_DESIGN_SPEC = "designSpec";
+    private static final String KEY_DESIGN_EVIDENCE = "designEvidence";
 
     private final Map<String, Object> store = new ConcurrentHashMap<>();
 
@@ -107,6 +109,24 @@ public class Blackboard {
      */
     public DesignSpec getDesignSpec() {
         return (DesignSpec) store.get(KEY_DESIGN_SPEC);
+    }
+
+    // ---------- designEvidence ----------
+
+    /**
+     * 写入运行时召回的受控设计证据（由 DesignRetrieveAgent 产出，阶段三）。
+     */
+    public void putDesignEvidence(DesignEvidence evidence) {
+        if (evidence != null) {
+            store.put(KEY_DESIGN_EVIDENCE, evidence);
+        }
+    }
+
+    /**
+     * 读取运行时召回证据，可能为 null（未执行检索 / 检索关闭 / 召回为空）。
+     */
+    public DesignEvidence getDesignEvidence() {
+        return (DesignEvidence) store.get(KEY_DESIGN_EVIDENCE);
     }
 
     // ---------- generatedFiles ----------
