@@ -9,6 +9,17 @@ spring:
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  # PGvector 辅助数据源（仅用于向量存储与语义检索，不影响 MySQL 主链路）
+  pgvector:
+    datasource:
+      url: ${PGVECTOR_URL:jdbc:postgresql://localhost:5432/yu_ai_vector}
+      username: ${PGVECTOR_USERNAME:postgres}
+      password: ${PGVECTOR_PASSWORD:}
+      driver-class-name: org.postgresql.Driver
+      hikari:
+        maximum-pool-size: 5
+        minimum-idle: 1
+        connection-timeout: 5000
   # redis
   data:
     redis:
@@ -85,6 +96,10 @@ agent:
     enabled: ${AGENT_RETRIEVE_ENABLED:false}
     # 召回 top-k（最大不超过 3）
     top-k: ${AGENT_RETRIEVE_TOP_K:2}
+    # 3B 向量检索独立开关（基于 PGvector；关闭或失败自动回退 3A 结构检索）
+    vector:
+      enabled: ${AGENT_RETRIEVE_VECTOR_ENABLED:false}
+      min-similarity: ${AGENT_RETRIEVE_VECTOR_MIN_SIMILARITY:0.7}
 
 # 设计指纹提炼（阶段二，离线）
 design:

@@ -4,10 +4,13 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.yu.yuaifather.ai.model.dto.DesignEvidence;
 import com.yu.yuaifather.ai.model.dto.DesignFingerprintDTO;
+import com.yu.yuaifather.ai.model.dto.DesignFingerprintVector;
 import com.yu.yuaifather.ai.model.dto.DesignSpec;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 import com.yu.yuaifather.service.DesignFingerprintService;
+import com.yu.yuaifather.service.DesignFingerprintVectorRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -20,13 +23,13 @@ import java.util.Set;
  * DesignKnowledgeIndex：统一知识层索引访问（阶段三，见计划 3.4 / 3.5）。
  * <p>
  * 合并<b>先验</b>（人工静态 {@link DesignSpec}）与<b>后验</b>（APPROVED 六层指纹）为统一证据集，
- * 按 {@code priority DESC → confidence DESC → updatedAt DESC}（软匹配作次级加权）排序取 top-k。
+ * 按 {@code priority DESC → confidence DESC → updatedAt DESC → softMatchScore DESC} 排序取 top-k。
  *
- * <h3>渐进增强（3.1）</h3>
+ * <h3>渐进增强（3.1 / 3.6）</h3>
  * <ul>
- *   <li><b>3A 轻量结构化检索</b>（本类已实现）：MySQL 结构化字段硬过滤 + Java 侧软匹配排序；</li>
- *   <li><b>3B 向量 RAG</b>（预留 {@link #vectorRetrieve}）：在 3A 验证有效后接入 embedding，
- *       失败自动回退 3A，3A 为空再回退静态规范（见 3.7）。</li>
+ *   <li><b>3B 向量 RAG</b>（已接入）：PGvector 语义检索优先，失败自动回退 3A；</li>
+ *   <li><b>3A 轻量结构化检索</b>：MySQL 结构化字段硬过滤 + Java 侧软匹配排序；</li>
+ *   <li><b>静态规范兜底</b>：写入阶段一静态 {@link DesignSpec} 作为先验证据。</li>
  * </ul>
  */
 @Slf4j
@@ -38,15 +41,36 @@ public class DesignKnowledgeIndex {
 
     private final DesignFingerprintService fingerprintService;
     private final FingerprintProjector fingerprintProjector;
+    private final DesignFingerprintVectorRepository vectorRepo;
+    private final EmbeddingService embeddingService;
+
+    @Value("${agent.retrieve.vector.enabled:false}")
+    private boolean vectorEnabled;
+
+    @Value("${agent.retrieve.vector.min-similarity:0.7}")
+    private double minSimilarity;
 
     public DesignKnowledgeIndex(DesignFingerprintService fingerprintService,
-                                FingerprintProjector fingerprintProjector) {
+                                FingerprintProjector fingerprintProjector,
+                                DesignFingerprintVectorRepository vectorRepo,
+                                EmbeddingService embeddingService) {
         this.fingerprintService = fingerprintService;
         this.fingerprintProjector = fingerprintProjector;
+        this.vectorRepo = vectorRepo;
+        this.embeddingService = embeddingService;
     }
 
     /**
-     * 统一检索：合并静态规范与 APPROVED 指纹，返回受控证据 top-k。
+     * 统一检索：3B 向量检索优先 → 3A 结构化回退 → 静态规范兜底。
+     * <p>
+     * 检索链路：
+     * <ol>
+     *   <li>先验：静态规范始终入 ranked（priority=50，永远排最前）；</li>
+     *   <li>3B（如开启）：构造查询文本 → embed → PGvector cosine 检索 →
+     *       命中后回 MySQL 加载完整指纹 → softMatchScore 打分入 ranked；</li>
+     *   <li>3A（3B 关闭/失败/无结果时）：MySQL 结构化查询 → softMatchScore 打分入 ranked；</li>
+     *   <li>合并排序取 top-k。</li>
+     * </ol>
      *
      * @param styleProfile 风格画像（硬过滤）
      * @param queryTags    需求语义标签（软匹配，可空）
@@ -58,32 +82,48 @@ public class DesignKnowledgeIndex {
         int k = Math.max(1, Math.min(MAX_TOP_K, topK));
         List<Ranked> ranked = new ArrayList<>();
 
-        // 先验：静态规范作为一条高优先级证据
+        // 先验：静态规范始终排第一（priority=50 > 指纹默认 30）
         if (staticSpec != null) {
             ranked.add(toRanked(specToItem(staticSpec, staticSpec.getSourceType()),
                     LocalDateTime.now(), 0));
         }
 
-        // 后验：3A 结构化召回 APPROVED 指纹（失败不阻断）
         String channel = "STATIC_FALLBACK";
-        try {
-            List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9));
-            if (CollUtil.isNotEmpty(fps)) {
-                channel = "STRUCTURAL_3A";
-                for (DesignFingerprint fp : fps) {
-                    DesignEvidence.Item item = fingerprintToItem(fp);
-                    if (item != null) {
-                        int matchScore = softMatchScore(item, queryTags);
-                        ranked.add(toRanked(item, fp.getUpdateTime(), matchScore));
-                    }
+        boolean vectorHit = false;
+
+        // ★ 3B 向量检索优先（独立开关，关闭或失败自动跳过）
+        if (vectorEnabled) {
+            try {
+                vectorHit = tryVectorRetrieve(styleProfile, queryTags, k, ranked);
+                if (vectorHit) {
+                    channel = "VECTOR_3B";
                 }
+            } catch (Exception e) {
+                log.warn("3B 向量检索异常，回退 3A profile={} msg={}", styleProfile, e.getMessage());
             }
-        } catch (Exception e) {
-            // 检索失败（如表不存在 / DB 异常）→ 仅用静态规范，绝不中断生成（见 3.7）
-            log.warn("结构化召回失败，降级为仅静态规范 profile={} msg={}", styleProfile, e.getMessage());
         }
 
-        // 合并排序：priority DESC → confidence DESC → updatedAt DESC → 软匹配 DESC
+        // ★ 3A 结构化回退（3B 未命中时启用）
+        if (!vectorHit) {
+            try {
+                List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9));
+                if (CollUtil.isNotEmpty(fps)) {
+                    channel = "STRUCTURAL_3A";
+                    for (DesignFingerprint fp : fps) {
+                        DesignEvidence.Item item = fingerprintToItem(fp);
+                        if (item != null) {
+                            int matchScore = softMatchScore(item, queryTags);
+                            ranked.add(toRanked(item, fp.getUpdateTime(), matchScore));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // 检索失败（如表不存在 / DB 异常）→ 仅用静态规范，绝不中断生成（见 3.7）
+                log.warn("结构化召回失败，降级为仅静态规范 profile={} msg={}", styleProfile, e.getMessage());
+            }
+        }
+
+        // 合并排序：priority DESC → confidence DESC → updatedAt DESC → softMatchScore DESC
         ranked.sort((a, b) -> {
             int c = Integer.compare(nz(b.item.getPriority()), nz(a.item.getPriority()));
             if (c != 0) return c;
@@ -105,11 +145,68 @@ public class DesignKnowledgeIndex {
                 .build();
     }
 
+    // ============ 3B 向量检索内部实现 ============
+
     /**
-     * 3B 向量召回扩展点（预留，当前返回空表示未启用，由调用方回退 3A）。
+     * 尝试 3B 向量检索，将命中的指纹投影为 Item 并加入 ranked。
+     *
+     * @return true 表示有有效命中；false 表示需要回退 3A
+     */
+    private boolean tryVectorRetrieve(String styleProfile, List<String> queryTags,
+                                      int k, List<Ranked> ranked) {
+        // 构造查询语义文本并生成向量
+        String queryText = embeddingService.buildQueryText(styleProfile, queryTags);
+        if (queryText.isBlank()) {
+            log.debug("查询语义文本为空，跳过 3B profile={}", styleProfile);
+            return false;
+        }
+        float[] queryEmbedding = embeddingService.embed(queryText);
+        if (queryEmbedding.length == 0) {
+            log.debug("查询向量为空，跳过 3B profile={}", styleProfile);
+            return false;
+        }
+
+        // PGvector 余弦检索（候选数 k*2，给排序留余地）
+        List<DesignFingerprintVector> vResults =
+                vectorRepo.search(queryEmbedding, styleProfile, k * 2, minSimilarity);
+
+        if (CollUtil.isEmpty(vResults)) {
+            log.debug("3B 向量检索无命中 profile={} minSimilarity={}", styleProfile, minSimilarity);
+            return false;
+        }
+
+        // 回 MySQL 加载完整指纹并投影
+        int added = 0;
+        for (DesignFingerprintVector vr : vResults) {
+            DesignFingerprint fp = fingerprintService.getById(vr.getFingerprintId());
+            if (fp == null) {
+                log.debug("3B 命中指纹在 MySQL 中不存在 fingerprintId={}", vr.getFingerprintId());
+                continue;
+            }
+            DesignEvidence.Item item = fingerprintToItem(fp);
+            if (item != null) {
+                int matchScore = softMatchScore(item, queryTags);
+                ranked.add(toRanked(item, fp.getUpdateTime(), matchScore));
+                added++;
+            }
+        }
+        log.info("3B 向量检索完成 profile={} candidates={} added={}",
+                styleProfile, vResults.size(), added);
+        return added > 0;
+    }
+
+    /**
+     * 3B 向量召回扩展点（保留兼容，实际逻辑已内聚到 {@link #retrieve}）。
      */
     public DesignEvidence vectorRetrieve(String styleProfile, String querySemantics, int topK) {
-        // 待 3A 验证有效后接入：embedding + 向量索引 + score threshold；失败/空回退 3A。
+        if (!vectorEnabled) {
+            return DesignEvidence.builder()
+                    .styleProfile(styleProfile)
+                    .channel("VECTOR_3B")
+                    .items(new ArrayList<>())
+                    .build();
+        }
+        // 实际检索已由 retrieve() 统一处理，此处仅保留接口兼容
         return DesignEvidence.builder()
                 .styleProfile(styleProfile)
                 .channel("VECTOR_3B")

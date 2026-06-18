@@ -10,6 +10,7 @@ import com.yu.yuaifather.mapper.DesignFingerprintMapper;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 import com.yu.yuaifather.model.enums.FingerprintStatus;
 import com.yu.yuaifather.service.DesignFingerprintService;
+import com.yu.yuaifather.service.VectorSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -42,10 +43,13 @@ public class DesignFingerprintServiceImpl
     private static final int FINGERPRINT_PRIORITY = 30;
 
     private final FingerprintParser fingerprintParser;
+    private final VectorSyncService vectorSyncService;
 
     @Autowired
-    public DesignFingerprintServiceImpl(FingerprintParser fingerprintParser) {
+    public DesignFingerprintServiceImpl(FingerprintParser fingerprintParser,
+                                        VectorSyncService vectorSyncService) {
         this.fingerprintParser = fingerprintParser;
+        this.vectorSyncService = vectorSyncService;
     }
 
     @Override
@@ -121,7 +125,11 @@ public class DesignFingerprintServiceImpl
         if (fp == null) {
             return false;
         }
-        return updateStatus(fp, FingerprintStatus.REJECTED, remark);
+        boolean ok = updateStatus(fp, FingerprintStatus.REJECTED, remark);
+        if (ok) {
+            vectorSyncService.deactivateOnRejectOrArchive(id);
+        }
+        return ok;
     }
 
     @Override
@@ -130,7 +138,11 @@ public class DesignFingerprintServiceImpl
         if (fp == null) {
             return false;
         }
-        return updateStatus(fp, FingerprintStatus.ARCHIVED, remark);
+        boolean ok = updateStatus(fp, FingerprintStatus.ARCHIVED, remark);
+        if (ok) {
+            vectorSyncService.deactivateOnRejectOrArchive(id);
+        }
+        return ok;
     }
 
     @Override
@@ -194,6 +206,10 @@ public class DesignFingerprintServiceImpl
         boolean ok = this.updateById(fp);
         if (ok) {
             log.info("指纹状态流转 id={} -> {} remark={}", fp.getId(), status.getValue(), remark);
+            // APPROVED 时触发向量同步（失败不影响 MySQL 事务）
+            if (status == FingerprintStatus.APPROVED) {
+                vectorSyncService.syncOnApprove(fp);
+            }
         }
         return ok;
     }
