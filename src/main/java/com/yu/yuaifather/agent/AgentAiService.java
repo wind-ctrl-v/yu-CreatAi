@@ -35,4 +35,11 @@ public interface AgentAiService {
      */
     @SystemMessage(fromResource = "prompt/agent-critic-system-prompt.txt")
     String review(String reviewInput);
+
+    /**
+     * DesignExtractorAgent（阶段二，离线）：基于结构化页面摘要按六层契约输出指纹 JSON。
+     * 输入为 DesignSourcePreprocessor 归一化后的页面摘要（已剥离脚本与业务文案）。
+     */
+    @SystemMessage(fromResource = "prompt/agent-extractor-system-prompt.txt")
+    String generateFingerprint(String extractorInput);
 }
