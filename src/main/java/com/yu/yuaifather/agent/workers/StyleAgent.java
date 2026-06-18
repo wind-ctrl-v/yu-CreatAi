@@ -9,6 +9,7 @@ import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
 import com.yu.yuaifather.agent.support.JsonExtractor;
+import com.yu.yuaifather.ai.model.dto.DesignSpec;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
 import com.yu.yuaifather.constant.AppConstant;
 import lombok.extern.slf4j.Slf4j;
@@ -52,9 +53,20 @@ public class StyleAgent implements Agent {
                 if (plan == null) {
                     throw new IllegalStateException("缺少 plan，请先执行 ArchitectAgent");
                 }
+                DesignSpec designSpec = ctx.getBlackboard().getDesignSpec();
                 ObjectNode input = JsonExtractor.mapper().createObjectNode();
                 input.set("colorTheme", JsonExtractor.mapper().valueToTree(plan.getColorTheme()));
-                input.put("instruction", "请输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
+                // 强契约：把 DesignSpec.tokenGroups 作为「确切变量名 → 值」清单注入，
+                //         要求 StyleAgent 逐一原样输出这些 --xxx 变量名（见计划 1.5.1 #1）
+                if (designSpec != null && designSpec.getTokenGroups() != null && !designSpec.getTokenGroups().isEmpty()) {
+                    input.set("tokenGroups", JsonExtractor.mapper().valueToTree(designSpec.getTokenGroups()));
+                    input.set("forbiddenPatterns", JsonExtractor.mapper().valueToTree(designSpec.getForbiddenPatterns()));
+                    input.set("preferredPatterns", JsonExtractor.mapper().valueToTree(designSpec.getPreferredPatterns()));
+                    input.put("instruction", "请严格按 tokenGroups 给出的【确切变量名】在 variables.css 的 :root 中逐一定义（变量名必须与清单完全一致，不得改名/增删），"
+                            + "值可结合 colorTheme 微调；global.css 只能引用这些变量。输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
+                } else {
+                    input.put("instruction", "请输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
+                }
                 String raw = agentAiService.generateStyleSheets(input.toString());
                 JsonNode node = JsonExtractor.mapper().readTree(JsonExtractor.extract(raw));
                 String variables = node.path("variables_css").asText("");

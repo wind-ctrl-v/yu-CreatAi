@@ -23,6 +23,22 @@ public class GenerationPlan {
     /** 需求摘要（来自 ProductAgent）。 */
     private String requirementSummary;
 
+    /**
+     * 行业风格画像（阶段一新增，可选）：
+     * startup / enterprise / ecommerce / portfolio / dashboard / landing / default。
+     * <p>由 ArchitectAgent 从需求识别，供 DesignTokenAgent 加载对应设计规范。
+     * 识别失败 / 不在白名单 / 低置信时由 DesignTokenAgent 归一为 {@code default}。
+     * <p>向后兼容：旧 plan JSON 无此字段时反序列化为 null，不影响解析。
+     */
+    private String styleProfile;
+
+    /**
+     * styleProfile 的识别置信度（阶段一新增，可选，0~1）。
+     * <p>基于关键词命中强度等客观信号，非 LLM 自由发挥；
+     * 低于阈值（如 0.6）时 DesignTokenAgent 一律归 {@code default}（见计划 1.2.1）。
+     */
+    private Double styleProfileConfidence;
+
     /** 待生成文件清单（建议 ≤ 28 个）。 */
     private List<String> fileStructure;
 

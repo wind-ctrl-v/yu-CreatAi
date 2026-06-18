@@ -12,12 +12,29 @@
 {
   "techStack": "vue_project",
   "requirementSummary": "...",
+  "styleProfile": "startup",
+  "styleProfileConfidence": 0.82,
   "fileStructure": ["package.json", "vite.config.js", "index.html", "src/main.js", "src/App.vue", "src/router/index.js", "src/pages/Home.vue", "src/styles/variables.css", "src/styles/global.css"],
   "routerConfig": [{ "path": "/", "name": "home", "component": "src/pages/Home.vue" }],
   "imageSlots": [{ "slotId": "img_hero_1", "keyword": "modern coworking sunlight", "style": "photo", "usedIn": "首页 hero" }],
   "colorTheme": { "primary": "#xxxxxx", "secondary": "#xxxxxx", "background": "#xxxxxx", "text": "#xxxxxx" }
 }
 ```
+
+## 行业风格识别（styleProfile）
+
+- 从需求中识别行业风格，只能取以下枚举之一：
+  - `startup`：创业 / SaaS / 科技产品官网与控制台
+  - `enterprise`：B 端企业官网 / 管理后台，稳重专业
+  - `ecommerce`：电商 / 商城 / 零售，强调商品与转化
+  - `portfolio`：作品集 / 个人站 / 创意展示，极简留白
+  - `dashboard`：数据看板 / 管理后台，信息密集
+  - `landing`：单页营销 / 活动落地页，强 CTA 引导
+  - `default`：无法明确归入上述任一类时的兜底（博客、社交、教育、内容社区、游戏等不在枚举内的，一律用 default）
+- `styleProfileConfidence`：识别置信度 0~1，基于关键词命中强度等客观信号给出，不要凭空高估。
+  - 需求明确命中某行业关键词时给 0.7~0.95；
+  - 模糊、跨多个行业、信息不足时给 0.6 以下（系统会自动归 default）。
+- 不要为了套用某个 profile 而强行归类；拿不准就用 `default` + 低置信度。
 
 ## 技术约束
 

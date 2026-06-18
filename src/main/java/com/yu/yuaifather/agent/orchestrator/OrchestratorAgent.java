@@ -7,6 +7,7 @@ import com.yu.yuaifather.agent.workers.ArchitectAgent;
 import com.yu.yuaifather.agent.workers.CoderAgent;
 import com.yu.yuaifather.agent.workers.CriticAgent;
 import com.yu.yuaifather.agent.workers.DeployAgent;
+import com.yu.yuaifather.agent.workers.DesignTokenAgent;
 import com.yu.yuaifather.agent.workers.ImageAgent;
 import com.yu.yuaifather.agent.workers.ProductAgent;
 import com.yu.yuaifather.agent.workers.StyleAgent;
@@ -16,6 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
+
+import java.util.List;
 
 /**
  * OrchestratorAgent：多 Agent 流水线的总编排者。
@@ -90,6 +93,7 @@ public class OrchestratorAgent implements Agent {
 
     private final ProductAgent productAgent;
     private final ArchitectAgent architectAgent;
+    private final DesignTokenAgent designTokenAgent;
     private final ImageAgent imageAgent;
     private final CoderAgent coderAgent;
     private final StyleAgent styleAgent;
@@ -109,6 +113,7 @@ public class OrchestratorAgent implements Agent {
     @Autowired
     public OrchestratorAgent(ProductAgent productAgent,
                              ArchitectAgent architectAgent,
+                             DesignTokenAgent designTokenAgent,
                              ImageAgent imageAgent,
                              CoderAgent coderAgent,
                              StyleAgent styleAgent,
@@ -116,6 +121,7 @@ public class OrchestratorAgent implements Agent {
                              DeployAgent deployAgent) {
         this.productAgent = productAgent;
         this.architectAgent = architectAgent;
+        this.designTokenAgent = designTokenAgent;
         this.imageAgent = imageAgent;
         this.coderAgent = coderAgent;
         this.styleAgent = styleAgent;
@@ -159,6 +165,9 @@ public class OrchestratorAgent implements Agent {
                 .concatWith(productAgent.handle(ctx))
                 // Step2: 技术选型 + 文件规划 → GenerationPlan 写入 Blackboard
                 .concatWith(architectAgent.handle(ctx))
+                // Step2.5: 加载行业设计规范 → DesignSpec 写入 Blackboard（零 LLM）
+                //          必须在并发分支之前完成，确保 Coder/Style 并发时 tokenGroups 强契约已就绪
+                .concatWith(designTokenAgent.handle(ctx))
                 // Step3: 搜图 → imageMap 写入 Blackboard
                 //        必须在 Coder 之前完成，确保 {{IMG:keyword}} 替换有素材
                 .concatWith(imageAgent.handle(ctx))
@@ -199,66 +208,150 @@ public class OrchestratorAgent implements Agent {
      */
     private Flux<AgentEvent> runCriticLoop(AgentContext ctx) {
         // Flux.defer：订阅时才执行 lambda，保证惰性求值
-        return Flux.defer(() -> doCriticRound(ctx, 1));
+        // 初始：第 1 轮，无上一轮修复分支，乒乓计数 0
+        return Flux.defer(() -> doCriticRound(ctx, 1, null, 0));
     }
 
+    // 修复分支标识：仅样式 / 仅代码 / 两者皆有
+    private static final String BRANCH_STYLE = "STYLE";
+    private static final String BRANCH_CODER = "CODER";
+    private static final String BRANCH_BOTH = "BOTH";
+
     /**
-     * 单轮 Critic 质检 + 条件分支（是否继续修复）。
+     * 单轮 Critic 质检 + 按 issue 分类的修复分支（评审 #9 / 计划 1.5.4）。
      *
      * <h4>执行流程</h4>
      * <pre>
      *  执行本轮质检（CriticAgent）
      *      ↓
      *  读取 Blackboard 中的最新 CriticReport
-     *      ├─ report == null 或 passed == true  → 质检通过，返回空流（结束循环）
-     *      ├─ round >= criticMaxRounds          → 超出限制，降级推状态事件，结束循环
-     *      └─ 未通过 且 未超限                  → 推"修复"状态事件 → CoderAgent 修复
-     *                                               → 递归调用 doCriticRound(round + 1)
+     *      ├─ report == null 或 passed == true       → 通过，结束循环
+     *      ├─ round >= criticMaxRounds                → 超限降级，结束循环
+     *      ├─ 连续两轮 Style↔Coder 来回未通过          → 强制收敛降级，结束循环
+     *      └─ 未通过且未超限                          → 按 issue 分类选择修复分支：
+     *               · 仅样式类      → 重跑 StyleAgent
+     *               · 仅代码类      → 重跑 CoderAgent
+     *               · 两类皆有      → 先 StyleAgent 再 CoderAgent（串行，仍计 1 轮）
+     *           → 递归进入下一轮质检（round + 1）
      * </pre>
      *
-     * <h4>为何用递归而不是 for 循环</h4>
-     * <p>
-     * Reactor 是异步流式的，不能用命令式 for 循环控制异步步骤。
-     * 递归 + {@code Flux.defer()} 是 Reactor 中实现"条件重试循环"的惯用模式：
-     * 每轮结束后通过 {@code concatWith(Flux.defer(...))} 决定是否追加下一轮，
-     * 直到满足退出条件（通过 或 超限）时返回空流 {@code Flux.empty()} 结束递归。
-     * </p>
+     * <h4>轮次记账与乒乓抑制</h4>
+     * <ul>
+     *   <li>轮次按「质检次数」统一计：无论本轮重跑 Coder / Style / 还是先 Style 再 Coder，
+     *       都只占用 1 个轮次预算，不另开计数器；</li>
+     *   <li>记录上一轮修复分支，若本轮与上一轮在 Style↔Coder 之间来回，乒乓计数 +1；
+     *       连续两次来回（pingpong ≥ 2）则强制收敛降级，避免无意义乒乓循环。</li>
+     * </ul>
      *
-     * @param ctx   请求上下文
-     * @param round 当前质检轮次（从 1 开始）
+     * @param ctx          请求上下文
+     * @param round        当前质检轮次（从 1 开始）
+     * @param lastBranch   上一轮的修复分支（首轮为 null）
+     * @param pingpongCount 连续 Style↔Coder 来回次数
      * @return 本轮及后续所有轮次产生的事件流
      */
-    private Flux<AgentEvent> doCriticRound(AgentContext ctx, int round) {
-        // 构建本轮的事件流：先推"第 N 轮"状态，再执行 CriticAgent
+    private Flux<AgentEvent> doCriticRound(AgentContext ctx, int round, String lastBranch, int pingpongCount) {
         Flux<AgentEvent> step = Flux.just(AgentEvent.status(AGENT_NAME, "质检第 " + round + " 轮"))
                 .concatWith(criticAgent.handle(ctx));
 
-        // concatWith(Flux.defer(...))：等本轮 CriticAgent 执行完毕后，
-        // 再惰性求值决定下一步该做什么（此时 Blackboard 中才有最新的 CriticReport）
         return step.concatWith(Flux.defer(() -> {
-            // 从黑板读取本轮刚写入的质检报告
             CriticReport report = ctx.getBlackboard().getCriticReport();
 
-            // 分支1：质检通过（或报告为 null 视为通过），返回空流结束循环
+            // 分支1：质检通过（或报告为 null 视为通过），结束循环
             if (report == null || report.isPassed()) {
                 return Flux.empty();
             }
 
-            // 分支2：已达最大轮次，不再重试，降级推状态事件后结束循环
-            // 降级而非报错，保证用户能拿到已生成的代码（即使不完美）
+            // 分支2：已达最大轮次，降级返回当前结果
             if (round >= criticMaxRounds) {
                 return Flux.just(AgentEvent.status(AGENT_NAME,
                         "质检超出最大轮次（" + criticMaxRounds + "），降级返回当前结果"));
             }
 
-            // 分支3：质检未通过且未超限，推"修复"事件 → CoderAgent 修复 → 递归进入下一轮
-            // 注意：CoderAgent 修复时会读取 Blackboard 中的 CriticReport.issues，
-            //       因此 Critic 的问题清单对下一轮 Coder 是可见的（前提是 Coder 把它拼入 prompt）
-            return Flux.just(AgentEvent.status(AGENT_NAME, "质检未通过，进入第 " + (round + 1) + " 轮修复"))
-                    // CoderAgent 根据 Critic 指出的问题重新生成/修复代码
-                    .concatWith(coderAgent.handle(ctx))
-                    // 递归：进入下一轮质检，round + 1 确保最终一定会到达 criticMaxRounds
-                    .concatWith(doCriticRound(ctx, round + 1));
+            // 按 issue 分类决定本轮修复分支
+            boolean hasStyle = hasStyleIssue(report);
+            boolean hasCoder = hasNonStyleIssue(report);
+            String thisBranch = (hasStyle && hasCoder) ? BRANCH_BOTH
+                    : hasStyle ? BRANCH_STYLE : BRANCH_CODER;
+
+            // 乒乓抑制：仅当本轮与上一轮在 Style↔Coder 之间单分支来回时累计
+            boolean alternation = isStyleCoderAlternation(lastBranch, thisBranch);
+            int newPingpong = alternation ? pingpongCount + 1 : 0;
+            if (newPingpong >= 2) {
+                return Flux.just(AgentEvent.status(AGENT_NAME,
+                        "检测到 Style↔Coder 反复修复未收敛，强制收敛降级返回当前结果"));
+            }
+
+            // 构建本轮修复动作（统一计为 1 轮）
+            Flux<AgentEvent> repair;
+            if (BRANCH_BOTH.equals(thisBranch)) {
+                repair = Flux.just(AgentEvent.status(AGENT_NAME,
+                                "质检未通过，进入第 " + (round + 1) + " 轮修复（先样式后代码）"))
+                        .concatWith(styleAgent.handle(ctx))
+                        .concatWith(coderAgent.handle(ctx));
+            } else if (BRANCH_STYLE.equals(thisBranch)) {
+                repair = Flux.just(AgentEvent.status(AGENT_NAME,
+                                "质检未通过，进入第 " + (round + 1) + " 轮修复（样式）"))
+                        .concatWith(styleAgent.handle(ctx));
+            } else {
+                repair = Flux.just(AgentEvent.status(AGENT_NAME,
+                                "质检未通过，进入第 " + (round + 1) + " 轮修复（代码）"))
+                        .concatWith(coderAgent.handle(ctx));
+            }
+
+            return repair.concatWith(doCriticRound(ctx, round + 1, thisBranch, newPingpong));
         }));
+    }
+
+    /**
+     * 是否存在样式类问题：{@code category=="style"} 或 file 以 {@code src/styles/} 开头；
+     * 当 category 与 file 均缺失时，退化为对 description 做关键词兜底匹配。
+     */
+    private boolean hasStyleIssue(CriticReport report) {
+        List<CriticReport.Issue> issues = report.getIssues();
+        if (issues == null) {
+            return false;
+        }
+        return issues.stream().anyMatch(this::isStyleIssue);
+    }
+
+    /**
+     * 是否存在非样式类（代码类）问题。
+     */
+    private boolean hasNonStyleIssue(CriticReport report) {
+        List<CriticReport.Issue> issues = report.getIssues();
+        if (issues == null || issues.isEmpty()) {
+            // 未通过但无明细 issues：默认按代码类重跑 Coder
+            return true;
+        }
+        return issues.stream().anyMatch(i -> !isStyleIssue(i));
+    }
+
+    private boolean isStyleIssue(CriticReport.Issue issue) {
+        if (issue == null) {
+            return false;
+        }
+        String category = issue.getCategory();
+        String file = issue.getFile();
+        if (category != null && category.equalsIgnoreCase("style")) {
+            return true;
+        }
+        if (file != null && file.replace('\\', '/').startsWith("src/styles/")) {
+            return true;
+        }
+        // 仅当 category 缺失且 file 为空时，才退化为关键词兜底匹配
+        if ((category == null || category.isBlank()) && (file == null || file.isBlank())) {
+            String desc = issue.getDescription() == null ? "" : issue.getDescription().toLowerCase();
+            return desc.contains("variables.css") || desc.contains("global.css")
+                    || desc.contains("token") || desc.contains("typography") || desc.contains("reset");
+        }
+        return false;
+    }
+
+    /**
+     * 判断本轮分支是否与上一轮在 Style↔Coder 之间单分支来回（BOTH 不算来回）。
+     */
+    private boolean isStyleCoderAlternation(String lastBranch, String thisBranch) {
+        return (BRANCH_STYLE.equals(lastBranch) && BRANCH_CODER.equals(thisBranch))
+                || (BRANCH_CODER.equals(lastBranch) && BRANCH_STYLE.equals(thisBranch));
     }
 }

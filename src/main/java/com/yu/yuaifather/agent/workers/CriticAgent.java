@@ -8,6 +8,7 @@ import com.yu.yuaifather.agent.AgentAiService;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
+import com.yu.yuaifather.agent.support.DesignLintChecker;
 import com.yu.yuaifather.agent.support.JsonExtractor;
 import com.yu.yuaifather.ai.model.dto.CriticReport;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
@@ -25,6 +26,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -68,10 +70,12 @@ public class CriticAgent implements Agent {
     private static final Pattern IMG_PLACEHOLDER = Pattern.compile("\\{\\{IMG:[^{}]+}}");
 
     private final AgentAiService agentAiService;
+    private final DesignLintChecker designLintChecker;
 
     @Autowired
-    public CriticAgent(AgentAiService agentAiService) {
+    public CriticAgent(AgentAiService agentAiService, DesignLintChecker designLintChecker) {
         this.agentAiService = agentAiService;
+        this.designLintChecker = designLintChecker;
     }
 
     @Override
@@ -87,10 +91,19 @@ public class CriticAgent implements Agent {
                 ObjectNode reviewInput = JsonExtractor.mapper().createObjectNode();
                 StaticIssues issues = runStaticChecks(ctx.getAppId());
 
+                // 确定性反模式扫描（零 LLM），结果同时用于：① 注入 LLM 参考；② 客观度量与强制判定
+                DesignLintChecker.LintResult lint = designLintChecker.check(
+                        ctx.getAppId(), ctx.getBlackboard().getDesignSpec());
+
                 // 将静态检查结果（P0 缺失、P1 缺失、占位符残留）传给 LLM 参考
                 reviewInput.put("missingP0Files", String.join(",", issues.missingP0));
                 reviewInput.put("missingP1Files", String.join(",", issues.missingP1));
                 reviewInput.put("placeholderResidualFiles", String.join(",", issues.placeholderResidual));
+                // 反模式扫描计数与悬空变量摘要
+                reviewInput.set("designLintCounts", JsonExtractor.mapper().valueToTree(lint.getCounts()));
+                reviewInput.set("danglingVars", JsonExtractor.mapper().valueToTree(lint.getDanglingVars()));
+                reviewInput.put("entryImportsGlobalStyles",
+                        lint.isEntryImportsVariables() && lint.isEntryImportsGlobal());
 
                 GenerationPlan plan = ctx.getBlackboard().getPlan();
                 if (plan != null) {
@@ -126,6 +139,9 @@ public class CriticAgent implements Agent {
                     log.info("CriticAgent P1 推荐文件缺失（不阻塞） appId={} missingP1={}",
                             ctx.getAppId(), issues.missingP1);
                 }
+
+                // 合并确定性扫描命中为结构化 issues（命中即客观判定，不依赖 LLM 主观判断）
+                mergeLintIssues(report, lint, ctx.getAppId());
 
                 ctx.getBlackboard().putCriticReport(report);
                 sink.next(AgentEvent.builder()
@@ -205,6 +221,76 @@ public class CriticAgent implements Agent {
                 .summary("静态检查兜底报告（LLM 评分不可用）")
                 .issues(List.of())
                 .build();
+    }
+
+    /**
+     * 把 DesignLintChecker 的确定性命中合并为结构化 issues 并回填到 report。
+     * <p>
+     * 全部归类为 {@code category="style"}，便于 OrchestratorAgent 路由到 StyleAgent/CoderAgent 修复：
+     * <ul>
+     *   <li>缺少全局样式 import / 悬空变量 → P0，且强制 {@code passed=false}；</li>
+     *   <li>毛玻璃 / 装饰渐变 / 硬编码 px / 硬编码颜色 / 浮夸 scale → P1，记录但不单独强制失败
+     *       （由 LLM 评分与累计决定，避免轻微命中即反复重试）。</li>
+     * </ul>
+     */
+    private void mergeLintIssues(CriticReport report, DesignLintChecker.LintResult lint, Long appId) {
+        if (lint == null || !lint.hasAnyHit()) {
+            return;
+        }
+        List<CriticReport.Issue> merged = new ArrayList<>();
+        if (report.getIssues() != null) {
+            merged.addAll(report.getIssues());
+        }
+        for (Map.Entry<String, Integer> e : lint.getCounts().entrySet()) {
+            String pattern = e.getKey();
+            int count = e.getValue();
+            boolean isP0 = DesignLintChecker.P_MISSING_IMPORT.equals(pattern)
+                    || DesignLintChecker.P_DANGLING_VAR.equals(pattern);
+            // 命中样本文件（取首个）便于定位
+            String sampleFile = lint.getHits().stream()
+                    .filter(h -> h.getPattern().equals(pattern))
+                    .map(DesignLintChecker.Hit::getFile)
+                    .findFirst().orElse(null);
+            merged.add(CriticReport.Issue.builder()
+                    .severity(isP0 ? "P0" : "P1")
+                    .category("style")
+                    .file(sampleFile)
+                    .description("设计反模式命中 [" + pattern + "] x" + count)
+                    .suggestion(suggestionOf(pattern))
+                    .build());
+        }
+        report.setIssues(merged);
+
+        if (lint.hasP0()) {
+            report.setPassed(false);
+            if (report.getScore() > 70) {
+                report.setScore(60);
+            }
+            log.warn("CriticAgent 设计 P0 命中强制失败 appId={} danglingVars={} importsVars={} importsGlobal={}",
+                    appId, lint.getDanglingVars(), lint.isEntryImportsVariables(), lint.isEntryImportsGlobal());
+        }
+    }
+
+    /** 针对各反模式给出固定修复方向。 */
+    private String suggestionOf(String pattern) {
+        switch (pattern) {
+            case DesignLintChecker.P_MISSING_IMPORT:
+                return "在入口文件 src/main.js 中 import './styles/variables.css' 与 './styles/global.css'";
+            case DesignLintChecker.P_DANGLING_VAR:
+                return "悬空变量：组件只能引用 variables.css 中已定义的 var(--xxx)，请改用 tokenGroups 清单内的变量名";
+            case DesignLintChecker.P_BACKDROP:
+                return "移除 backdrop-filter 毛玻璃效果，改用纯色或轻阴影区分层级";
+            case DesignLintChecker.P_GRADIENT:
+                return "移除纯装饰性渐变背景，改用纯色 token";
+            case DesignLintChecker.P_HARDCODED_PX:
+                return "用间距/字号/圆角 token（var(--space-*)/var(--font-size-*)/var(--radius-*)）替换硬编码 px";
+            case DesignLintChecker.P_HARDCODED_COLOR:
+                return "用 var(--color-*) 替换硬编码颜色";
+            case DesignLintChecker.P_SCALE:
+                return "hover 缩放不超过 1.05，或改用颜色/阴影变化";
+            default:
+                return "请按设计规范修正";
+        }
     }
 
     private Path projectRoot(Long appId) {

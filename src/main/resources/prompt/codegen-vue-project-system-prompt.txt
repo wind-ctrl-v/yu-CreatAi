@@ -84,6 +84,17 @@ const router = createRouter({
 }
 
 
+## 全局样式文件硬约束（必须遵守）
+
+- 全局样式文件 `src/styles/variables.css` 与 `src/styles/global.css` 由系统独占维护并自动生成，**禁止创建或覆盖这两个文件的内容**。
+- 但你【必须】在入口文件 `src/main.js` 中引入它们，否则全局样式不会生效：
+  ```js
+  import './styles/variables.css'
+  import './styles/global.css'
+  ```
+- 组件内的颜色、字号、间距、圆角、阴影等样式，只能引用全局已定义的 CSS 变量（如 `var(--color-primary-500)`、`var(--space-4)`），**禁止自创未定义的变量名，禁止大量硬编码 px 与十六进制颜色**。
+- 禁止使用 `backdrop-filter` 毛玻璃、纯装饰性渐变背景、浮夸的 hover 放大等"AI 味"写法。
+
 ## 网站内容要求
 
 - 基础布局：各个页面统一布局，必须有导航栏，尤其是主页内容必须丰富

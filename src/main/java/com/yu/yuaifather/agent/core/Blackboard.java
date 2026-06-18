@@ -1,6 +1,7 @@
 package com.yu.yuaifather.agent.core;
 
 import com.yu.yuaifather.ai.model.dto.CriticReport;
+import com.yu.yuaifather.ai.model.dto.DesignSpec;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
 import com.yu.yuaifather.ai.model.dto.RequirementDoc;
 
@@ -28,6 +29,7 @@ public class Blackboard {
     private static final String KEY_CRITIC_REPORT = "criticReport";
     private static final String KEY_GENERATED_FILES = "generatedFiles";
     private static final String KEY_DEPLOY_URL = "deployUrl";
+    private static final String KEY_DESIGN_SPEC = "designSpec";
 
     private final Map<String, Object> store = new ConcurrentHashMap<>();
 
@@ -87,6 +89,24 @@ public class Blackboard {
 
     public CriticReport getCriticReport() {
         return (CriticReport) store.get(KEY_CRITIC_REPORT);
+    }
+
+    // ---------- designSpec ----------
+
+    /**
+     * 写入设计规范（由 DesignTokenAgent 产出），供 StyleAgent / CoderAgent 读取。
+     */
+    public void putDesignSpec(DesignSpec spec) {
+        if (spec != null) {
+            store.put(KEY_DESIGN_SPEC, spec);
+        }
+    }
+
+    /**
+     * 读取设计规范，可能为 null（未执行 DesignTokenAgent 或加载失败且未写入兜底）。
+     */
+    public DesignSpec getDesignSpec() {
+        return (DesignSpec) store.get(KEY_DESIGN_SPEC);
     }
 
     // ---------- generatedFiles ----------
