@@ -82,3 +82,50 @@ export interface AppQueryRequest extends PageRequest {
   codeGenType?: string
   userId?: string
 }
+
+/** 用户查询请求（管理员） */
+export interface UserQueryRequest extends PageRequest {
+  id?: string
+  userName?: string
+  userAccount?: string
+  userProfile?: string
+  userRole?: string
+}
+
+/** 用户新增请求（管理员） */
+export interface UserAddRequest {
+  userName?: string
+  userAccount: string
+  userAvatar?: string
+  userProfile?: string
+  userRole?: string
+}
+
+/** 用户更新请求（管理员） */
+export interface UserUpdateRequest {
+  id: string
+  userName?: string
+  userAvatar?: string
+  userProfile?: string
+  userRole?: string
+}
+
+/** 删除请求 */
+export interface DeleteRequest {
+  id: string
+}
+
+/** 对话历史查询请求（管理员） */
+export interface ChatHistoryQueryRequest extends PageRequest {
+  appId?: string
+  userId?: string
+  messageType?: string
+}
+
+/** 管理员应用更新请求 */
+export interface AdminAppUpdateRequest {
+  id: string
+  appName?: string
+  priority?: number
+  codeGenType?: string
+}

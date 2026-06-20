@@ -22,6 +22,33 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    path: '/admin',
+    component: () => import('../layouts/AdminLayout.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true },
+    children: [
+      {
+        path: '',
+        name: 'adminDashboard',
+        component: () => import('../pages/admin/AdminDashboard.vue'),
+      },
+      {
+        path: 'users',
+        name: 'adminUsers',
+        component: () => import('../pages/admin/AdminUsersPage.vue'),
+      },
+      {
+        path: 'apps',
+        name: 'adminApps',
+        component: () => import('../pages/admin/AdminAppsPage.vue'),
+      },
+      {
+        path: 'chats',
+        name: 'adminChats',
+        component: () => import('../pages/admin/AdminChatsPage.vue'),
+      },
+    ],
+  },
+  {
     path: '/user/login',
     name: 'login',
     component: () => import('../pages/user/LoginPage.vue'),
@@ -42,7 +69,7 @@ const router = createRouter({
   routes,
 })
 
-// 全局前置守卫：未登录拦截
+// 全局前置守卫：登录拦截 + 管理员权限拦截
 router.beforeEach(async (to) => {
   if (!to.meta.requiresAuth) {
     return true
@@ -58,6 +85,10 @@ router.beforeEach(async (to) => {
       path: '/user/login',
       query: { redirect: to.fullPath },
     }
+  }
+  // 管理员路由额外检查角色
+  if (to.meta.requiresAdmin && user.userRole !== 'admin') {
+    return { path: '/' }
   }
   return true
 })

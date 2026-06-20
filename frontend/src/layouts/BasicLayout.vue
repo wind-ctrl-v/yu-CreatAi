@@ -8,6 +8,7 @@ import {
   CompassOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  SettingOutlined,
 } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '../stores/loginUser'
 
@@ -108,6 +109,9 @@ function navTo(path: string) { router.push(path) }
             </div>
             <template #overlay>
               <a-menu>
+                <a-menu-item v-if="loginUser.userRole === 'admin'" key="admin" @click="router.push('/admin')">
+                  <SettingOutlined style="margin-right: 6px;" />管理后台
+                </a-menu-item>
                 <a-menu-item key="logout" @click="handleLogout">退出登录</a-menu-item>
               </a-menu>
             </template>
