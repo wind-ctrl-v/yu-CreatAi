@@ -12,6 +12,9 @@ import type {
   AdminAppUpdateRequest,
   ChatHistory,
   ChatHistoryQueryRequest,
+  DesignFingerprint,
+  FingerprintQueryRequest,
+  FingerprintReviewRequest,
 } from '../types'
 
 // ==================== 用户管理 ====================
@@ -63,4 +66,31 @@ export function adminGetAppById(id: string) {
 /** 管理员分页查询所有对话历史 */
 export function adminListChatHistory(params: ChatHistoryQueryRequest) {
   return request.post<any, BaseResponse<Page<ChatHistory>>>('/chatHistory/admin/list/page/vo', params)
+}
+
+// ==================== 指纹审核管理 ====================
+
+/** 管理员分页查询指纹列表 */
+export function adminListFingerprintByPage(params: FingerprintQueryRequest) {
+  return request.post<any, BaseResponse<Page<DesignFingerprint>>>('/fingerprint/admin/list/page', params)
+}
+
+/** 管理员获取指纹详情 */
+export function adminGetFingerprint(id: string) {
+  return request.get<any, BaseResponse<DesignFingerprint>>('/fingerprint/admin/get', { params: { id } })
+}
+
+/** 审核通过（CANDIDATE → APPROVED） */
+export function adminApproveFingerprint(params: FingerprintReviewRequest) {
+  return request.post<any, BaseResponse<boolean>>('/fingerprint/admin/approve', params)
+}
+
+/** 拒绝指纹（→ REJECTED） */
+export function adminRejectFingerprint(params: FingerprintReviewRequest) {
+  return request.post<any, BaseResponse<boolean>>('/fingerprint/admin/reject', params)
+}
+
+/** 归档指纹（APPROVED → ARCHIVED） */
+export function adminArchiveFingerprint(params: FingerprintReviewRequest) {
+  return request.post<any, BaseResponse<boolean>>('/fingerprint/admin/archive', params)
 }

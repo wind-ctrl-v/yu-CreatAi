@@ -129,3 +129,35 @@ export interface AdminAppUpdateRequest {
   priority?: number
   codeGenType?: string
 }
+
+/** 设计指纹实体 */
+export interface DesignFingerprint {
+  id: string
+  styleProfile: string
+  schemaVersion: string
+  sourceType: string
+  sourceId?: string
+  status: string
+  signature?: string
+  confidence?: number
+  priority?: number
+  tone?: string
+  fingerprintJson?: string
+  reviewRemark?: string
+  createTime?: string
+  updateTime?: string
+}
+
+/** 指纹分页查询请求（管理员） */
+export interface FingerprintQueryRequest extends PageRequest {
+  styleProfile?: string
+  status?: string
+  sourceType?: string
+  tone?: string
+}
+
+/** 指纹审核操作请求 */
+export interface FingerprintReviewRequest {
+  id: string
+  remark?: string
+}

@@ -10,6 +10,7 @@ import {
   LeftOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  BulbOutlined,
 } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '../stores/loginUser'
 
@@ -21,10 +22,11 @@ const loginUser = computed(() => store.loginUser)
 const sidebarCollapsed = ref(false)
 
 const navItems = [
-  { key: 'dashboard', label: '控制台',   icon: 'dashboard', path: '/admin' },
-  { key: 'users',     label: '用户管理', icon: 'user',      path: '/admin/users' },
-  { key: 'apps',      label: '应用管理', icon: 'app',       path: '/admin/apps' },
-  { key: 'chats',     label: '对话历史', icon: 'message',   path: '/admin/chats' },
+  { key: 'dashboard',    label: '控制台',   icon: 'dashboard', path: '/admin' },
+  { key: 'users',        label: '用户管理', icon: 'user',      path: '/admin/users' },
+  { key: 'apps',         label: '应用管理', icon: 'app',       path: '/admin/apps' },
+  { key: 'chats',        label: '对话历史', icon: 'message',   path: '/admin/chats' },
+  { key: 'fingerprints', label: '指纹审核', icon: 'bulb',      path: '/admin/fingerprints' },
 ]
 
 function isActive(path: string) {
@@ -90,6 +92,7 @@ function handleLogout() {
             <UserOutlined      v-else-if="item.icon === 'user'" />
             <AppstoreOutlined  v-else-if="item.icon === 'app'" />
             <MessageOutlined   v-else-if="item.icon === 'message'" />
+            <BulbOutlined      v-else-if="item.icon === 'bulb'" />
           </span>
           <transition name="fade-label">
             <span v-if="!sidebarCollapsed" class="nav-label">{{ item.label }}</span>

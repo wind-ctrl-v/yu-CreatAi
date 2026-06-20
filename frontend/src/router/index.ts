@@ -46,6 +46,11 @@ const routes: RouteRecordRaw[] = [
         name: 'adminChats',
         component: () => import('../pages/admin/AdminChatsPage.vue'),
       },
+      {
+        path: 'fingerprints',
+        name: 'adminFingerprints',
+        component: () => import('../pages/admin/AdminFingerprintPage.vue'),
+      },
     ],
   },
   {
