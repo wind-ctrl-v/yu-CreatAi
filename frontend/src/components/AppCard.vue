@@ -1,18 +1,37 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { AppVO } from '../types'
+import { buildPreviewUrl } from '../api/app'
 
-defineProps<{ app: AppVO }>()
+const props = defineProps<{ app: AppVO }>()
 const emit = defineEmits<{ (e: 'open', app: AppVO): void }>()
 
-const fallbackCover = 'https://placehold.co/600x360/171717/ffffff?text=CreatAi'
+const typeLabel = computed(() => {
+  const map: Record<string, string> = { vue_project: 'Vue 项目', html: 'HTML 页面', multi_file: '多文件' }
+  return map[props.app.codeGenType] || '应用'
+})
+
+const previewUrl = computed(() => buildPreviewUrl(props.app.codeGenType, props.app.id))
 </script>
 
 <template>
   <div class="app-card" @click="emit('open', app)">
     <!-- 封面图 -->
     <div class="cover">
-      <img :src="app.cover || fallbackCover" :alt="app.appName" loading="lazy" />
-      <!-- Hover overlay：Vercel 风格极简提示 -->
+      <!-- 有封面用封面，无封面用程序化预览 -->
+      <img v-if="app.cover" :src="app.cover" :alt="app.appName" loading="lazy" />
+      <div v-else class="cover-fallback">
+        <div class="fallback-inner">
+          <div class="fb-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+            </svg>
+          </div>
+          <span class="fb-type">{{ typeLabel }}</span>
+          <span class="fb-name">{{ app.appName || '未命名' }}</span>
+        </div>
+      </div>
+      <!-- Hover overlay -->
       <div class="cover-overlay">
         <span class="open-label">打开 →</span>
       </div>
@@ -60,7 +79,6 @@ const fallbackCover = 'https://placehold.co/600x360/171717/ffffff?text=CreatAi'
   aspect-ratio: 16 / 10;
   overflow: hidden;
   background: var(--gray-50);
-  /* 顶部圆角对齐 Vercel image radius */
   border-radius: var(--r-image) var(--r-image) 0 0;
 }
 .cover img {
@@ -69,6 +87,46 @@ const fallbackCover = 'https://placehold.co/600x360/171717/ffffff?text=CreatAi'
   object-fit: cover;
   transition: transform 0.36s var(--smooth), filter 0.36s ease;
   display: block;
+}
+
+/* 无封面时程序化卡片 */
+.cover-fallback {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #f0f2f5 0%, #e8ecf1 50%, #f0f2f5 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fallback-inner {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.fb-icon {
+  color: var(--gray-400);
+  opacity: 0.6;
+}
+.fb-type {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gray-400);
+  background: var(--bg-card);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
+  letter-spacing: var(--tracking-label);
+  box-shadow: var(--shadow-ring);
+}
+.fb-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-600);
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .app-card:hover .cover img {
   transform: scale(1.03);
