@@ -40,7 +40,7 @@ public class ImageProperties {
     public static class Fallback {
         /** 搜图无结果时是否启用文生图兜底。 */
         private boolean enabled = false;
-        /** 最终兜底图（picsum），仍可避免占位符残留。 */
+        /** 最终兜底图（picsum），确保不留占位符残留。 */
         private String picsumUrl = "https://picsum.photos/seed/{seed}/1200/800";
     }
 

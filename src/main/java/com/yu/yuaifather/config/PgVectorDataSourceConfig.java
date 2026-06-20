@@ -1,42 +1,45 @@
 package com.yu.yuaifather.config;
 
+import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import javax.sql.DataSource;
-
 /**
  * PGvector 辅助数据源配置。
  * <p>
- * 与 MySQL 主数据源（由 {@code spring.datasource} 自动配置）共存，
- * 通过 {@code @Qualifier} 注入，仅服务于向量存储与语义检索，不参与 MyBatis-Flex 主链路。
+ * DataSource 不暴露为独立 Bean，避免被 Spring Boot 自动配置和 MyBatis-Flex 误抓取，
+ * 仅通过 {@code pgVectorJdbcTemplate} 对外暴露 JDBC 操作能力。
  *
  * @author yu
  */
 @Configuration
 public class PgVectorDataSourceConfig {
 
-    @Bean
-    @ConfigurationProperties("spring.pgvector.datasource")
-    public DataSourceProperties pgVectorDataSourceProperties() {
-        return new DataSourceProperties();
-    }
+    @Value("${spring.pgvector.datasource.url}")
+    private String url;
+
+    @Value("${spring.pgvector.datasource.username}")
+    private String username;
+
+    @Value("${spring.pgvector.datasource.password}")
+    private String password;
+
+    @Value("${spring.pgvector.datasource.driver-class-name:org.postgresql.Driver}")
+    private String driverClassName;
 
     @Bean
-    public DataSource pgVectorDataSource() {
-        return pgVectorDataSourceProperties()
-                .initializeDataSourceBuilder()
-                .type(HikariDataSource.class)
-                .build();
-    }
-
-    @Bean
-    public JdbcTemplate pgVectorJdbcTemplate(@Qualifier("pgVectorDataSource") DataSource ds) {
-        return new JdbcTemplate(ds);
+    public JdbcTemplate pgVectorJdbcTemplate() {
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(url);
+        config.setUsername(username);
+        config.setPassword(password);
+        config.setDriverClassName(driverClassName);
+        config.setMaximumPoolSize(5);
+        config.setMinimumIdle(1);
+        config.setConnectionTimeout(5000);
+        return new JdbcTemplate(new HikariDataSource(config));
     }
 }

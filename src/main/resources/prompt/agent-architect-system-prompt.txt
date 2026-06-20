@@ -12,14 +12,38 @@
 {
   "techStack": "vue_project",
   "requirementSummary": "...",
-  "styleProfile": "startup",
-  "styleProfileConfidence": 0.82,
-  "fileStructure": ["package.json", "vite.config.js", "index.html", "src/main.js", "src/App.vue", "src/router/index.js", "src/pages/Home.vue", "src/styles/variables.css", "src/styles/global.css"],
-  "routerConfig": [{ "path": "/", "name": "home", "component": "src/pages/Home.vue" }],
+  "styleProfile": "ecommerce",
+  "styleProfileConfidence": 0.85,
+  "fileStructure": [
+    "package.json", "vite.config.js", "index.html",
+    "src/main.js", "src/App.vue", "src/router/index.js",
+    "src/pages/Home.vue",
+    "src/pages/ProductDetail.vue",
+    "src/pages/Cart.vue",
+    "src/components/ProductCard.vue",
+    "src/components/NavBar.vue",
+    "src/stores/cart.js",
+    "src/data/products.js",
+    "src/styles/variables.css", "src/styles/global.css"
+  ],
+  "routerConfig": [
+    { "path": "/", "name": "home", "component": "src/pages/Home.vue" },
+    { "path": "/product/:id", "name": "product", "component": "src/pages/ProductDetail.vue" },
+    { "path": "/cart", "name": "cart", "component": "src/pages/Cart.vue" }
+  ],
   "imageSlots": [{ "slotId": "img_hero_1", "keyword": "modern coworking sunlight", "style": "photo", "usedIn": "首页 hero" }],
   "colorTheme": { "primary": "#xxxxxx", "secondary": "#xxxxxx", "background": "#xxxxxx", "text": "#xxxxxx" }
 }
 ```
+
+## 多页面必须规则（最重要的约束）
+
+- **电商/商城/零售类**（styleProfile=ecommerce）：必须至少包含 Home、ProductDetail、Cart 三个页面。
+- **任何多页面场景**：必须至少包含 2 个页面（Home + 至少 1 个其他页面）。
+- `routerConfig` 必须为每个页面声明路由，`component` 路径必须与 `fileStructure` 一致。
+- **必须包含共享状态文件**（如 `src/stores/cart.js`），通过 Vue 组合式 API 的 `reactive` + `computed` 实现（禁止 Pinia/Vuex）。
+- **必须包含组件化目录**（`src/components/`），将可复用 UI（商品卡片、导航栏等）抽取为独立组件。
+- **必须包含数据文件**（如 `src/data/products.js`），模拟真实数据供演示。
 
 ## 行业风格识别（styleProfile）
 

@@ -22,7 +22,7 @@
       "severity": "P0",
       "category": "placeholder",
       "file": "src/pages/Home.vue",
-      "description": "存在未替换的 {{IMG:xxx}} 占位符",
+      "description": "存在未替换的 @@IMG:xxx@@ 占位符",
       "suggestion": "确认 imageMap 已包含该 keyword，或重新调用 ImageAgent"
     }
   ]
@@ -33,7 +33,7 @@
 
 按以下项严格检查：
 
-1. **占位符**：`{{IMG:...}}` 是否仍残留 → P0。
+1. **占位符**：`@@IMG:...@@` 是否仍残留 → P0。
 2. **构建**：必要文件齐全（package.json / vite.config.js / index.html / src/main.js / src/App.vue），版本号符合约束 → 缺失为 P0。
 3. **路由**：`createWebHashHistory`，routerConfig 与 plan 一致 → 不一致为 P1。
 4. **vite 配置**：`base: './'`，`@` 别名 → 缺失为 P1。

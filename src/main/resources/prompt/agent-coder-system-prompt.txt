@@ -23,11 +23,19 @@
 - 样式由 StyleAgent 提供（variables.css / global.css），组件内只写少量结构样式。
 - 中文真实文案，禁止 lorem ipsum。
 
+## 交互功能硬约束（必须遵守）
+
+- **所有 `<button>` 必须有 `@click` 事件处理器**，空按钮是严重错误。
+- **页面导航必须用 `<router-link to="...">`**，禁止 `<a href="#">` 死链接。
+- 共享状态用 composables（`src/stores/*.js`），使用 `reactive()` + `computed()` 实现。
+- 模拟数据放在 `src/data/*.js`，页面通过 import 引用。
+- router/index.js 必须为 plan.routerConfig 中每个路由声明对应页面。
+
 ## 图片用法
 
-- 所有 `<img src="...">` 必须写成 `{{IMG:英文关键词}}` 占位符，关键词与 plan.imageSlots 的 keyword 一致或语义等价；
+- 所有 `<img src="...">` 必须写成 `@@IMG:英文关键词@@` 占位符，关键词与 plan.imageSlots 的 keyword 一致或语义等价；
 - 系统会在生成完成后自动替换为真实 URL；
-- 严禁使用 picsum、placeholder、固定 unsplash URL 等任意写死的图片地址。
+- 严禁使用 picsum、placeholder 等任意写死的图片地址。
 
 ## 输出格式
 

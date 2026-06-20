@@ -38,6 +38,8 @@ public class ImageSearchTool {
     private static final Set<String> HOST_WHITELIST = Set.of(
             "images.unsplash.com",
             "images.pexels.com",
+            "source.unsplash.com",
+            "loremflickr.com",
             // pexels 实际 CDN
             "images.pexels.com.cn",
             "picsum.photos",
@@ -85,7 +87,7 @@ public class ImageSearchTool {
         if (isSafe(url)) {
             return url;
         }
-        // 3) picsum 兜底（保证不留 {{IMG:xxx}} 残留）
+        // 3) picsum 兜底（保证不留 @@IMG:xxx@@ 残留）
         return picsumFallback(keyword);
     }
 

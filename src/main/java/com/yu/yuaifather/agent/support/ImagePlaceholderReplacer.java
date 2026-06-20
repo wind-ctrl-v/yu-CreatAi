@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 /**
  * 图片占位符替换器。
  * <p>
- * 扫描指定项目目录下的所有代码文件，将 {@code {{IMG:keyword}}} 占位符
+ * 扫描指定项目目录下的所有代码文件，将 {@code @@IMG:keyword@@} 占位符
  * 替换为真实图片 URL（来自 {@link ImageSearchTool}）。
  * <p>
  * 同一 keyword 在单次替换过程中只搜索一次（请求级缓存），
@@ -34,8 +34,8 @@ import java.util.regex.Pattern;
 @Component
 public class ImagePlaceholderReplacer {
 
-    /** 占位符正则：{{IMG:任意非花括号字符}}。 */
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{IMG:([^{}]+?)\\}\\}");
+    /** 占位符正则：@@IMG:任意字符@@。使用 @@ 避免与 Mustache 模板冲突。 */
+    private static final Pattern PLACEHOLDER = Pattern.compile("@@IMG:([^@]+?)@@");
 
     /** 仅替换文本类文件，避免误改二进制资源。 */
     private static final Set<String> TEXT_EXTENSIONS = Set.of(
@@ -93,7 +93,7 @@ public class ImagePlaceholderReplacer {
             log.warn("读取文件失败，跳过: {} msg={}", file.getAbsolutePath(), e.getMessage());
             return 0;
         }
-        if (!original.contains("{{IMG:")) {
+        if (!original.contains("@@IMG:")) {
             return 0;
         }
         ReplaceResult r = replaceWithCount(original, resolved);
@@ -113,7 +113,7 @@ public class ImagePlaceholderReplacer {
     }
 
     private ReplaceResult replaceWithCount(String content, Map<String, String> resolved) {
-        if (StrUtil.isBlank(content) || !content.contains("{{IMG:")) {
+        if (StrUtil.isBlank(content) || !content.contains("@@IMG:")) {
             return new ReplaceResult(content, 0);
         }
         Matcher matcher = PLACEHOLDER.matcher(content);

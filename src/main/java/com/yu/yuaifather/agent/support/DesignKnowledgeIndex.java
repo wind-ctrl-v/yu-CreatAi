@@ -10,7 +10,9 @@ import com.yu.yuaifather.model.entity.DesignFingerprint;
 import com.yu.yuaifather.service.DesignFingerprintService;
 import com.yu.yuaifather.service.DesignFingerprintVectorRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -34,6 +36,7 @@ import java.util.Set;
  */
 @Slf4j
 @Component
+@ConditionalOnBean(EmbeddingService.class)
 public class DesignKnowledgeIndex {
 
     /** 召回 topK 上限（见 3.2，最大不超过 3）。 */
@@ -53,7 +56,7 @@ public class DesignKnowledgeIndex {
     public DesignKnowledgeIndex(DesignFingerprintService fingerprintService,
                                 FingerprintProjector fingerprintProjector,
                                 DesignFingerprintVectorRepository vectorRepo,
-                                EmbeddingService embeddingService) {
+                                @Autowired(required = false) EmbeddingService embeddingService) {
         this.fingerprintService = fingerprintService;
         this.fingerprintProjector = fingerprintProjector;
         this.vectorRepo = vectorRepo;
@@ -154,6 +157,10 @@ public class DesignKnowledgeIndex {
      */
     private boolean tryVectorRetrieve(String styleProfile, List<String> queryTags,
                                       int k, List<Ranked> ranked) {
+        if (embeddingService == null) {
+            log.debug("EmbeddingService 未加载，跳过 3B 向量检索");
+            return false;
+        }
         // 构造查询语义文本并生成向量
         String queryText = embeddingService.buildQueryText(styleProfile, queryTags);
         if (queryText.isBlank()) {

@@ -5,6 +5,7 @@ import com.yu.yuaifather.agent.support.JsonExtractor;
 import com.yu.yuaifather.ai.model.dto.DesignFingerprintDTO;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;
 
 /**
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Service;
  * @see EmbeddingService
  */
 @Service
+@ConditionalOnBean(EmbeddingService.class)
 @Slf4j
 public class VectorSyncService {
 

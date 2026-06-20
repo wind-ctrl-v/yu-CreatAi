@@ -134,8 +134,21 @@ public class CoderAgent implements Agent {
 
         if (plan != null) {
             sb.append("请严格按以下生成计划落盘代码：\n");
-            sb.append(JSONUtil.toJsonStr(filterStyleFiles(plan)));
-            sb.append("\n\n务必使用【文件写入工具】逐文件创建，图片资源全部使用 {{IMG:英文关键词}} 占位符。\n\n");
+            GenerationPlan filtered = filterStyleFiles(plan);
+            sb.append(JSONUtil.toJsonStr(filtered));
+            sb.append("\n\n务必使用【文件写入工具】逐文件创建，图片资源全部使用 @@IMG:英文关键词@@ 占位符。\n\n");
+
+            // 交互闭环：若计划中路由不足或缺少关键页面，注入硬约束
+            if (filtered.getRouterConfig() == null || filtered.getRouterConfig().size() <= 1) {
+                sb.append("## 路由完整性要求（当前 plan 路由不足，你必须补齐）\n");
+                sb.append("- 如果需求涉及多页面（如商品详情、购物车、列表页等），routerConfig 必须声明对应路由，不得只有首页。\n");
+                sb.append("- 每增加一个页面，router/index.js 中就要多一条声明。\n\n");
+                sb.append("## 交互完整性要求（重要）\n");
+                sb.append("- 所有 <button> 标签必须有 @click 事件处理函数。\n");
+                sb.append("- 页面间导航使用 <router-link>，禁止 <a href=\"#\">。\n");
+                sb.append("- 共享状态（如购物车、用户信息）用 reactive()+computed() 实现，放在 src/stores/ 下。\n");
+                sb.append("- 模拟数据抽离到 src/data/ 下，通过 import 引用。\n\n");
+            }
         }
 
         // 全局样式文件规则（不写内容 + 必须引用）

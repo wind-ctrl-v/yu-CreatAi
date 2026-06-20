@@ -95,7 +95,7 @@ public class OrchestratorAgent implements Agent {
     private final ProductAgent productAgent;
     private final ArchitectAgent architectAgent;
     private final DesignTokenAgent designTokenAgent;
-    private final DesignRetrieveAgent designRetrieveAgent;
+    private final DesignRetrieveAgent designRetrieveAgent;  // 可空：无 EmbeddingModel 时不加载
     private final ImageAgent imageAgent;
     private final CoderAgent coderAgent;
     private final StyleAgent styleAgent;
@@ -116,7 +116,7 @@ public class OrchestratorAgent implements Agent {
     public OrchestratorAgent(ProductAgent productAgent,
                              ArchitectAgent architectAgent,
                              DesignTokenAgent designTokenAgent,
-                             DesignRetrieveAgent designRetrieveAgent,
+                             @Autowired(required = false) DesignRetrieveAgent designRetrieveAgent,
                              ImageAgent imageAgent,
                              CoderAgent coderAgent,
                              StyleAgent styleAgent,
@@ -174,7 +174,10 @@ public class OrchestratorAgent implements Agent {
                 .concatWith(designTokenAgent.handle(ctx))
                 // Step2.6: 运行时召回受控设计证据 → DesignEvidence 写入 Blackboard（阶段三，开关默认关闭）
                 //          在 DesignToken 之后（可合并静态规范作先验）、并发分支之前
-                .concatWith(designRetrieveAgent.handle(ctx))
+                //          未配置 Embedding 模型时跳过
+                .concatWith(designRetrieveAgent != null
+                        ? designRetrieveAgent.handle(ctx)
+                        : Flux.just(AgentEvent.status(AGENT_NAME, "DesignRetrieveAgent 未加载，跳过召回（缺少 EmbeddingModel）")))
                 // Step3: 搜图 → imageMap 写入 Blackboard
                 //        必须在 Coder 之前完成，确保 {{IMG:keyword}} 替换有素材
                 .concatWith(imageAgent.handle(ctx))

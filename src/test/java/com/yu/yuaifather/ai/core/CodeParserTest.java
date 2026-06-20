@@ -1,5 +1,7 @@
 package com.yu.yuaifather.ai.core;
 
+import com.yu.yuaifather.ai.core.parser.CodeParserExecutor;
+import com.yu.yuaifather.ai.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.ai.model.HtmlCodeResult;
 import com.yu.yuaifather.ai.model.MultiFileCodeResult;
 import org.junit.jupiter.api.Test;
@@ -25,7 +27,7 @@ class CodeParserTest {
 
                 随便写一段描述
                 """;
-        HtmlCodeResult result = CodeParser.parseHtmlCode(codeContent);
+        HtmlCodeResult result = (HtmlCodeResult) CodeParserExecutor.executeParser(codeContent, CodeGenTypeEnum.HTML);
         assertNotNull(result);
         assertNotNull(result.getHtmlCode());
     }
@@ -58,7 +60,7 @@ class CodeParserTest {
 
                 文件创建完成！
                 """;
-        MultiFileCodeResult result = CodeParser.parseMultiFileCode(codeContent);
+        MultiFileCodeResult result = (MultiFileCodeResult) CodeParserExecutor.executeParser(codeContent, CodeGenTypeEnum.MULTI_FILE);
         assertNotNull(result);
         assertNotNull(result.getHtmlCode());
         assertNotNull(result.getCssCode());

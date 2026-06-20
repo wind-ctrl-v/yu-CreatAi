@@ -11,6 +11,7 @@ import com.yu.yuaifather.ai.model.dto.GenerationPlan;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
@@ -39,6 +40,7 @@ import java.util.Set;
  */
 @Slf4j
 @Component
+@ConditionalOnBean(DesignKnowledgeIndex.class)
 public class DesignRetrieveAgent implements Agent {
 
     public static final String AGENT_NAME = "DesignRetrieveAgent";

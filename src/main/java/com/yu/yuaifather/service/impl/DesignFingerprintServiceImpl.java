@@ -47,7 +47,7 @@ public class DesignFingerprintServiceImpl
 
     @Autowired
     public DesignFingerprintServiceImpl(FingerprintParser fingerprintParser,
-                                        VectorSyncService vectorSyncService) {
+                                        @Autowired(required = false) VectorSyncService vectorSyncService) {
         this.fingerprintParser = fingerprintParser;
         this.vectorSyncService = vectorSyncService;
     }
@@ -126,7 +126,7 @@ public class DesignFingerprintServiceImpl
             return false;
         }
         boolean ok = updateStatus(fp, FingerprintStatus.REJECTED, remark);
-        if (ok) {
+        if (ok && vectorSyncService != null) {
             vectorSyncService.deactivateOnRejectOrArchive(id);
         }
         return ok;
@@ -139,7 +139,7 @@ public class DesignFingerprintServiceImpl
             return false;
         }
         boolean ok = updateStatus(fp, FingerprintStatus.ARCHIVED, remark);
-        if (ok) {
+        if (ok && vectorSyncService != null) {
             vectorSyncService.deactivateOnRejectOrArchive(id);
         }
         return ok;
@@ -207,7 +207,7 @@ public class DesignFingerprintServiceImpl
         if (ok) {
             log.info("指纹状态流转 id={} -> {} remark={}", fp.getId(), status.getValue(), remark);
             // APPROVED 时触发向量同步（失败不影响 MySQL 事务）
-            if (status == FingerprintStatus.APPROVED) {
+            if (status == FingerprintStatus.APPROVED && vectorSyncService != null) {
                 vectorSyncService.syncOnApprove(fp);
             }
         }

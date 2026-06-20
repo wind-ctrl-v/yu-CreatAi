@@ -4,6 +4,7 @@ import com.yu.yuaifather.ai.model.dto.DesignFingerprintDTO;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -24,6 +25,7 @@ import java.util.List;
  * @see dev.langchain4j.model.embedding.EmbeddingModel
  */
 @Service
+@ConditionalOnBean(EmbeddingModel.class)
 @Slf4j
 public class EmbeddingService {
 
