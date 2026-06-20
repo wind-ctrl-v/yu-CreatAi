@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { register } from '../../api/user'
@@ -32,320 +32,443 @@ async function handleSubmit() {
   }
 }
 
-const benefits = [
-  '✦ 免费使用 AI 生成网站应用',
-  '✦ 无限次对话式迭代修改',
-  '✦ 云端保存所有创作作品',
-  '✦ 一键分享或部署你的应用',
+// 打字机：展示创意场景
+const cases = [
+  '打造你的第一个落地页',
+  '用 AI 生成完整 Vue 项目',
+  '一句话，变成真实产品',
+  '和 AI 一起开始创作',
 ]
+const caseIdx = ref(0)
+const caseText = ref('')
+let timer: ReturnType<typeof setTimeout> | null = null
+
+function typeCase(idx: number) {
+  caseText.value = ''
+  const target = cases[idx]
+  let i = 0
+  function tick() {
+    if (i < target.length) {
+      caseText.value += target[i++]
+      timer = setTimeout(tick, 52)
+    } else {
+      timer = setTimeout(() => {
+        caseIdx.value = (idx + 1) % cases.length
+        typeCase(caseIdx.value)
+      }, 2600)
+    }
+  }
+  tick()
+}
+
+onMounted(() => typeCase(0))
+onUnmounted(() => { if (timer) clearTimeout(timer) })
 </script>
 
 <template>
-  <div class="auth-wrap">
-    <!-- 左侧：创意展示区 -->
-    <div class="auth-left">
-      <div class="glow glow-1" />
-      <div class="glow glow-2" />
-      <div class="glow glow-3" />
+  <div class="page">
+    <!-- 极淡点阵背景 -->
+    <div class="dot-bg" />
 
-      <div class="left-content">
-        <div class="left-logo">
-          <span class="logo-mark">C</span>
-          <span class="logo-name">CreatAi</span>
+    <!-- 顶部导航条 -->
+    <header class="top-nav">
+      <div class="nav-logo">
+        <div class="logo-icon">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+            <path d="M8 1L15 14H1L8 1Z" fill="currentColor"/>
+          </svg>
         </div>
-
-        <h2 class="left-title">
-          开启你的<br />
-          <span class="left-grad">AI 创作之旅</span>
-        </h2>
-        <p class="left-desc">加入数千名创作者，用 AI 把你的想法变成真实产品</p>
-
-        <div class="benefit-list">
-          <div v-for="b in benefits" :key="b" class="benefit-item">{{ b }}</div>
-        </div>
-
-        <!-- 装饰性代码卡片 -->
-        <div class="code-card">
-          <div class="code-bar">
-            <span class="dot red" /><span class="dot yellow" /><span class="dot green" />
-            <span class="code-file">app.tsx</span>
-          </div>
-          <div class="code-body">
-            <div class="code-line"><span class="kw">const</span> app = <span class="fn">CreatAi</span><span class="pu">(</span><span class="str">"咖啡馆官网"</span><span class="pu">)</span></div>
-            <div class="code-line"><span class="kw">await</span> app.<span class="fn">generate</span><span class="pu">()</span>  <span class="cm">// ✓ 完成</span></div>
-            <div class="code-line cm">// → 已生成 8 个组件，1200 行代码</div>
-          </div>
-        </div>
+        <span class="logo-name">CreatAi</span>
       </div>
-    </div>
+      <div class="nav-right">
+        <span class="nav-tip">已有账号？</span>
+        <router-link to="/user/login" class="nav-link">去登录 →</router-link>
+      </div>
+    </header>
 
-    <!-- 右侧：注册表单 -->
-    <div class="auth-right">
-      <div class="auth-card">
-        <div class="card-header">
-          <h1 class="card-title">创建账号</h1>
-          <p class="card-sub">注册即可免费开始创作</p>
+    <!-- 主体区域 -->
+    <main class="main">
+      <div class="card">
+
+        <!-- 标题区 -->
+        <div class="card-head">
+          <h1 class="title">创建账号</h1>
+          <p class="subtitle">
+            注册即可——
+            <span class="typewriter">{{ caseText }}<span class="cursor" /></span>
+          </p>
         </div>
 
-        <a-form layout="vertical" @submit.prevent="handleSubmit">
-          <a-form-item label="账号">
+        <!-- 分隔线 -->
+        <div class="divider" />
+
+        <!-- 表单 -->
+        <a-form layout="vertical" class="form" @submit.prevent="handleSubmit">
+          <a-form-item>
+            <template #label>
+              <span class="field-label">账号</span>
+            </template>
             <a-input
               v-model:value="form.userAccount"
               size="large"
               placeholder="请输入账号（至少 4 位）"
               allow-clear
+              class="field-input"
             />
           </a-form-item>
-          <a-form-item label="密码">
+
+          <a-form-item>
+            <template #label>
+              <span class="field-label">密码</span>
+            </template>
             <a-input-password
               v-model:value="form.userPassword"
               size="large"
               placeholder="请输入密码（至少 8 位）"
+              class="field-input"
             />
           </a-form-item>
-          <a-form-item label="确认密码">
+
+          <a-form-item>
+            <template #label>
+              <span class="field-label">确认密码</span>
+            </template>
             <a-input-password
               v-model:value="form.checkPassword"
               size="large"
               placeholder="请再次输入密码"
+              class="field-input"
               @keyup.enter="handleSubmit"
             />
           </a-form-item>
-          <a-button
-            type="primary"
-            size="large"
-            block
-            :loading="loading"
+
+          <button
             class="submit-btn"
+            :class="{ loading }"
+            :disabled="loading"
+            type="button"
             @click="handleSubmit"
           >
-            免费注册
-          </a-button>
+            <span v-if="!loading" class="btn-text">
+              免费注册
+              <span class="btn-arrow">→</span>
+            </span>
+            <span v-else class="btn-spinner" />
+          </button>
         </a-form>
 
-        <div class="auth-foot">
-          已有账号？
-          <router-link to="/user/login">去登录</router-link>
+        <!-- 底部 -->
+        <div class="card-foot">
+          <span class="foot-text">已有账号？</span>
+          <router-link to="/user/login" class="foot-link">立即登录</router-link>
         </div>
+
       </div>
-    </div>
+
+      <!-- 底部品牌小字 -->
+      <p class="page-foot">
+        CreatAi · 用一句话，创造属于你的产品
+      </p>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.auth-wrap {
+/* ── 全局重置 ── */
+.page {
   min-height: 100vh;
   display: flex;
-}
-
-/* ====== 左侧 ====== */
-.auth-left {
+  flex-direction: column;
+  background: var(--geist-white);
   position: relative;
-  flex: 1;
-  min-width: 0;
-  background: linear-gradient(145deg, #0d1a40 0%, #1a2060 40%, #1a1060 70%, #0d0630 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 56px;
   overflow: hidden;
 }
 
-.glow {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
+/* 点阵背景（极淡，Vercel 质感） */
+.dot-bg {
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(0,0,0,0.07) 1px, transparent 1px);
+  background-size: 24px 24px;
   pointer-events: none;
-}
-.glow-1 {
-  width: 400px;
-  height: 400px;
-  background: rgba(79, 140, 255, 0.35);
-  top: -80px;
-  right: -60px;
-}
-.glow-2 {
-  width: 320px;
-  height: 320px;
-  background: rgba(108, 71, 255, 0.4);
-  bottom: 80px;
-  left: -60px;
-}
-.glow-3 {
-  width: 200px;
-  height: 200px;
-  background: rgba(176, 92, 247, 0.3);
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  z-index: 0;
 }
 
-.left-content {
+/* ── 顶部导航 ── */
+.top-nav {
   position: relative;
-  z-index: 1;
-  max-width: 460px;
-  width: 100%;
-}
-
-.left-logo {
+  z-index: 10;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 48px;
+  justify-content: space-between;
+  padding: 20px 40px;
+  border-bottom: 1px solid var(--gray-100);
+  background: rgba(255,255,255,0.9);
+  backdrop-filter: blur(8px);
 }
-.logo-mark {
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  text-decoration: none;
+}
+.logo-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-base);
+  background: var(--geist-black);
+  color: var(--geist-white);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  background: var(--brand-gradient);
-  color: #fff;
-  font-weight: 800;
-  font-size: 18px;
-  box-shadow: 0 4px 16px rgba(108, 71, 255, 0.5);
 }
 .logo-name {
-  font-size: 22px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.left-title {
-  font-size: 46px;
-  font-weight: 900;
-  color: #fff;
-  line-height: 1.15;
-  letter-spacing: -1px;
-  margin: 0 0 16px;
-}
-.left-grad {
-  background: linear-gradient(90deg, #4f8cff, #6c47ff, #b05cf7);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.left-desc {
   font-size: 15px;
-  color: rgba(255, 255, 255, 0.55);
-  margin: 0 0 36px;
-  line-height: 1.6;
-}
-
-.benefit-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 40px;
-}
-.benefit-item {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.75);
-  letter-spacing: 0.2px;
-}
-
-/* 装饰代码卡片 */
-.code-card {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  overflow: hidden;
-  backdrop-filter: blur(8px);
-}
-.code-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-.dot.red { background: #ff5f57; }
-.dot.yellow { background: #febc2e; }
-.dot.green { background: #28c840; }
-.code-file {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
-  margin-left: 6px;
-  font-family: monospace;
-}
-.code-body {
-  padding: 14px 18px;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  font-size: 13px;
-  line-height: 2;
-}
-.code-line { color: rgba(255, 255, 255, 0.75); }
-.kw { color: #b05cf7; }
-.fn { color: #6c9eff; }
-.pu { color: rgba(255, 255, 255, 0.5); }
-.str { color: #7ec98a; }
-.cm { color: rgba(255, 255, 255, 0.3); font-style: italic; }
-
-/* ====== 右侧 ====== */
-.auth-right {
-  width: 480px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 40px;
-  background: #f7f8fc;
-}
-
-.auth-card {
-  width: 100%;
-  max-width: 360px;
-}
-
-.card-header {
-  margin-bottom: 32px;
-}
-.card-title {
-  font-size: 28px;
-  font-weight: 800;
-  color: var(--text-primary);
-  margin: 0 0 8px;
-  letter-spacing: -0.5px;
-}
-.card-sub {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin: 0;
-}
-
-.submit-btn {
-  margin-top: 4px;
-  height: 44px;
-  border-radius: 10px;
   font-weight: 600;
-  font-size: 15px;
-  background: var(--brand-gradient);
-  border: none;
-  box-shadow: 0 4px 16px rgba(108, 71, 255, 0.35);
-  transition: opacity 0.18s, transform 0.18s;
+  color: var(--geist-black);
+  letter-spacing: var(--tracking-label);
 }
-.submit-btn:hover {
-  opacity: 0.88;
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-tip {
+  font-size: 13px;
+  color: var(--gray-500);
+}
+.nav-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--geist-black);
+  text-decoration: none;
+  padding: 5px 12px;
+  border-radius: var(--r-base);
+  box-shadow: var(--shadow-ring);
+  transition: all var(--duration-fast) var(--spring);
+}
+.nav-link:hover {
+  background: var(--gray-50);
+  box-shadow: var(--shadow-border);
+  text-decoration: none;
   transform: translateY(-1px);
 }
 
-.auth-foot {
-  margin-top: 20px;
-  text-align: center;
-  font-size: 14px;
-  color: var(--text-secondary);
+/* ── 主体 ── */
+.main {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px 64px;
 }
 
-@media (max-width: 768px) {
-  .auth-left { display: none; }
-  .auth-right { width: 100%; background: #fff; }
+/* ── 注册卡片 ── */
+.card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--geist-white);
+  border-radius: var(--r-image);
+  box-shadow: var(--shadow-card);
+  padding: 40px 36px 32px;
+  animation: card-in 0.5s var(--smooth) both;
+}
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* 标题区 */
+.card-head {
+  margin-bottom: 24px;
+}
+.title {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--geist-black);
+  margin: 0 0 10px;
+  letter-spacing: var(--tracking-heading);
+  line-height: 1.2;
+}
+.subtitle {
+  font-size: 13.5px;
+  color: var(--gray-500);
+  margin: 0;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* 打字机区域 */
+.typewriter {
+  color: var(--geist-black);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+}
+.cursor {
+  display: inline-block;
+  width: 1.5px;
+  height: 13px;
+  background: var(--geist-black);
+  margin-left: 1px;
+  vertical-align: middle;
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.divider {
+  height: 1px;
+  background: var(--gray-100);
+  margin-bottom: 24px;
+}
+
+/* 表单 */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.field-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--geist-black);
+  letter-spacing: var(--tracking-label);
+}
+
+/* 覆盖 Ant Design 输入框 */
+.field-input :deep(.ant-input),
+.field-input :deep(.ant-input-affix-wrapper) {
+  border-radius: var(--r-card) !important;
+  border: none !important;
+  box-shadow: var(--shadow-border) !important;
+  font-size: 14px !important;
+  font-family: inherit !important;
+  color: var(--geist-black) !important;
+  background: var(--geist-white) !important;
+  height: 40px !important;
+  transition: box-shadow var(--duration-fast) ease !important;
+}
+.field-input :deep(.ant-input-affix-wrapper) {
+  height: 40px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+.field-input :deep(.ant-input-affix-wrapper:hover),
+.field-input :deep(.ant-input:hover) {
+  box-shadow: rgba(0,0,0,0.12) 0px 0px 0px 1px !important;
+}
+.field-input :deep(.ant-input-affix-wrapper-focused),
+.field-input :deep(.ant-input:focus) {
+  box-shadow:
+    rgba(0,0,0,0.1) 0px 0px 0px 1px,
+    rgba(10,114,239,0.22) 0px 0px 0px 3px !important;
+}
+.field-input :deep(.ant-input::placeholder) {
+  color: var(--gray-400) !important;
+}
+
+/* 提交按钮 */
+.submit-btn {
+  width: 100%;
+  height: 40px;
+  border-radius: var(--r-base);
+  border: none;
+  background: var(--geist-black);
+  color: var(--geist-white);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: var(--tracking-label);
+  cursor: pointer;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all var(--duration-fast) var(--spring);
+}
+.submit-btn:hover:not(:disabled) {
+  background: #1a1a1a;
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: rgba(0,0,0,0.2) 0px 6px 16px;
+}
+.submit-btn:active:not(:disabled) {
+  transform: scale(0.98);
+  transition-duration: 0.08s;
+}
+.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-arrow {
+  font-size: 15px;
+  transition: transform var(--duration-fast) var(--spring);
+}
+.submit-btn:hover .btn-arrow { transform: translateX(3px); }
+
+.btn-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 底部登录链接 */
+.card-foot {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--gray-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.foot-text {
+  font-size: 13px;
+  color: var(--gray-500);
+}
+.foot-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--geist-black);
+  text-decoration: none;
+  transition: color var(--duration-fast) ease;
+}
+.foot-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 页面底部小字 */
+.page-foot {
+  margin-top: 32px;
+  font-size: 12px;
+  color: var(--gray-400);
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+/* 响应式 */
+@media (max-width: 480px) {
+  .top-nav { padding: 16px 20px; }
+  .card { padding: 28px 20px 24px; }
+  .title { font-size: 22px; }
 }
 </style>
