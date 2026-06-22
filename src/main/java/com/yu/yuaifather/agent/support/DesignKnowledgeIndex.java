@@ -6,9 +6,14 @@ import com.yu.yuaifather.ai.model.dto.DesignEvidence;
 import com.yu.yuaifather.ai.model.dto.DesignFingerprintDTO;
 import com.yu.yuaifather.ai.model.dto.DesignFingerprintVector;
 import com.yu.yuaifather.ai.model.dto.DesignSpec;
+import com.yu.yuaifather.ai.model.dto.GenerationPlan;
+import com.yu.yuaifather.ai.model.dto.RequirementDoc;
+import com.yu.yuaifather.ai.model.dto.UserDesignContext;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 import com.yu.yuaifather.service.DesignFingerprintService;
 import com.yu.yuaifather.service.DesignFingerprintVectorRepository;
+import com.yu.yuaifather.service.PersonalizedQueryBuilder;
+import com.yu.yuaifather.service.UserPreferenceService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +51,8 @@ public class DesignKnowledgeIndex {
     private final FingerprintProjector fingerprintProjector;
     private final DesignFingerprintVectorRepository vectorRepo;
     private final EmbeddingService embeddingService;
+    private final PersonalizedQueryBuilder queryBuilder;
+    private final UserPreferenceService userPreferenceService;
 
     @Value("${agent.retrieve.vector.enabled:false}")
     private boolean vectorEnabled;
@@ -53,14 +60,21 @@ public class DesignKnowledgeIndex {
     @Value("${agent.retrieve.vector.min-similarity:0.7}")
     private double minSimilarity;
 
+    @Value("${agent.personalization.enabled:false}")
+    private boolean personalizationEnabled;
+
     public DesignKnowledgeIndex(DesignFingerprintService fingerprintService,
                                 FingerprintProjector fingerprintProjector,
                                 DesignFingerprintVectorRepository vectorRepo,
-                                @Autowired(required = false) EmbeddingService embeddingService) {
+                                @Autowired(required = false) EmbeddingService embeddingService,
+                                @Autowired(required = false) PersonalizedQueryBuilder queryBuilder,
+                                @Autowired(required = false) UserPreferenceService userPreferenceService) {
         this.fingerprintService = fingerprintService;
         this.fingerprintProjector = fingerprintProjector;
         this.vectorRepo = vectorRepo;
         this.embeddingService = embeddingService;
+        this.queryBuilder = queryBuilder;
+        this.userPreferenceService = userPreferenceService;
     }
 
     /**
@@ -148,7 +162,155 @@ public class DesignKnowledgeIndex {
                 .build();
     }
 
+    /**
+     * 个性化检索（阶段一新增）：支持用户偏好注入的检索方法。
+     * <p>
+     * 在原有检索基础上，使用 PersonalizedQueryBuilder 构造个性化查询文本，
+     * 并在排序阶段融入用户偏好得分和反感惩罚。
+     *
+     * @param styleProfile 风格画像
+     * @param queryTags    需求语义标签
+     * @param staticSpec   静态规范
+     * @param requirement  需求文档（可空）
+     * @param plan         生成计划（可空）
+     * @param userContext  用户设计上下文（可空）
+     * @param topK         期望条数
+     * @return 受控证据
+     */
+    public DesignEvidence retrieve(String styleProfile, List<String> queryTags, DesignSpec staticSpec,
+                                    RequirementDoc requirement, GenerationPlan plan,
+                                    UserDesignContext userContext, int topK) {
+        int k = Math.max(1, Math.min(MAX_TOP_K, topK));
+        List<Ranked> ranked = new ArrayList<>();
+
+        // 先验：静态规范始终排第一
+        if (staticSpec != null) {
+            ranked.add(toRanked(specToItem(staticSpec, staticSpec.getSourceType()),
+                    LocalDateTime.now(), 0));
+        }
+
+        String channel = "STATIC_FALLBACK";
+        boolean vectorHit = false;
+
+        // ★ 3B 向量检索优先（使用个性化查询文本）
+        if (vectorEnabled) {
+            try {
+                vectorHit = tryVectorRetrieveWithPersonalization(
+                        styleProfile, queryTags, requirement, plan, userContext, k, ranked);
+                if (vectorHit) {
+                    channel = "VECTOR_3B";
+                }
+            } catch (Exception e) {
+                log.warn("3B 向量检索异常，回退 3A profile={} msg={}", styleProfile, e.getMessage());
+            }
+        }
+
+        // ★ 3A 结构化回退
+        if (!vectorHit) {
+            try {
+                List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9));
+                if (CollUtil.isNotEmpty(fps)) {
+                    channel = "STRUCTURAL_3A";
+                    for (DesignFingerprint fp : fps) {
+                        DesignEvidence.Item item = fingerprintToItem(fp);
+                        if (item != null) {
+                            int matchScore = softMatchScore(item, queryTags);
+                            ranked.add(toRanked(item, fp.getUpdateTime(), matchScore));
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("结构化召回失败，降级为仅静态规范 profile={} msg={}", styleProfile, e.getMessage());
+            }
+        }
+
+        // ★ 阶段一：个性化加权排序
+        if (personalizationEnabled && userContext != null && userContext.hasPreferences()) {
+            sortWithPersonalization(ranked, queryTags, userContext);
+        } else {
+            // 原有排序逻辑
+            ranked.sort((a, b) -> {
+                int c = Integer.compare(nz(b.item.getPriority()), nz(a.item.getPriority()));
+                if (c != 0) return c;
+                c = Double.compare(nzd(b.item.getConfidence()), nzd(a.item.getConfidence()));
+                if (c != 0) return c;
+                c = b.updatedAt.compareTo(a.updatedAt);
+                if (c != 0) return c;
+                return Integer.compare(b.matchScore, a.matchScore);
+            });
+        }
+
+        List<DesignEvidence.Item> items = new ArrayList<>();
+        for (int i = 0; i < ranked.size() && items.size() < k; i++) {
+            items.add(ranked.get(i).item);
+        }
+        return DesignEvidence.builder()
+                .styleProfile(styleProfile)
+                .channel(channel)
+                .items(items)
+                .build();
+    }
+
     // ============ 3B 向量检索内部实现 ============
+
+    /**
+     * 尝试 3B 向量检索（个性化版本），将命中的指纹投影为 Item 并加入 ranked。
+     *
+     * @return true 表示有有效命中；false 表示需要回退 3A
+     */
+    private boolean tryVectorRetrieveWithPersonalization(String styleProfile, List<String> queryTags,
+                                                          RequirementDoc requirement, GenerationPlan plan,
+                                                          UserDesignContext userContext,
+                                                          int k, List<Ranked> ranked) {
+        if (embeddingService == null) {
+            log.debug("EmbeddingService 未加载，跳过 3B 向量检索");
+            return false;
+        }
+
+        // ★ 构造个性化查询文本
+        String queryText;
+        if (personalizationEnabled && queryBuilder != null && userContext != null) {
+            queryText = queryBuilder.build(requirement, plan, userContext, null);
+        } else {
+            queryText = embeddingService.buildQueryText(styleProfile, queryTags);
+        }
+
+        if (queryText == null || queryText.isBlank()) {
+            log.debug("查询语义文本为空，跳过 3B profile={}", styleProfile);
+            return false;
+        }
+        float[] queryEmbedding = embeddingService.embed(queryText);
+        if (queryEmbedding.length == 0) {
+            log.debug("查询向量为空，跳过 3B profile={}", styleProfile);
+            return false;
+        }
+
+        List<DesignFingerprintVector> vResults =
+                vectorRepo.search(queryEmbedding, styleProfile, k * 2, minSimilarity);
+
+        if (CollUtil.isEmpty(vResults)) {
+            log.debug("3B 向量检索无命中 profile={} minSimilarity={}", styleProfile, minSimilarity);
+            return false;
+        }
+
+        int added = 0;
+        for (DesignFingerprintVector vr : vResults) {
+            DesignFingerprint fp = fingerprintService.getById(vr.getFingerprintId());
+            if (fp == null) {
+                log.debug("3B 命中指纹在 MySQL 中不存在 fingerprintId={}", vr.getFingerprintId());
+                continue;
+            }
+            DesignEvidence.Item item = fingerprintToItem(fp);
+            if (item != null) {
+                int matchScore = softMatchScore(item, queryTags);
+                ranked.add(toRanked(item, fp.getUpdateTime(), matchScore));
+                added++;
+            }
+        }
+        log.info("3B 向量检索完成(个性化) profile={} candidates={} added={}",
+                styleProfile, vResults.size(), added);
+        return added > 0;
+    }
 
     /**
      * 尝试 3B 向量检索，将命中的指纹投影为 Item 并加入 ranked。
@@ -278,6 +440,87 @@ public class DesignKnowledgeIndex {
             }
         }
         return score;
+    }
+
+    /**
+     * 阶段一：个性化加权排序。
+     * <p>
+     * final_score = 0.40 * semantic_similarity + 0.20 * style_profile_score
+     *             + 0.15 * component_match_score + 0.15 * user_preference_score
+     *             + 0.10 * confidence - 0.20 * user_dislike_penalty
+     * <p>
+     * 初期简化：userPreferenceScore = 命中的正向权重之和；dislikePenalty = 命中的负向权重绝对值之和。
+     */
+    private void sortWithPersonalization(List<Ranked> ranked, List<String> queryTags,
+                                          UserDesignContext userContext) {
+        // 为每个候选计算综合得分
+        ranked.sort((a, b) -> {
+            double scoreA = calculatePersonalizedScore(a, queryTags, userContext);
+            double scoreB = calculatePersonalizedScore(b, queryTags, userContext);
+            return Double.compare(scoreB, scoreA); // DESC
+        });
+    }
+
+    private double calculatePersonalizedScore(Ranked r, List<String> queryTags,
+                                               UserDesignContext userContext) {
+        DesignEvidence.Item item = r.item;
+
+        // 语义相似度（用 matchScore 近似，/ 最大可能命中数归一化）
+        double semanticScore = (queryTags != null && !queryTags.isEmpty())
+                ? Math.min(1.0, (double) r.matchScore / Math.max(1, queryTags.size()))
+                : 0.5;
+
+        // 风格画像匹配
+        double styleScore = (item.getTone() != null && userContext.getPreferredStyles() != null)
+                ? overlapRatio(item.getTone(), userContext.getPreferredStyles())
+                : 0.5;
+
+        // 组件匹配
+        double componentScore = (item.getPreferredPatterns() != null && userContext.getPreferredComponents() != null)
+                ? overlapRatio(item.getPreferredPatterns(), userContext.getPreferredComponents())
+                : 0.5;
+
+        // 用户偏好得分（从 UserPreferenceService 计算）
+        double userPrefScore = 0;
+        double dislikePenalty = 0;
+        if (userContext.getUserId() != null && userPreferenceService != null) {
+            Long uid = userContext.getUserId();
+            if (CollUtil.isNotEmpty(item.getTone())) {
+                userPrefScore += userPreferenceService.calculatePreferenceScore(uid, "style", item.getTone());
+                dislikePenalty += userPreferenceService.calculateDislikePenalty(uid, "style", item.getTone());
+            }
+            if (CollUtil.isNotEmpty(item.getLayoutPatterns())) {
+                userPrefScore += userPreferenceService.calculatePreferenceScore(uid, "layout", item.getLayoutPatterns());
+                dislikePenalty += userPreferenceService.calculateDislikePenalty(uid, "layout", item.getLayoutPatterns());
+            }
+            if (CollUtil.isNotEmpty(item.getPreferredPatterns())) {
+                userPrefScore += userPreferenceService.calculatePreferenceScore(uid, "component", item.getPreferredPatterns());
+                dislikePenalty += userPreferenceService.calculateDislikePenalty(uid, "component", item.getPreferredPatterns());
+            }
+        }
+
+        // 置信度归一化
+        double conf = nzd(item.getConfidence());
+
+        // 综合得分公式
+        return 0.40 * semanticScore
+                + 0.20 * styleScore
+                + 0.15 * componentScore
+                + 0.15 * Math.max(0, Math.min(1, userPrefScore + 0.5))
+                + 0.10 * conf
+                - 0.20 * Math.min(1, dislikePenalty);
+    }
+
+    private double overlapRatio(List<String> a, List<String> b) {
+        if (a == null || a.isEmpty() || b == null || b.isEmpty()) return 0.5;
+        Set<String> setB = new LinkedHashSet<>(b);
+        int hits = 0;
+        for (String sa : a) {
+            if (sa != null && setB.contains(sa)) {
+                hits++;
+            }
+        }
+        return hits > 0 ? (double) hits / a.size() : 0;
     }
 
     private Ranked toRanked(DesignEvidence.Item item, LocalDateTime updatedAt, int matchScore) {

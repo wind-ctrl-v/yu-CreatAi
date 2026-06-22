@@ -5,6 +5,7 @@ import com.yu.yuaifather.ai.model.dto.DesignEvidence;
 import com.yu.yuaifather.ai.model.dto.DesignSpec;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
 import com.yu.yuaifather.ai.model.dto.RequirementDoc;
+import com.yu.yuaifather.ai.model.dto.UserDesignContext;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -18,6 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  *   <li>ProductAgent → {@link #putRequirementDoc(RequirementDoc)}</li>
  *   <li>ArchitectAgent → {@link #putPlan(GenerationPlan)}</li>
+ *   <li>DesignTokenAgent → {@link #putDesignSpec(DesignSpec)}</li>
+ *   <li>UserPreferenceAgent → {@link #putUserDesignContext(UserDesignContext)}</li>
  *   <li>ImageAgent → {@link #putImageMap(Map)}</li>
  *   <li>CriticAgent → {@link #putCriticReport(CriticReport)}</li>
  * </ul>
@@ -32,6 +35,7 @@ public class Blackboard {
     private static final String KEY_DEPLOY_URL = "deployUrl";
     private static final String KEY_DESIGN_SPEC = "designSpec";
     private static final String KEY_DESIGN_EVIDENCE = "designEvidence";
+    private static final String KEY_USER_DESIGN_CONTEXT = "userDesignContext";
 
     private final Map<String, Object> store = new ConcurrentHashMap<>();
 
@@ -157,6 +161,26 @@ public class Blackboard {
 
     public String getDeployUrl() {
         return (String) store.get(KEY_DEPLOY_URL);
+    }
+
+    // ---------- userDesignContext ----------
+
+    /**
+     * 写入用户设计上下文（由 UserPreferenceAgent 产出，阶段一）。
+     * <p>
+     * 包含用户偏好画像和权重数据，供 DesignRetrieveAgent、CoderAgent、StyleAgent 消费。
+     */
+    public void putUserDesignContext(UserDesignContext context) {
+        if (context != null) {
+            store.put(KEY_USER_DESIGN_CONTEXT, context);
+        }
+    }
+
+    /**
+     * 读取用户设计上下文，可能为 null（未执行 UserPreferenceAgent 或用户无偏好数据）。
+     */
+    public UserDesignContext getUserDesignContext() {
+        return (UserDesignContext) store.get(KEY_USER_DESIGN_CONTEXT);
     }
 
     /**

@@ -12,6 +12,7 @@ import com.yu.yuaifather.agent.workers.DesignTokenAgent;
 import com.yu.yuaifather.agent.workers.ImageAgent;
 import com.yu.yuaifather.agent.workers.ProductAgent;
 import com.yu.yuaifather.agent.workers.StyleAgent;
+import com.yu.yuaifather.agent.workers.UserPreferenceAgent;
 import com.yu.yuaifather.ai.model.dto.CriticReport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,6 +96,7 @@ public class OrchestratorAgent implements Agent {
     private final ProductAgent productAgent;
     private final ArchitectAgent architectAgent;
     private final DesignTokenAgent designTokenAgent;
+    private final UserPreferenceAgent userPreferenceAgent;  // 阶段一新增：可空，用户偏好加载
     private final DesignRetrieveAgent designRetrieveAgent;  // 可空：无 EmbeddingModel 时不加载
     private final ImageAgent imageAgent;
     private final CoderAgent coderAgent;
@@ -116,6 +118,7 @@ public class OrchestratorAgent implements Agent {
     public OrchestratorAgent(ProductAgent productAgent,
                              ArchitectAgent architectAgent,
                              DesignTokenAgent designTokenAgent,
+                             @Autowired(required = false) UserPreferenceAgent userPreferenceAgent,
                              @Autowired(required = false) DesignRetrieveAgent designRetrieveAgent,
                              ImageAgent imageAgent,
                              CoderAgent coderAgent,
@@ -125,6 +128,7 @@ public class OrchestratorAgent implements Agent {
         this.productAgent = productAgent;
         this.architectAgent = architectAgent;
         this.designTokenAgent = designTokenAgent;
+        this.userPreferenceAgent = userPreferenceAgent;
         this.designRetrieveAgent = designRetrieveAgent;
         this.imageAgent = imageAgent;
         this.coderAgent = coderAgent;
@@ -172,6 +176,11 @@ public class OrchestratorAgent implements Agent {
                 // Step2.5: 加载行业设计规范 → DesignSpec 写入 Blackboard（零 LLM）
                 //          必须在并发分支之前完成，确保 Coder/Style 并发时 tokenGroups 强契约已就绪
                 .concatWith(designTokenAgent.handle(ctx))
+                // Step2.55: 加载用户设计偏好 → UserDesignContext 写入 Blackboard（阶段一新增）
+                //           在 DesignToken 之后、DesignRetrieve 之前，确保检索可使用用户偏好
+                .concatWith(userPreferenceAgent != null
+                        ? userPreferenceAgent.handle(ctx)
+                        : Flux.just(AgentEvent.status(AGENT_NAME, "UserPreferenceAgent 未加载，跳过用户偏好")))
                 // Step2.6: 运行时召回受控设计证据 → DesignEvidence 写入 Blackboard（阶段三，开关默认关闭）
                 //          在 DesignToken 之后（可合并静态规范作先验）、并发分支之前
                 //          未配置 Embedding 模型时跳过

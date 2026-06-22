@@ -8,6 +8,8 @@ import com.yu.yuaifather.agent.support.DesignKnowledgeIndex;
 import com.yu.yuaifather.ai.model.dto.DesignEvidence;
 import com.yu.yuaifather.ai.model.dto.DesignSpec;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
+import com.yu.yuaifather.ai.model.dto.RequirementDoc;
+import com.yu.yuaifather.ai.model.dto.UserDesignContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -75,10 +77,15 @@ public class DesignRetrieveAgent implements Agent {
             try {
                 DesignSpec staticSpec = ctx.getBlackboard().getDesignSpec();
                 GenerationPlan plan = ctx.getBlackboard().getPlan();
+                RequirementDoc requirement = ctx.getBlackboard().getRequirementDoc();
+                UserDesignContext userContext = ctx.getBlackboard().getUserDesignContext();
+
                 String profile = resolveProfile(plan, staticSpec);
                 List<String> queryTags = buildQueryTags(ctx, plan, staticSpec);
 
-                DesignEvidence evidence = knowledgeIndex.retrieve(profile, queryTags, staticSpec, topK);
+                // 阶段一：传递用户偏好上下文给 DesignKnowledgeIndex
+                DesignEvidence evidence = knowledgeIndex.retrieve(profile, queryTags, staticSpec,
+                        requirement, plan, userContext, topK);
                 if (evidence != null && !evidence.isEmpty()) {
                     ctx.getBlackboard().putDesignEvidence(evidence);
                     sink.next(AgentEvent.status(AGENT_NAME,
