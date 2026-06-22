@@ -57,4 +57,31 @@ public class DesignFingerprintVector {
 
     /** 是否有效（软开关，REJECTED/ARCHIVED 时置 false）。 */
     private Boolean isActive;
+
+    /** 来源范围（阶段二新增）：GLOBAL/USER/PROJECT。 */
+    private String sourceScope;
+
+    /** 归属用户ID（阶段二新增）。 */
+    private Long ownerUserId;
+
+    /** 归属项目ID（阶段三新增）。 */
+    private Long projectId;
+
+    /** 可见性（阶段二新增）：PUBLIC/PRIVATE/TEAM。 */
+    private String visibility;
+
+    /** 来源类型（冗余）。 */
+    private String sourceType;
+
+    /** embedding 模型名称。 */
+    private String embeddingModel;
+
+    /** embedding 版本。 */
+    private String embeddingVersion;
+
+    /** 语义文本哈希（阶段二新增）。 */
+    private String semanticTextHash;
+
+    /** cosine 相似度（查询时计算，非持久化字段）。 */
+    private Double similarity;
 }

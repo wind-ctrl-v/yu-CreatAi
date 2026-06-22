@@ -103,6 +103,41 @@ public class DesignFingerprint implements Serializable {
     private String reviewRemark;
 
     /**
+     * 归属用户ID（阶段二新增：用户私有指纹归属）。
+     */
+    @Column("ownerUserId")
+    private Long ownerUserId;
+
+    /**
+     * 归属项目ID（阶段三新增：项目级指纹归属）。
+     */
+    @Column("projectId")
+    private Long projectId;
+
+    /**
+     * 来源范围（阶段二新增）：GLOBAL/USER/PROJECT。
+     */
+    @Column("sourceScope")
+    private String sourceScope;
+
+    /**
+     * 可见性（阶段二新增）：PUBLIC/PRIVATE/TEAM。
+     */
+    private String visibility;
+
+    /**
+     * 来源页面ID（阶段二新增）。
+     */
+    @Column("sourcePageId")
+    private Long sourcePageId;
+
+    /**
+     * 来源生成记录ID（阶段二新增）。
+     */
+    @Column("sourceGenerationId")
+    private Long sourceGenerationId;
+
+    /**
      * 创建时间
      */
     @Column("createTime")

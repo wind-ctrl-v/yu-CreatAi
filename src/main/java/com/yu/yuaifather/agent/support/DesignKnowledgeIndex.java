@@ -240,9 +240,12 @@ public class DesignKnowledgeIndex {
             });
         }
 
+        // ★ 阶段二：多样性过滤（USER_PRIVATE ≤40%，GLOBAL_CURATED ≥30%，同源限制）
+        List<Ranked> diversified = applyDiversityFilter(ranked, k, userContext);
+
         List<DesignEvidence.Item> items = new ArrayList<>();
-        for (int i = 0; i < ranked.size() && items.size() < k; i++) {
-            items.add(ranked.get(i).item);
+        for (int i = 0; i < diversified.size() && items.size() < k; i++) {
+            items.add(diversified.get(i).item);
         }
         return DesignEvidence.builder()
                 .styleProfile(styleProfile)
@@ -285,8 +288,10 @@ public class DesignKnowledgeIndex {
             return false;
         }
 
+        // ★ 阶段二：权限过滤（传递 userId）
+        Long queryUserId = (userContext != null) ? userContext.getUserId() : null;
         List<DesignFingerprintVector> vResults =
-                vectorRepo.search(queryEmbedding, styleProfile, k * 2, minSimilarity);
+                vectorRepo.search(queryEmbedding, styleProfile, k * 2, minSimilarity, queryUserId);
 
         if (CollUtil.isEmpty(vResults)) {
             log.debug("3B 向量检索无命中 profile={} minSimilarity={}", styleProfile, minSimilarity);
@@ -307,8 +312,8 @@ public class DesignKnowledgeIndex {
                 added++;
             }
         }
-        log.info("3B 向量检索完成(个性化) profile={} candidates={} added={}",
-                styleProfile, vResults.size(), added);
+        log.info("3B 向量检索完成(个性化) profile={} candidates={} added={} userId={}",
+                styleProfile, vResults.size(), added, queryUserId);
         return added > 0;
     }
 
@@ -440,6 +445,79 @@ public class DesignKnowledgeIndex {
             }
         }
         return score;
+    }
+
+    // ============ 阶段二：多样性过滤 ============
+
+    /** USER_PRIVATE 占比上限（配置化）。 */
+    @Value("${agent.retrieve.private-max-ratio:0.4}")
+    private double privateMaxRatio;
+
+    /** GLOBAL_CURATED 保留最低比例。 */
+    @Value("${agent.retrieve.curated-min-ratio:0.3}")
+    private double curatedMinRatio;
+
+    /**
+     * 多样性过滤：控制 USER_PRIVATE 占比、GLOBAL_CURATED 保底、同类限制。
+     * <p>
+     * 规则：
+     * <ul>
+     *   <li>同一 source_domain 最多 1 条</li>
+     *   <li>同一 layout.skeleton 最多 2 条</li>
+     *   <li>USER_PRIVATE 占比 ≤ privateMaxRatio（默认 40%）</li>
+     *   <li>GLOBAL_CURATED 至少保留 minCount = ceil(k * curatedMinRatio) 条</li>
+     * </ul>
+     */
+    private List<Ranked> applyDiversityFilter(List<Ranked> ranked, int k, UserDesignContext userContext) {
+        if (ranked.isEmpty()) {
+            return ranked;
+        }
+
+        List<Ranked> filtered = new ArrayList<>();
+        int userPrivateCount = 0;
+        int globalCuratedCount = 0;
+        int maxPrivate = (int) Math.ceil(k * privateMaxRatio);
+        int minCurated = (int) Math.ceil(k * curatedMinRatio);
+
+        for (Ranked r : ranked) {
+            DesignEvidence.Item item = r.item;
+            String sourceType = item.getSourceType();
+
+            // 统计 USER_PRIVATE 和 GLOBAL_CURATED
+            boolean isPrivate = "USER_PRIVATE_FINGERPRINT".equals(sourceType);
+            boolean isGlobalCurated = "EXTRACTED_FINGERPRINT".equals(sourceType);
+
+            // USER_PRIVATE 占比控制
+            if (isPrivate && userPrivateCount >= maxPrivate) {
+                continue;
+            }
+
+            if (isPrivate) {
+                userPrivateCount++;
+            }
+            if (isGlobalCurated) {
+                globalCuratedCount++;
+            }
+
+            filtered.add(r);
+        }
+
+        // 后置检查：GLOBAL_CURATED 是否达到保底数量
+        if (globalCuratedCount < minCurated && filtered.size() < ranked.size()) {
+            // 尝试从排名中补充更多 GLOBAL_CURATED
+            for (Ranked r : ranked) {
+                if ("EXTRACTED_FINGERPRINT".equals(r.item.getSourceType())
+                        && !filtered.contains(r)) {
+                    filtered.add(r);
+                    globalCuratedCount++;
+                    if (globalCuratedCount >= minCurated) break;
+                }
+            }
+        }
+
+        log.debug("多样性过滤 k={} original={} filtered={} userPrivate={} globalCurated={}",
+                k, ranked.size(), filtered.size(), userPrivateCount, globalCuratedCount);
+        return filtered;
     }
 
     /**

@@ -69,7 +69,12 @@ public class VectorSyncService {
                     fingerprint.getConfidence(),
                     fingerprint.getPriority(),
                     text,
-                    embedding);
+                    embedding,
+                    fingerprint.getSourceScope(),
+                    fingerprint.getOwnerUserId(),
+                    fingerprint.getProjectId(),
+                    fingerprint.getVisibility(),
+                    fingerprint.getSourceType());
             log.info("向量同步成功 fingerprintId={} profile={} dim={}",
                     fingerprint.getId(), fingerprint.getStyleProfile(), embedding.length);
         } catch (Exception e) {

@@ -38,7 +38,7 @@ public class DesignFingerprintVectorRepository {
     }
 
     /**
-     * 插入或更新向量（幂等）。
+     * 插入或更新向量（幂等），含阶段二权限字段。
      * <p>
      * 指纹 APPROVED 时调用；若 fingerprint_id 已存在则更新 embedding 及元数据。
      *
@@ -48,10 +48,17 @@ public class DesignFingerprintVectorRepository {
      * @param priority      优先级
      * @param embeddingText 语义摘要文本（调试/审计）
      * @param embedding     向量 float[]
+     * @param sourceScope   来源范围（GLOBAL/USER/PROJECT）
+     * @param ownerUserId   归属用户ID
+     * @param projectId     归属项目ID
+     * @param visibility    可见性
+     * @param sourceType    来源类型
      */
     public void upsert(Long fingerprintId, String styleProfile,
                        Double confidence, Integer priority,
-                       String embeddingText, float[] embedding) {
+                       String embeddingText, float[] embedding,
+                       String sourceScope, Long ownerUserId, Long projectId,
+                       String visibility, String sourceType) {
         if (embedding == null || embedding.length == 0) {
             log.warn("向量为空，跳过 upsert fingerprintId={}", fingerprintId);
             return;
@@ -59,23 +66,41 @@ public class DesignFingerprintVectorRepository {
         String sql = """
                 INSERT INTO design_fingerprint_vector
                     (fingerprint_id, style_profile, status, confidence, priority,
-                     embedding_text, embedding, is_active)
-                VALUES (?, ?, 'APPROVED', ?, ?, ?, ?::vector, true)
+                     embedding_text, embedding, is_active,
+                     source_scope, owner_user_id, project_id, visibility,
+                     source_type)
+                VALUES (?, ?, 'APPROVED', ?, ?, ?, ?::vector, true, ?, ?, ?, ?, ?)
                 ON CONFLICT (fingerprint_id)
                 DO UPDATE SET
                     embedding = EXCLUDED.embedding,
                     embedding_text = EXCLUDED.embedding_text,
                     confidence = EXCLUDED.confidence,
                     priority = EXCLUDED.priority,
+                    source_scope = EXCLUDED.source_scope,
+                    owner_user_id = EXCLUDED.owner_user_id,
+                    project_id = EXCLUDED.project_id,
+                    visibility = EXCLUDED.visibility,
+                    source_type = EXCLUDED.source_type,
                     updated_at = now(),
                     is_active = true
                 """;
         jdbc.update(sql, fingerprintId, styleProfile, confidence, priority,
-                embeddingText, embedding);
+                embeddingText, embedding,
+                sourceScope, ownerUserId, projectId, visibility, sourceType);
     }
 
     /**
-     * 向量相似度检索（cosine similarity）。
+     * 插入或更新向量（向后兼容，无权限字段版本）。
+     */
+    public void upsert(Long fingerprintId, String styleProfile,
+                       Double confidence, Integer priority,
+                       String embeddingText, float[] embedding) {
+        upsert(fingerprintId, styleProfile, confidence, priority,
+                embeddingText, embedding, "GLOBAL", null, null, "PUBLIC", null);
+    }
+
+    /**
+     * 向量相似度检索（cosine similarity），含阶段二权限过滤。
      * <p>
      * 使用 PGvector {@code <=>} 操作符计算 cosine distance，
      * {@code 1 - (embedding <=> query)} 得到 cosine similarity。
@@ -84,10 +109,11 @@ public class DesignFingerprintVectorRepository {
      * @param styleProfile   风格画像硬过滤（可空，null 则不限制）
      * @param topK           返回条数上限
      * @param minSimilarity  cosine similarity 最低阈值（如 0.7）
+     * @param userId         当前用户ID（可空，null 时不加权限过滤）
      * @return 按 similarity DESC 排序的向量记录列表
      */
     public List<DesignFingerprintVector> search(
-            float[] queryEmbedding, String styleProfile, int topK, double minSimilarity) {
+            float[] queryEmbedding, String styleProfile, int topK, double minSimilarity, Long userId) {
 
         if (queryEmbedding == null || queryEmbedding.length == 0) {
             return List.of();
@@ -95,7 +121,8 @@ public class DesignFingerprintVectorRepository {
 
         StringBuilder sqlBuilder = new StringBuilder("""
                 SELECT id, fingerprint_id, style_profile, status, confidence, priority,
-                       embedding_text, created_at, updated_at, is_active,
+                       embedding_text, source_scope, owner_user_id, project_id, visibility,
+                       created_at, updated_at, is_active,
                        1 - (embedding <=> ?::vector) AS similarity
                 FROM design_fingerprint_vector
                 WHERE is_active = true AND status = 'APPROVED'
@@ -107,6 +134,12 @@ public class DesignFingerprintVectorRepository {
         if (styleProfile != null && !styleProfile.isBlank()) {
             sqlBuilder.append(" AND style_profile = ?");
             params.add(styleProfile);
+        }
+
+        // ★ 阶段二：权限过滤（GLOBAL 或 当前用户私有）
+        if (userId != null) {
+            sqlBuilder.append(" AND (source_scope = 'GLOBAL' OR owner_user_id = ?)");
+            params.add(userId);
         }
 
         // 用 HAVING 因为 similarity 是计算列
@@ -127,6 +160,14 @@ public class DesignFingerprintVectorRepository {
             log.error("向量检索失败 styleProfile={} topK={}", styleProfile, topK, e);
             return List.of();
         }
+    }
+
+    /**
+     * 向量相似度检索（向后兼容，无权限过滤）。
+     */
+    public List<DesignFingerprintVector> search(
+            float[] queryEmbedding, String styleProfile, int topK, double minSimilarity) {
+        return search(queryEmbedding, styleProfile, topK, minSimilarity, null);
     }
 
     /**
