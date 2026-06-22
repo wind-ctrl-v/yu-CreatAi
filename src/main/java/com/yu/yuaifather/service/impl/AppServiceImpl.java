@@ -9,6 +9,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
 import com.yu.yuaifather.agent.orchestrator.OrchestratorAgent;
+import com.yu.yuaifather.orchestrator.GenerationOrchestrator;
 import com.yu.yuaifather.ai.AiCodeGenTypeRoutingService;
 import com.yu.yuaifather.ai.core.AiCodeGeneratorFacade;
 import com.yu.yuaifather.ai.model.message.AiResponseMessage;
@@ -78,9 +79,16 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     @Autowired
     private OrchestratorAgent orchestratorAgent;
 
+    @Autowired
+    private GenerationOrchestrator generationOrchestrator;
+
     /** 多 Agent 流水线开关：仅对 VUE_PROJECT 生效，默认关闭，避免影响存量。 */
     @Value("${agent.orchestrator.enabled:false}")
     private boolean orchestratorEnabled;
+
+    /** V2 编排器开关（架构分层后），默认关闭。 */
+    @Value("${agent.orchestrator.v2.enabled:false}")
+    private boolean orchestratorV2Enabled;
 
     /**
      * 应用部署基础 URL，用于拼接部署访问地址。
@@ -199,6 +207,21 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         //    阶段 0：当多 Agent 开关开启且为 Vue 项目时，进入 OrchestratorAgent 多 Agent 流水线；
         //    否则维持经典 aiCodeGeneratorFacade 链路（开关关闭 / 非 Vue 类型均不受影响）。
         if (orchestratorEnabled && codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
+            // V2 编排器优先（架构分层后新流程）
+            if (orchestratorV2Enabled) {
+                try {
+                    AgentContext ctx = AgentContext.builder()
+                            .appId(appId)
+                            .loginUser(loginUser)
+                            .userPrompt(message)
+                            .codeGenType(codeGenTypeEnum)
+                            .build();
+                    Flux<String> codeStream = generationOrchestrator.generate(ctx).map(this::toStreamPayload);
+                    return doExecuteStream(codeStream, appId, loginUser, codeGenTypeEnum);
+                } catch (Exception e) {
+                    log.error("GenerationOrchestrator 异常，降级经典链路 appId={}", appId, e);
+                }
+            }
             try {
                 // 订阅前的同步构建逻辑：构建上下文 + 串联流水线。
                 // 此处尚未向 SSE emit 任何内容，若抛异常可安全回退到经典链路（见文档 0.1.1）。
