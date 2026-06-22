@@ -11,8 +11,10 @@ import com.yu.yuaifather.agent.core.AgentEvent;
 import com.yu.yuaifather.agent.support.DesignLintChecker;
 import com.yu.yuaifather.agent.support.JsonExtractor;
 import com.yu.yuaifather.ai.model.dto.CriticReport;
+import com.yu.yuaifather.ai.model.dto.DesignEvidence;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
 import com.yu.yuaifather.constant.AppConstant;
+import com.yu.yuaifather.service.FingerprintFeedbackService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -28,6 +30,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * CriticAgent：综合静态检查（占位符残留、必备文件）+ LLM 评分，输出 CriticReport。
@@ -71,11 +74,15 @@ public class CriticAgent implements Agent {
 
     private final AgentAiService agentAiService;
     private final DesignLintChecker designLintChecker;
+    private final FingerprintFeedbackService feedbackService;
 
     @Autowired
-    public CriticAgent(AgentAiService agentAiService, DesignLintChecker designLintChecker) {
+    public CriticAgent(AgentAiService agentAiService,
+                       DesignLintChecker designLintChecker,
+                       @Autowired(required = false) FingerprintFeedbackService feedbackService) {
         this.agentAiService = agentAiService;
         this.designLintChecker = designLintChecker;
+        this.feedbackService = feedbackService;
     }
 
     @Override
@@ -144,6 +151,32 @@ public class CriticAgent implements Agent {
                 mergeLintIssues(report, lint, ctx.getAppId());
 
                 ctx.getBlackboard().putCriticReport(report);
+
+                // ★ 阶段三：CriticAgent 反哺指纹质量
+                if (feedbackService != null) {
+                    try {
+                        DesignEvidence evidence = ctx.getBlackboard().getDesignEvidence();
+                        if (evidence != null && !evidence.isEmpty()) {
+                            List<Long> fpIds = evidence.getItems().stream()
+                                    .map(DesignEvidence.Item::getSourceId)
+                                    .filter(id -> id != null && id.matches("\\d+"))
+                                    .map(Long::parseLong)
+                                    .collect(Collectors.toList());
+                            double qualityScore = report.getScore() / 100.0;
+                            // 无 RAG trace，传 null
+                            feedbackService.feedbackFingerprintQuality(
+                                    fpIds, qualityScore, null,
+                                    JsonExtractor.mapper().writeValueAsString(report));
+                            log.debug("CriticAgent 反哺指纹质量 fpIds={} qualityScore={}",
+                                    fpIds.size(), String.format("%.3f", qualityScore));
+                        }
+                    } catch (Exception fbEx) {
+                        // 反哺失败不影响质检主流程
+                        log.warn("CriticAgent 指纹反哺失败 appId={} msg={}",
+                                ctx.getAppId(), fbEx.getMessage());
+                    }
+                }
+
                 sink.next(AgentEvent.builder()
                         .type(AgentEvent.EventType.STATUS_CHANGE)
                         .agentName(AGENT_NAME)

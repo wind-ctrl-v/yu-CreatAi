@@ -138,6 +138,59 @@ public class DesignFingerprint implements Serializable {
     private Long sourceGenerationId;
 
     /**
+     * 抽取置信度（阶段三新增：LLM提取完整性）。
+     */
+    @Column("extractConfidence")
+    private Double extractConfidence;
+
+    /**
+     * 设计质量评分（阶段三新增：页面设计本身水平）。
+     */
+    @Column("designQualityScore")
+    private Double designQualityScore;
+
+    /**
+     * 检索成功评分（阶段三新增：被召回后生成效果好）。
+     */
+    @Column("retrievalSuccessScore")
+    private Double retrievalSuccessScore;
+
+    /**
+     * 使用次数（阶段三新增）。
+     */
+    private Integer usageCount;
+
+    /**
+     * 正面反馈次数（阶段三新增）。
+     */
+    @Column("positiveFeedbackCount")
+    private Integer positiveFeedbackCount;
+
+    /**
+     * 负面反馈次数（阶段三新增）。
+     */
+    @Column("negativeFeedbackCount")
+    private Integer negativeFeedbackCount;
+
+    /**
+     * 提取器模型名称（阶段三新增）。
+     */
+    @Column("extractorModel")
+    private String extractorModel;
+
+    /**
+     * 提取器 prompt 版本（阶段三新增）。
+     */
+    @Column("extractorPromptVersion")
+    private String extractorPromptVersion;
+
+    /**
+     * 指纹 schema 版本（阶段三新增）。
+     */
+    @Column("fingerprintSchemaVersion")
+    private String fingerprintSchemaVersion;
+
+    /**
      * 创建时间
      */
     @Column("createTime")

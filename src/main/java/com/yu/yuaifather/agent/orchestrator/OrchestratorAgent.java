@@ -11,6 +11,7 @@ import com.yu.yuaifather.agent.workers.DesignRetrieveAgent;
 import com.yu.yuaifather.agent.workers.DesignTokenAgent;
 import com.yu.yuaifather.agent.workers.ImageAgent;
 import com.yu.yuaifather.agent.workers.ProductAgent;
+import com.yu.yuaifather.agent.workers.ProjectPreferenceAgent;
 import com.yu.yuaifather.agent.workers.StyleAgent;
 import com.yu.yuaifather.agent.workers.UserPreferenceAgent;
 import com.yu.yuaifather.ai.model.dto.CriticReport;
@@ -97,6 +98,7 @@ public class OrchestratorAgent implements Agent {
     private final ArchitectAgent architectAgent;
     private final DesignTokenAgent designTokenAgent;
     private final UserPreferenceAgent userPreferenceAgent;  // 阶段一新增：可空，用户偏好加载
+    private final ProjectPreferenceAgent projectPreferenceAgent;  // 阶段三新增：可空，项目品牌加载
     private final DesignRetrieveAgent designRetrieveAgent;  // 可空：无 EmbeddingModel 时不加载
     private final ImageAgent imageAgent;
     private final CoderAgent coderAgent;
@@ -119,6 +121,7 @@ public class OrchestratorAgent implements Agent {
                              ArchitectAgent architectAgent,
                              DesignTokenAgent designTokenAgent,
                              @Autowired(required = false) UserPreferenceAgent userPreferenceAgent,
+                             @Autowired(required = false) ProjectPreferenceAgent projectPreferenceAgent,
                              @Autowired(required = false) DesignRetrieveAgent designRetrieveAgent,
                              ImageAgent imageAgent,
                              CoderAgent coderAgent,
@@ -129,6 +132,7 @@ public class OrchestratorAgent implements Agent {
         this.architectAgent = architectAgent;
         this.designTokenAgent = designTokenAgent;
         this.userPreferenceAgent = userPreferenceAgent;
+        this.projectPreferenceAgent = projectPreferenceAgent;
         this.designRetrieveAgent = designRetrieveAgent;
         this.imageAgent = imageAgent;
         this.coderAgent = coderAgent;
@@ -181,6 +185,10 @@ public class OrchestratorAgent implements Agent {
                 .concatWith(userPreferenceAgent != null
                         ? userPreferenceAgent.handle(ctx)
                         : Flux.just(AgentEvent.status(AGENT_NAME, "UserPreferenceAgent 未加载，跳过用户偏好")))
+                // Step2.56: 加载项目品牌画像 → ProjectBrandContext 写入 Blackboard（阶段三新增）
+                .concatWith(projectPreferenceAgent != null
+                        ? projectPreferenceAgent.handle(ctx)
+                        : Flux.just(AgentEvent.status(AGENT_NAME, "ProjectPreferenceAgent 未加载，跳过项目品牌")))
                 // Step2.6: 运行时召回受控设计证据 → DesignEvidence 写入 Blackboard（阶段三，开关默认关闭）
                 //          在 DesignToken 之后（可合并静态规范作先验）、并发分支之前
                 //          未配置 Embedding 模型时跳过

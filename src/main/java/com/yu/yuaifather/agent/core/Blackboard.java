@@ -4,6 +4,7 @@ import com.yu.yuaifather.ai.model.dto.CriticReport;
 import com.yu.yuaifather.ai.model.dto.DesignEvidence;
 import com.yu.yuaifather.ai.model.dto.DesignSpec;
 import com.yu.yuaifather.ai.model.dto.GenerationPlan;
+import com.yu.yuaifather.ai.model.dto.ProjectBrandContext;
 import com.yu.yuaifather.ai.model.dto.RequirementDoc;
 import com.yu.yuaifather.ai.model.dto.UserDesignContext;
 
@@ -36,6 +37,7 @@ public class Blackboard {
     private static final String KEY_DESIGN_SPEC = "designSpec";
     private static final String KEY_DESIGN_EVIDENCE = "designEvidence";
     private static final String KEY_USER_DESIGN_CONTEXT = "userDesignContext";
+    private static final String KEY_PROJECT_BRAND_CONTEXT = "projectBrandContext";
 
     private final Map<String, Object> store = new ConcurrentHashMap<>();
 
@@ -181,6 +183,24 @@ public class Blackboard {
      */
     public UserDesignContext getUserDesignContext() {
         return (UserDesignContext) store.get(KEY_USER_DESIGN_CONTEXT);
+    }
+
+    // ---------- projectBrandContext ----------
+
+    /**
+     * 写入项目品牌上下文（由 ProjectPreferenceAgent 产出，阶段三）。
+     */
+    public void putProjectBrandContext(ProjectBrandContext context) {
+        if (context != null) {
+            store.put(KEY_PROJECT_BRAND_CONTEXT, context);
+        }
+    }
+
+    /**
+     * 读取项目品牌上下文，可能为 null。
+     */
+    public ProjectBrandContext getProjectBrandContext() {
+        return (ProjectBrandContext) store.get(KEY_PROJECT_BRAND_CONTEXT);
     }
 
     /**

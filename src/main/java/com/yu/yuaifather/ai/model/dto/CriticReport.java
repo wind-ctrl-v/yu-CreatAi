@@ -31,6 +31,42 @@ public class CriticReport {
     /** 问题清单。 */
     private List<Issue> issues;
 
+    /**
+     * 设计对齐度（阶段三新增：0~1，生成结果与设计规范的匹配程度）。
+     */
+    private Double designAlignment;
+
+    /**
+     * Token 合规率（阶段三新增：0~1，CSS 变量使用率）。
+     */
+    private Double tokenCompliance;
+
+    /**
+     * 响应式质量（阶段三新增：0~1）。
+     */
+    private Double responsiveQuality;
+
+    /**
+     * 视觉一致性（阶段三新增：0~1）。
+     */
+    private Double visualConsistency;
+
+    /**
+     * 证据使用记录（阶段三新增：哪些指纹被实际采用及使用方面）。
+     */
+    private List<EvidenceUsage> evidenceUsage;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class EvidenceUsage {
+        /** 指纹ID。 */
+        private Long fingerprintId;
+        /** 实际使用的方面列表。 */
+        private List<String> usedAspect;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor
