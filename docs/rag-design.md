@@ -520,3 +520,1076 @@ flowchart TB
 - **质量把控**：置信度门控 + 自产占比上限 + 签名去重，防止知识库劣化
 - **管理员减负**：系统自动爬取和提炼指纹，管理员仅做审核操作
 ```
+
+---
+
+# 第二部分：三阶段升级改造计划
+
+> 在不推翻现有三阶段 RAG 架构的前提下，将其从**平台级设计风格 RAG** 升级为 **平台级设计 RAG + 用户偏好记忆 + 项目品牌记忆 + 反馈闭环**。
+
+---
+
+## 十四、总体改造路线
+
+### 14.1 现有基础
+
+```text
+DesignSpec                静态设计规范
+DesignFingerprint         设计指纹
+DesignEvidence            运行时召回证据
+DesignKnowledgeIndex      检索入口
+PGvector                  向量库
+Blackboard                Agent 上下文
+```
+
+### 14.2 三阶段改造概览
+
+| 阶段 | 目标 | 核心产出 |
+|------|------|----------|
+| **阶段一** | 最小个性化闭环 | 用户偏好可记录、读取、参与生成 |
+| **阶段二** | 用户私有指纹池 | 保存/导出的页面变成用户自己的 RAG 资产 |
+| **阶段三** | 项目品牌记忆 + 评估治理 | 项目级风格一致性 + RAG 效果评估 |
+
+---
+
+# 阶段一：最小个性化闭环
+
+## 十五、阶段一概述
+
+### 15.1 目标效果
+
+```text
+用户 A 喜欢深色科技风 → 生成时自动倾向深色、蓝紫、极简
+用户 B 喜欢电商转化风 → 生成时自动倾向暖色、大图、强 CTA
+```
+
+### 15.2 重点解决的问题
+
+1. 用户偏好有地方存
+2. 用户行为有地方记
+3. 生成时能读取用户偏好
+4. RAG 排序能轻微考虑用户偏好
+5. 生成结果和召回过程可追踪
+
+---
+
+## 十六、阶段一：新增数据库表
+
+### 16.1 `user_design_profile` — 用户设计画像表
+
+用于存储用户长期偏好。
+
+```sql
+CREATE TABLE user_design_profile (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+
+    profile_summary TEXT NULL,
+
+    preferred_styles JSON NULL,
+    disliked_styles JSON NULL,
+
+    preferred_colors JSON NULL,
+    disliked_colors JSON NULL,
+
+    preferred_layouts JSON NULL,
+    disliked_layouts JSON NULL,
+
+    preferred_components JSON NULL,
+    disliked_components JSON NULL,
+
+    preferred_interactions JSON NULL,
+    disliked_interactions JSON NULL,
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+
+    UNIQUE(user_id)
+);
+```
+
+示例数据：
+
+```json
+{
+  "preferred_styles": ["minimal", "tech", "premium"],
+  "preferred_colors": ["dark", "blue", "purple"],
+  "preferred_layouts": ["centered-hero", "card-grid"],
+  "preferred_components": ["pricing", "testimonials", "faq"],
+  "disliked_components": ["carousel"],
+  "disliked_colors": ["orange"]
+}
+```
+
+### 16.2 `user_preference_weight` — 用户偏好权重表
+
+用于精细化参与检索排序。
+
+```sql
+CREATE TABLE user_preference_weight (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+
+    preference_type VARCHAR(64) NOT NULL,
+    preference_key VARCHAR(128) NOT NULL,
+
+    weight DOUBLE NOT NULL DEFAULT 0,
+    evidence_count INT NOT NULL DEFAULT 0,
+    last_evidence_at TIMESTAMP NULL,
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+
+    UNIQUE(user_id, preference_type, preference_key)
+);
+```
+
+示例数据：
+
+| user_id | preference_type | preference_key | weight |
+|---------|-----------------|----------------|--------|
+| 1001 | style | minimal | 0.8 |
+| 1001 | style | tech | 0.7 |
+| 1001 | color | blue | 0.9 |
+| 1001 | color | orange | -0.4 |
+| 1001 | layout | card-grid | 0.6 |
+| 1001 | component | carousel | -0.5 |
+
+### 16.3 `user_design_event` — 用户设计行为事件表
+
+用于记录用户行为，后续更新偏好权重。
+
+```sql
+CREATE TABLE user_design_event (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    project_id BIGINT NULL,
+    generation_id BIGINT NULL,
+    page_id BIGINT NULL,
+
+    event_type VARCHAR(64) NOT NULL,
+    target_type VARCHAR(64) NULL,
+    target_id BIGINT NULL,
+
+    metadata JSON NULL,
+
+    created_at TIMESTAMP NOT NULL
+);
+```
+
+第一阶段记录的事件类型：
+
+```text
+page_generated        页面生成
+page_regenerated      页面重新生成
+page_saved            页面保存
+page_exported         页面导出
+page_deleted          页面删除
+color_changed         颜色修改
+layout_changed        布局修改
+component_added       组件添加
+component_removed     组件移除
+feedback_submitted    反馈提交
+```
+
+事件示例：
+
+```json
+{
+  "event_type": "color_changed",
+  "metadata": {
+    "from": "#ea580c",
+    "to": "#2563eb",
+    "from_tag": "orange",
+    "to_tag": "blue",
+    "section": "hero"
+  }
+}
+```
+
+### 16.4 `generated_page` — 用户生成页面表
+
+用于保存每次生成结果，支持复盘。
+
+```sql
+CREATE TABLE generated_page (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    project_id BIGINT NULL,
+
+    requirement_text TEXT,
+    normalized_requirement JSON NULL,
+
+    style_profile VARCHAR(64),
+
+    html LONGTEXT NULL,
+    css LONGTEXT NULL,
+    js LONGTEXT NULL,
+
+    screenshot_url VARCHAR(1024) NULL,
+
+    design_spec_snapshot JSON NULL,
+    design_evidence_snapshot JSON NULL,
+
+    is_saved BOOLEAN NOT NULL DEFAULT FALSE,
+    is_exported BOOLEAN NOT NULL DEFAULT FALSE,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+
+    user_rating INT NULL,
+    quality_score DOUBLE NULL,
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+```
+
+关键字段：
+
+| 字段 | 用途 |
+|------|------|
+| `design_spec_snapshot` | 记录生成时使用的设计规范快照 |
+| `design_evidence_snapshot` | 记录生成时注入的 RAG 证据快照 |
+
+### 16.5 `generation_rag_trace` — RAG 调用追踪表
+
+后续调试和评估的基础数据。
+
+```sql
+CREATE TABLE generation_rag_trace (
+    id BIGINT PRIMARY KEY,
+    generation_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    project_id BIGINT NULL,
+
+    query_text TEXT,
+    query_tags JSON NULL,
+
+    style_profile VARCHAR(64),
+
+    retrieved_items JSON NULL,
+    reranked_items JSON NULL,
+    injected_items JSON NULL,
+
+    retrieve_channel_stats JSON NULL,
+
+    min_similarity DOUBLE NULL,
+    top_similarity DOUBLE NULL,
+
+    used_user_profile BOOLEAN NOT NULL DEFAULT FALSE,
+
+    created_at TIMESTAMP NOT NULL
+);
+```
+
+示例数据：
+
+```json
+{
+  "retrieved_items": [
+    {
+      "fingerprint_id": 101,
+      "channel": "VECTOR_3B",
+      "similarity": 0.84,
+      "source_scope": "GLOBAL"
+    }
+  ],
+  "reranked_items": [
+    {
+      "fingerprint_id": 101,
+      "final_score": 0.82,
+      "semantic_score": 0.84,
+      "user_preference_score": 0.75
+    }
+  ],
+  "injected_items": [101, 203, 305]
+}
+```
+
+---
+
+## 十七、阶段一：Agent 改造
+
+### 17.1 新增 `UserPreferenceAgent`
+
+**位置**：`DesignTokenAgent` 之后、`DesignRetrieveAgent` 之前。
+
+改造前流水线：
+
+```text
+ProductAgent → ArchitectAgent → DesignTokenAgent → DesignRetrieveAgent
+→ ImageAgent → CoderAgent + StyleAgent
+```
+
+改造后流水线：
+
+```text
+ProductAgent → ArchitectAgent → DesignTokenAgent → UserPreferenceAgent
+→ DesignRetrieveAgent → ImageAgent → CoderAgent + StyleAgent
+```
+
+**职责**：
+
+1. 根据 `userId` 读取 `user_design_profile`
+2. 读取 `user_preference_weight`
+3. 组装 `UserDesignContext`
+4. 写入 Blackboard
+
+Blackboard 新增字段：
+
+```java
+blackboard.putUserDesignProfile(userDesignProfile);
+blackboard.putUserPreferenceWeights(weights);
+```
+
+### 17.2 改造 `DesignRetrieveAgent`
+
+原接口：
+
+```java
+retrieve(profile, queryTags, topK)
+```
+
+改为：
+
+```java
+retrieve(
+    RequirementDoc requirement,
+    GenerationPlan plan,
+    UserDesignProfile userProfile,
+    List<UserPreferenceWeight> weights,
+    int topK
+)
+```
+
+第一阶段不需要大改召回源，只需在 query 构造和 rerank 中融入用户偏好。
+
+---
+
+## 十八、阶段一：个性化 Query 与 Rerank
+
+### 18.1 个性化 Query 构造
+
+当前 query 格式：
+
+```text
+[设计风格: ecommerce]
+[组件: 商品列表 购物车 筛选]
+```
+
+阶段一改为：
+
+```text
+[页面类型: landing_page]
+[行业: AI SaaS]
+[功能模块: hero features pricing faq cta]
+[设计风格: startup]
+[期望调性: 专业 科技 可信赖]
+[用户偏好: minimal tech premium dark blue purple card-grid]
+[用户不喜欢: orange carousel excessive-animation]
+```
+
+构造逻辑：
+
+```java
+String queryText = PersonalizedQueryBuilder.build(
+    requirementDoc,
+    generationPlan,
+    userDesignProfile,
+    preferenceWeights
+);
+```
+
+### 18.2 个性化 Rerank 公式
+
+当前排序：
+
+```text
+priority DESC → confidence DESC → updatedAt DESC → softMatchScore DESC
+```
+
+阶段一改为加权综合打分：
+
+```text
+final_score =
+  0.40 * semantic_similarity
++ 0.20 * style_profile_score
++ 0.15 * component_match_score
++ 0.15 * user_preference_score
++ 0.10 * confidence
+- 0.20 * user_dislike_penalty
+```
+
+初期简化实现：
+
+```java
+userPreferenceScore = 命中的正向偏好权重之和
+userDislikePenalty  = 命中的负向偏好权重绝对值之和
+```
+
+示例：
+
+```text
+候选指纹: color_tags=["orange"], components=["carousel"]
+用户偏好: orange=-0.4, carousel=-0.5
+→ user_dislike_penalty = 0.9 → 该证据应被降权
+```
+
+---
+
+## 十九、阶段一：偏好更新规则
+
+第一阶段用规则更新，不引入复杂 LLM 总结。
+
+### 正反馈
+
+| 行为 | 规则 |
+|------|------|
+| `page_saved` | 指纹中的 style/color/layout/component 权重 **+0.1** |
+| `page_exported` | 指纹中的 style/color/layout/component 权重 **+0.2** |
+| 用户评分 5 星 | 权重 **+0.2** |
+
+### 负反馈
+
+| 行为 | 规则 |
+|------|------|
+| `page_deleted` | 当前页面指纹特征权重 **-0.1** |
+| `page_regenerated` | 当前页面指纹特征权重 **-0.05** |
+| 用户评分 1-2 星 | 权重 **-0.2** |
+
+### 显式编辑反馈
+
+| 行为 | 规则 |
+|------|------|
+| `color_changed: orange → blue` | orange **-0.2**, blue **+0.2** |
+| `component_removed: carousel` | carousel **-0.2** |
+| `component_added: pricing` | pricing **+0.1** |
+
+---
+
+## 二十、阶段一验收标准
+
+### 功能验收
+
+1. 用户偏好可以被保存和读取
+2. 用户行为可以被记录
+3. 生成时 prompt 中能看到用户偏好上下文
+4. RAG 排序会考虑用户偏好
+5. 每次生成会落 `generated_page` 和 `generation_rag_trace`
+6. 用户保存/导出/删除/改颜色后，偏好权重会变化
+
+### 性能指标
+
+| 指标 | 目标 |
+|------|------|
+| `generation_rag_trace` 记录率 | 100% |
+| 用户事件记录成功率 | > 99% |
+| 偏好读取耗时 | < 50ms |
+| RAG 个性化 rerank 耗时 | < 100ms |
+
+---
+
+# 阶段二：用户私有指纹池
+
+## 二十一、阶段二概述
+
+### 21.1 目标
+
+阶段一只是"用户偏好参与排序"，阶段二让用户自己的页面进入 RAG：
+
+```text
+用户保存/导出的页面 → 抽取 DesignFingerprint → 存为 USER_PRIVATE
+→ 向量化 → 后续只对该用户召回
+```
+
+效果：
+
+```text
+用户过去保存过一个他喜欢的深色 SaaS 官网。
+下次他再生成 SaaS 页面时，系统会召回这个私有指纹作为参考。
+```
+
+---
+
+## 二十二、阶段二：表结构改造
+
+### 22.1 扩展 `design_fingerprint`
+
+```sql
+ALTER TABLE design_fingerprint
+ADD COLUMN owner_user_id BIGINT NULL,
+ADD COLUMN project_id BIGINT NULL,
+ADD COLUMN source_scope VARCHAR(32) NOT NULL DEFAULT 'GLOBAL',
+ADD COLUMN visibility VARCHAR(32) NOT NULL DEFAULT 'PUBLIC',
+ADD COLUMN source_page_id BIGINT NULL,
+ADD COLUMN source_generation_id BIGINT NULL;
+```
+
+字段说明：
+
+| 字段 | 可选值 | 说明 |
+|------|--------|------|
+| `source_scope` | `GLOBAL` / `USER` / `PROJECT` | 平台全局 / 用户私有 / 项目级（阶段三用） |
+| `visibility` | `PUBLIC` / `PRIVATE` / `TEAM` | 可见性控制 |
+| `owner_user_id` | 用户 ID | 私有指纹归属 |
+
+### 22.2 扩展向量表 `design_fingerprint_vector`
+
+```sql
+ALTER TABLE design_fingerprint_vector
+ADD COLUMN owner_user_id BIGINT NULL,
+ADD COLUMN project_id BIGINT NULL,
+ADD COLUMN source_scope VARCHAR(32) NOT NULL DEFAULT 'GLOBAL',
+ADD COLUMN visibility VARCHAR(32) NOT NULL DEFAULT 'PUBLIC',
+ADD COLUMN style_profile VARCHAR(64) NULL,
+ADD COLUMN source_type VARCHAR(64) NULL,
+ADD COLUMN embedding_model VARCHAR(128) NULL,
+ADD COLUMN embedding_version VARCHAR(64) NULL,
+ADD COLUMN semantic_text_hash VARCHAR(64) NULL;
+```
+
+### 22.3 检索权限过滤
+
+查询时必须加上权限过滤，防止用户 A 的私有指纹被 B 召回：
+
+```sql
+WHERE is_active = true
+  AND (
+      source_scope = 'GLOBAL'
+      OR owner_user_id = :currentUserId
+  )
+```
+
+---
+
+## 二十三、阶段二：新增服务
+
+### 23.1 `UserFingerprintIngestService`
+
+**职责**：
+
+1. 用户保存/导出页面后触发
+2. 读取 `generated_page` 的 html/css/js/screenshot
+3. 调用 `DesignExtractorAgent` 提取六层指纹
+4. `saveCandidate(dto, sourceScope=USER)`
+5. 通过质量门控后自动 APPROVED
+6. 同步 PGvector
+
+**流程**：
+
+```text
+page_saved / page_exported
+    ↓
+UserFingerprintIngestService
+    ↓
+DesignExtractorAgent（LLM 提炼）
+    ↓
+FingerprintParser（解析 + 校验）
+    ↓
+DesignFingerprintService.saveUserPrivate()
+    ↓
+VectorSyncService.syncOnApprove()
+```
+
+### 23.2 审核策略
+
+| 指纹类型 | 审核方式 | 原因 |
+|----------|----------|------|
+| 平台全局指纹（GLOBAL） | 必须管理员审核 | 影响所有用户 |
+| 用户私有指纹（USER） | 自动质量门控 | 只影响自己，不污染全局 |
+
+质量门控条件：
+
+- `extract_confidence >= 0.65`
+- 页面生成成功
+- 页面有截图或 HTML/CSS
+- 非空 layout / components / tokens
+
+状态保持 `status = APPROVED`，通过 `source_scope = USER` 区分。
+
+---
+
+## 二十四、阶段二：检索源改造与比例控制
+
+### 24.1 检索源扩展
+
+阶段一：
+
+```text
+GLOBAL_VECTOR  →  STRUCTURAL  →  STATIC_SPEC
+```
+
+阶段二：
+
+```text
+GLOBAL_VECTOR  →  USER_PRIVATE_VECTOR  →  STRUCTURAL
+```
+
+注意：`DesignSpec` 不再作为普通 evidence 混排，应作为强约束单独注入。
+
+检索 SQL：
+
+```sql
+SELECT *, 1 - (embedding <=> ?::vector) AS similarity
+FROM design_fingerprint_vector
+WHERE is_active = true
+  AND status = 'APPROVED'
+  AND (
+      source_scope = 'GLOBAL'
+      OR owner_user_id = ?
+  )
+ORDER BY embedding <=> ?::vector
+LIMIT 30;
+```
+
+### 24.2 注入比例控制
+
+不能让用户私有指纹压倒全局精选：
+
+```text
+最终注入 5 条 evidence：
+  GLOBAL_CURATED  至少 2 条
+  USER_PRIVATE    最多 2 条
+  GLOBAL_SELF_FED 最多 1 条
+```
+
+比例上限：
+
+```text
+USER_PRIVATE_MAX_RATIO  = 0.4
+GLOBAL_CURATED_MIN_RATIO = 0.3
+```
+
+### 24.3 多样性过滤
+
+阶段二必须实现，防止用户私有指纹同质化：
+
+| 规则 | 限制 |
+|------|------|
+| 同一 `source_domain` | 最多 1 条 |
+| 同一 `layout.skeleton` | 最多 2 条 |
+| 同一 `color_family` | 最多 2 条 |
+| `USER_PRIVATE` 占比 | 最多 40% |
+| `GLOBAL_CURATED` 保留 | 至少 1-2 条 |
+
+实现位置：`DesignRerankService.rerankAndDiversify()`
+
+---
+
+## 二十五、阶段二验收标准
+
+### 功能验收
+
+1. 用户保存/导出的页面会自动提取私有 DesignFingerprint
+2. 私有 fingerprint 会同步到 PGvector
+3. 当前用户可以召回自己的私有 fingerprint
+4. 其他用户不能召回该 fingerprint
+5. RAG trace 能区分 `GLOBAL` / `USER` 来源
+6. 注入 evidence 时不会被 `USER_PRIVATE` 完全占满
+
+### 性能指标
+
+| 指标 | 目标 |
+|------|------|
+| 私有指纹生成成功率 | > 90% |
+| 私有向量同步成功率 | > 99% |
+| 私有指纹越权召回率 | 0 |
+| USER_PRIVATE evidence 注入占比 | ≤ 配置上限 |
+
+---
+
+# 阶段三：项目品牌记忆 + 评估治理
+
+## 二十六、阶段三概述
+
+阶段一解决**用户偏好**，阶段二解决**历史页面反哺**，阶段三解决：
+
+1. 同一用户的不同项目应有不同品牌风格
+2. 系统需要知道 RAG 到底有没有提升效果
+
+场景示例：
+
+```text
+同一用户：
+  项目 A：AI SaaS，深色科技风
+  项目 B：母婴电商，柔和浅色风
+  项目 C：律师事务所，稳重企业风
+
+不能把项目 A 的深色科技偏好错误迁移到项目 B 和 C。
+```
+
+---
+
+## 二十七、阶段三：项目品牌表
+
+### 27.1 `project_brand_profile`
+
+```sql
+CREATE TABLE project_brand_profile (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    project_id BIGINT NOT NULL,
+
+    brand_name VARCHAR(255) NULL,
+    industry VARCHAR(128) NULL,
+    target_audience TEXT NULL,
+
+    brand_tone JSON NULL,
+    brand_colors JSON NULL,
+    typography_preference JSON NULL,
+    layout_preference JSON NULL,
+    component_preference JSON NULL,
+
+    design_guidelines JSON NULL,
+    forbidden_rules JSON NULL,
+
+    profile_summary TEXT NULL,
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+
+    UNIQUE(project_id)
+);
+```
+
+示例数据：
+
+```json
+{
+  "brand_name": "Nova AI",
+  "industry": "AI SaaS",
+  "target_audience": "企业客户、开发者、产品经理",
+  "brand_tone": ["专业", "前沿", "可信赖", "克制"],
+  "brand_colors": {
+    "primary": "#2563EB",
+    "secondary": "#7C3AED",
+    "mode": "dark"
+  },
+  "forbidden_rules": ["卡通风", "低龄化", "过度装饰", "暖色电商风"]
+}
+```
+
+### 27.2 项目级指纹
+
+在阶段二 `source_scope` 基础上启用 `PROJECT` 级别：
+
+```text
+source_scope = PROJECT
+project_id = 当前项目
+visibility = PRIVATE / TEAM
+```
+
+项目级指纹来源：
+
+1. 项目内用户保存/导出的页面
+2. 用户上传的品牌参考站
+3. 用户确认的品牌设计规范
+4. 项目多次生成后的稳定风格总结
+
+检索 SQL：
+
+```sql
+WHERE is_active = true
+  AND status = 'APPROVED'
+  AND (
+      source_scope = 'GLOBAL'
+      OR owner_user_id = :currentUserId
+      OR project_id = :currentProjectId
+  )
+```
+
+---
+
+## 二十八、阶段三：Agent 扩展
+
+### 28.1 新增 `ProjectPreferenceAgent`
+
+**位置**：
+
+```text
+DesignTokenAgent → UserPreferenceAgent → ProjectPreferenceAgent → DesignRetrieveAgent
+```
+
+**职责**：
+
+1. 读取 `project_brand_profile`
+2. 读取 PROJECT 级指纹摘要
+3. 写入 Blackboard
+
+```java
+blackboard.putProjectBrandProfile(projectBrandProfile);
+```
+
+### 28.2 偏好优先级规则
+
+```text
+当前用户本次 prompt 明确要求     ← 最高优先级
+    ↓ 冲突时覆盖
+项目品牌规范                    ← 第二优先级
+    ↓ 冲突时覆盖
+用户长期偏好                    ← 第三优先级
+    ↓ 冲突时覆盖
+平台 DesignSpec                 ← 第四优先级
+    ↓ 兜底
+全局 RAG evidence               ← 最低优先级
+```
+
+示例：
+
+```text
+用户长期偏好：深色科技风
+当前项目品牌：母婴电商，柔和浅色风
+→ 应优先项目品牌，使用柔和浅色
+```
+
+Prompt 中应明确指令：
+
+```text
+如果用户长期偏好与项目品牌冲突，以项目品牌为准。
+如果项目品牌与本次明确需求冲突，以本次需求为准。
+```
+
+---
+
+## 二十九、阶段三：综合 Rerank 公式
+
+```text
+final_score =
+  0.25 * semantic_similarity
++ 0.15 * style_profile_score
++ 0.15 * component_match_score
++ 0.10 * layout_match_score
++ 0.10 * design_quality_score
++ 0.15 * user_preference_score
++ 0.15 * project_brand_score
+- 0.20 * user_dislike_penalty
+- 0.20 * project_forbidden_penalty
+- 0.10 * duplicate_penalty
+```
+
+关键说明：
+
+| 分数项 | 说明 |
+|--------|------|
+| `project_brand_score` | 命中项目品牌色/调性/行业/目标用户/布局偏好时加分 |
+| `project_forbidden_penalty` | 命中项目禁用项时**强降权**，即使语义相似度再高也不能注入 |
+
+### 29.1 运行时 Query（阶段三最终版）
+
+```text
+[页面类型: landing_page]
+[行业: AI SaaS]
+[目标用户: 企业客户、开发者、产品经理]
+[业务目标: 获取试用转化]
+[功能模块: hero, features, pricing, faq, testimonials]
+
+[项目品牌]
+品牌名: Nova AI
+调性: 专业、前沿、可信赖、克制
+主色: #2563EB
+禁用: 卡通风、低龄化、过度装饰
+
+[用户长期偏好]
+偏好: 极简、高级感、深色科技风、蓝紫渐变、卡片式布局
+不喜欢: 橙色电商风、轮播图、过多动画
+
+[设计风格]
+styleProfile: startup
+```
+
+---
+
+## 三十、阶段三：评估与反馈治理
+
+### 30.1 扩展 `design_fingerprint` 质量字段
+
+```sql
+ALTER TABLE design_fingerprint
+ADD COLUMN extract_confidence DOUBLE NULL,
+ADD COLUMN design_quality_score DOUBLE NULL,
+ADD COLUMN retrieval_success_score DOUBLE DEFAULT 0,
+ADD COLUMN usage_count INT DEFAULT 0,
+ADD COLUMN positive_feedback_count INT DEFAULT 0,
+ADD COLUMN negative_feedback_count INT DEFAULT 0,
+ADD COLUMN extractor_model VARCHAR(128) NULL,
+ADD COLUMN extractor_prompt_version VARCHAR(64) NULL,
+ADD COLUMN fingerprint_schema_version VARCHAR(64) NULL;
+```
+
+三种分数区分：
+
+| 分数 | 含义 |
+|------|------|
+| `extract_confidence` | 抽取是否完整，不代表设计好坏 |
+| `design_quality_score` | 页面设计本身的质量评分 |
+| `retrieval_success_score` | 该指纹被召回后是否真的带来好生成结果 |
+
+### 30.2 审核日志表
+
+```sql
+CREATE TABLE design_fingerprint_review_log (
+    id BIGINT PRIMARY KEY,
+    fingerprint_id BIGINT NOT NULL,
+    reviewer_id BIGINT NULL,
+
+    action VARCHAR(32) NOT NULL,
+    reason TEXT NULL,
+    quality_score DOUBLE NULL,
+
+    created_at TIMESTAMP NOT NULL
+);
+```
+
+用于分析：
+
+- 哪些来源质量高？
+- 哪些类型经常被拒？
+- 哪个 prompt 版本抽取效果差？
+
+### 30.3 CriticAgent 反哺
+
+让 CriticAgent 输出结构化评估，反向更新指纹质量：
+
+```json
+{
+  "design_alignment": 0.82,
+  "token_compliance": 0.91,
+  "responsive_quality": 0.78,
+  "visual_consistency": 0.85,
+  "evidence_usage": [
+    {
+      "fingerprint_id": 101,
+      "used_aspect": ["dark palette", "card grid", "hero layout"]
+    }
+  ],
+  "issues": [
+    "CTA contrast is weak",
+    "feature card spacing inconsistent"
+  ]
+}
+```
+
+更新链条：
+
+```text
+CriticAgent 评估
+    ↓
+generated_page.quality_score 更新
+design_fingerprint.usage_count ++
+design_fingerprint.retrieval_success_score 更新
+generation_rag_trace 补充记录
+```
+
+---
+
+## 三十一、阶段三验收标准
+
+### 功能验收
+
+1. 每个项目可以有独立品牌画像
+2. 生成时可以同时读取用户偏好和项目品牌
+3. 冲突时能优先遵守当前需求和项目品牌
+4. 项目级指纹可以被召回
+5. RAG 效果可以被追踪、统计、评估
+6. CriticAgent 可以反哺质量分
+7. 管理员可以看到指纹审核和使用效果
+
+### 关键指标
+
+| 指标 | 目标 |
+|------|------|
+| 项目品牌上下文注入率 | 100% |
+| 项目禁用项违规率 | 持续下降 |
+| RAG trace 覆盖率 | 100% |
+| CriticAgent 结构化评估入库率 | > 95% |
+
+---
+
+## 三十二、三阶段汇总
+
+### 32.1 三阶段后最终流水线
+
+```text
+ProductAgent
+    ↓
+ArchitectAgent
+    ↓
+DesignTokenAgent              ← 阶段一：静态规范（原有）
+    ↓
+UserPreferenceAgent           ← 阶段一：用户偏好
+    ↓
+ProjectPreferenceAgent        ← 阶段三：项目品牌
+    ↓
+DesignRetrieveAgent           ← 阶段二/三：多源检索
+    ↓
+DesignRerankAgent             ← 阶段三：综合排序
+    ↓
+ImageAgent
+    ↓
+CoderAgent + StyleAgent       ← 并行生成
+    ↓
+CriticAgent                   ← 阶段三：质量评估 + 反哺
+    ↓
+DeployAgent
+    ↓
+[异步] PreferenceUpdateAgent  ← 阶段一：偏好更新
+[异步] FingerprintIngestService ← 阶段二：私有指纹入库
+```
+
+### 32.2 最终 Blackboard 全景
+
+| 写入方 | 数据 | 读取方 |
+|--------|------|--------|
+| ArchitectAgent | `GenerationPlan` | 下游所有 Agent |
+| DesignTokenAgent | `DesignSpec` | CoderAgent, StyleAgent |
+| UserPreferenceAgent | `UserDesignProfile`, `UserPreferenceWeights` | DesignRetrieveAgent, CoderAgent, StyleAgent |
+| ProjectPreferenceAgent | `ProjectBrandProfile` | DesignRetrieveAgent, CoderAgent, StyleAgent |
+| DesignRetrieveAgent | `DesignEvidence` | CoderAgent, StyleAgent |
+| ImageAgent | `imageMap` | CoderAgent |
+| CoderAgent | `generatedFiles` | CriticAgent |
+| StyleAgent | `generatedStyles` | CriticAgent |
+| CriticAgent | `criticFeedback` | CoderAgent（重试循环） |
+
+### 32.3 三阶段功能对比
+
+| 维度 | 阶段一 | 阶段二 | 阶段三 |
+|------|--------|--------|--------|
+| **记忆范围** | 用户偏好标签 + 权重 | 用户历史满意页面完整指纹 | 项目级品牌规范 + 指纹 |
+| **检索范围** | GLOBAL 全局 | GLOBAL + USER_PRIVATE | GLOBAL + USER + PROJECT |
+| **个性化深度** | rerank 加权 | 独立检索源 | 多级优先级冲突处理 |
+| **质量闭环** | 规则更新权重 | 自动质量门控 | CriticAgent 反哺 + 评估面板 |
+| **隔离粒度** | 用户级 | 用户级 | 项目级（同用户多项目隔离） |
+
+### 32.4 实施优先级建议
+
+```text
+第一优先级（阶段一核心）：
+  1. user_design_profile
+  2. user_preference_weight
+  3. user_design_event
+  4. generated_page
+  5. generation_rag_trace
+  6. UserPreferenceAgent
+  7. 个性化 rerank
+
+第二优先级（阶段二核心）：
+  1. 用户保存/导出页面提取私有 fingerprint
+  2. source_scope / owner_user_id / visibility
+  3. USER_PRIVATE 向量召回
+  4. evidence 比例控制
+
+第三优先级（阶段三核心）：
+  1. project_brand_profile
+  2. PROJECT 指纹池
+  3. CriticAgent 反哺
+  4. RAG 效果评估面板
+```
+
+### 32.5 一句话总结
+
+```text
+阶段一：记录偏好，让生成"知道用户喜欢什么"
+阶段二：沉淀私有指纹，让 RAG"记住用户认可过什么"
+阶段三：引入项目品牌和评估治理，让系统"稳定、可控、可优化"
+```
+
+你现在的 RAG 已经有了不错的全局设计知识库基础。下一步真正要补的不是再多爬几个网页，而是加上 **用户偏好层、用户私有记忆层、项目品牌层、RAG 追踪评估层**。这四层补上以后，系统才会从"生成好看的网页"进化到"生成这个用户真正喜欢、这个项目真正适合的网页"。`
