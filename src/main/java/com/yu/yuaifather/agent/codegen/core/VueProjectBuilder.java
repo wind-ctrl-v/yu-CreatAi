@@ -2,9 +2,12 @@ package com.yu.yuaifather.agent.codegen.core;
 
 import cn.hutool.core.util.RuntimeUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 
@@ -12,6 +15,9 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class VueProjectBuilder {
 
+    @Autowired
+    @Qualifier("buildExecutor")
+    private Executor buildExecutor;
 
     /**
      * 异步构建项目（不阻塞主流程）
@@ -19,8 +25,7 @@ public class VueProjectBuilder {
      * @param projectPath 项目路径
      */
     public void buildProjectAsync(String projectPath) {
-        // 在单独的线程中执行构建，避免阻塞主流程
-        Thread.ofVirtual().name("vue-builder-" + System.currentTimeMillis()).start(() -> {
+        buildExecutor.execute(() -> {
             try {
                 buildProject(projectPath);
             } catch (Exception e) {

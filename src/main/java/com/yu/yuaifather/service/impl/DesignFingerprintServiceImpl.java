@@ -10,7 +10,7 @@ import com.yu.yuaifather.mapper.DesignFingerprintMapper;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 import com.yu.yuaifather.model.enums.FingerprintStatus;
 import com.yu.yuaifather.service.DesignFingerprintService;
-import com.yu.yuaifather.service.VectorSyncService;
+import com.yu.yuaifather.worker.VectorSyncWorker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -43,13 +43,13 @@ public class DesignFingerprintServiceImpl
     private static final int FINGERPRINT_PRIORITY = 30;
 
     private final FingerprintParser fingerprintParser;
-    private final VectorSyncService vectorSyncService;
+    private final VectorSyncWorker vectorSyncWorker;
 
     @Autowired
     public DesignFingerprintServiceImpl(FingerprintParser fingerprintParser,
-                                        @Autowired(required = false) VectorSyncService vectorSyncService) {
+                                        @Autowired(required = false) VectorSyncWorker vectorSyncWorker) {
         this.fingerprintParser = fingerprintParser;
-        this.vectorSyncService = vectorSyncService;
+        this.vectorSyncWorker = vectorSyncWorker;
     }
 
     @Override
@@ -126,8 +126,8 @@ public class DesignFingerprintServiceImpl
             return false;
         }
         boolean ok = updateStatus(fp, FingerprintStatus.REJECTED, remark);
-        if (ok && vectorSyncService != null) {
-            vectorSyncService.deactivateOnRejectOrArchive(id);
+        if (ok && vectorSyncWorker != null) {
+            vectorSyncWorker.deactivateOnRejectOrArchive(id);
         }
         return ok;
     }
@@ -139,8 +139,8 @@ public class DesignFingerprintServiceImpl
             return false;
         }
         boolean ok = updateStatus(fp, FingerprintStatus.ARCHIVED, remark);
-        if (ok && vectorSyncService != null) {
-            vectorSyncService.deactivateOnRejectOrArchive(id);
+        if (ok && vectorSyncWorker != null) {
+            vectorSyncWorker.deactivateOnRejectOrArchive(id);
         }
         return ok;
     }
@@ -207,8 +207,8 @@ public class DesignFingerprintServiceImpl
         if (ok) {
             log.info("指纹状态流转 id={} -> {} remark={}", fp.getId(), status.getValue(), remark);
             // APPROVED 时触发向量同步（失败不影响 MySQL 事务）
-            if (status == FingerprintStatus.APPROVED && vectorSyncService != null) {
-                vectorSyncService.syncOnApprove(fp);
+            if (status == FingerprintStatus.APPROVED && vectorSyncWorker != null) {
+                vectorSyncWorker.syncOnApprove(fp);
             }
         }
         return ok;

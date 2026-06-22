@@ -64,6 +64,11 @@ public interface UserService extends IService<User> {
 
     String getEncryptPassword(String defaultPassword);
 
+    /**
+     * 验证明文密码是否与加密密文匹配
+     */
+    boolean verifyPassword(String rawPassword, String encodedPassword);
+
     UserVO getUserVO(User user);
 
     QueryWrapper getQueryWrapper(UserQueryRequest userQueryRequest);

@@ -79,8 +79,8 @@ public class CoderAgent implements Agent {
                                 String filePath = JSONUtil.parseObj(args).getStr("relativeFilePath");
                                 ctx.getBlackboard().addGeneratedFile(filePath);
                             }
-                        } catch (Exception ignore) {
-                            // 解析失败不影响主流程
+                        } catch (Exception e) {
+                            log.debug("文件路径解析失败，不影响主流程", e);
                         }
                         sink.next(AgentEvent.builder()
                                 .type(AgentEvent.EventType.TOOL_RESULT)

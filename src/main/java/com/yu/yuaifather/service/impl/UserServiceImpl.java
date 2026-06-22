@@ -15,8 +15,8 @@ import com.yu.yuaifather.model.vo.LoginUserVO;
 import com.yu.yuaifather.model.vo.UserVO;
 import com.yu.yuaifather.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +32,8 @@ import static com.yu.yuaifather.constant.UserConstant.USER_LOGIN_STATE;
  */
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements UserService{
+
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
         // 1. 校验
@@ -70,10 +72,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
     }
 
 
+    @Override
     public String getEncryptPassword(String userPassword) {
-        // 盐值，混淆密码
-        final String SALT = "yc";
-        return DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
+        // 使用 BCrypt 加密：自带随机盐 + 自适应迭代，安全强度远高于 MD5
+        return passwordEncoder.encode(userPassword);
+    }
+
+    /**
+     * 验证密码是否匹配
+     */
+    @Override
+    public boolean verifyPassword(String rawPassword, String encodedPassword) {
+        return passwordEncoder.matches(rawPassword, encodedPassword);
     }
 
 
@@ -99,15 +109,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
         if (userPassword.length() < 8) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码错误");
         }
-        // 2. 加密
-        String encryptPassword = getEncryptPassword(userPassword);
-        // 查询用户是否存在
+        // 2. 先查用户，再用 BCrypt 校验密码（BCrypt 每次生成不同密文，不能用于 SQL 等值查询）
         QueryWrapper queryWrapper = new QueryWrapper();
         queryWrapper.eq("userAccount", userAccount);
-        queryWrapper.eq("userPassword", encryptPassword);
         User user = this.mapper.selectOneByQuery(queryWrapper);
-        // 用户不存在
-        if (user == null) {
+        // 用户不存在或密码错误
+        if (user == null || !passwordEncoder.matches(userPassword, user.getUserPassword())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在或密码错误");
         }
         // 3. 记录用户的登录态

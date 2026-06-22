@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
+import java.time.Duration;
 
 /**
  * AI 代码生成外观类，组合生成和保存功能
@@ -138,7 +139,10 @@ public class AiCodeGeneratorFacade {
                         sink.error(error);
                     })
                     .start();
-        });
+        })
+        // 添加超时保护，防止 TokenStream 回调永不触发导致 Flux 挂起
+        .timeout(Duration.ofMinutes(10), Flux.error(
+                new BusinessException(ErrorCode.SYSTEM_ERROR, "AI 代码生成超时，请重试")));
     }
 
 

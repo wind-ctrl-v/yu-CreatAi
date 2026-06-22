@@ -1,9 +1,11 @@
 package com.yu.yuaifather.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 @Service
 public class ServeDeployService {
 
@@ -22,7 +24,7 @@ public class ServeDeployService {
                 );
                 pb.redirectErrorStream(true);
                 serveProcess = pb.start();
-                System.out.println("Serve service started on port " + SERVE_PORT);
+                log.info("Serve service started on port {}", SERVE_PORT);
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to start serve service", e);
@@ -37,10 +39,10 @@ public class ServeDeployService {
             serveProcess.destroy();
             try {
                 serveProcess.waitFor(5, TimeUnit.SECONDS);
-                System.out.println("Serve service stopped");
+                log.info("Serve service stopped");
             } catch (InterruptedException e) {
                 serveProcess.destroyForcibly();
-                System.out.println("Serve service force stopped");
+                log.info("Serve service force stopped");
             }
         }
     }

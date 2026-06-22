@@ -14,6 +14,7 @@ import com.yu.yuaifather.model.dto.*;
 import com.yu.yuaifather.model.vo.LoginUserVO;
 import com.yu.yuaifather.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,12 +40,17 @@ public class UserController {
     @Autowired
     private UserService userService;
 
+    /** 新建用户时的默认密码，通过配置项 user.default-password 注入（生产环境必须修改） */
+    @Value("${user.default-password:ChangMe123456}")
+    private String defaultPassword;
+
     /**
      * 保存用户。
      *
      * @param user 用户
      * @return {@code true} 保存成功，{@code false} 保存失败
      */
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @PostMapping("save")
     public boolean save(@RequestBody User user) {
         return userService.save(user);
@@ -56,6 +62,7 @@ public class UserController {
      * @param id 主键
      * @return {@code true} 删除成功，{@code false} 删除失败
      */
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @DeleteMapping("remove/{id}")
     public boolean remove(@PathVariable Long id) {
         return userService.removeById(id);
@@ -67,6 +74,7 @@ public class UserController {
      * @param user 用户
      * @return {@code true} 更新成功，{@code false} 更新失败
      */
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @PutMapping("update")
     public boolean update(@RequestBody User user) {
         return userService.updateById(user);
@@ -77,6 +85,7 @@ public class UserController {
      *
      * @return 所有数据
      */
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @GetMapping("list")
     public List<User> list() {
         return userService.list();
@@ -88,6 +97,7 @@ public class UserController {
      * @param id 用户主键
      * @return 用户详情
      */
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @GetMapping("getInfo/{id}")
     public User getInfo(@PathVariable Long id) {
         return userService.getById(id);
@@ -99,6 +109,7 @@ public class UserController {
      * @param page 分页对象
      * @return 分页对象
      */
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @GetMapping("page")
     public Page<User> page(Page<User> page) {
         return userService.page(page);
@@ -149,9 +160,8 @@ public class UserController {
         ThrowUtils.throwIf(userAddRequest == null, ErrorCode.PARAMS_ERROR);
         User user = new User();
         BeanUtil.copyProperties(userAddRequest, user);
-        // 默认密码 12345678
-        final String DEFAULT_PASSWORD = "12345678";
-        String encryptPassword = userService.getEncryptPassword(DEFAULT_PASSWORD);
+        // 默认密码通过配置项注入，生产环境必须修改
+        String encryptPassword = userService.getEncryptPassword(defaultPassword);
         user.setUserPassword(encryptPassword);
         boolean result = userService.save(user);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);

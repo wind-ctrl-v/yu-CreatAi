@@ -22,6 +22,7 @@
         <knife4j.version>4.5.0</knife4j.version>
         <hutool.version>5.8.39</hutool.version>
         <mybatis-flex.version>1.11.0</mybatis-flex.version>
+        <langchain4j.version>1.1.0</langchain4j.version>
     </properties>
 
     <dependencies>
@@ -111,22 +112,22 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
-            <version>1.1.0</version>
+            <version>${langchain4j.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
-            <version>1.1.0-beta7</version>
+            <version>${langchain4j.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-reactor</artifactId>
-            <version>1.1.0-beta7</version>
+            <version>${langchain4j.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-community-redis-spring-boot-starter</artifactId>
-            <version>1.1.0-beta7</version>
+            <version>${langchain4j.version}</version>
         </dependency>
 
 
@@ -167,6 +168,12 @@
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
+        <!-- Spring Security Crypto：BCrypt 密码加密（不引入 Spring Security 完整框架） -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
         <dependency>

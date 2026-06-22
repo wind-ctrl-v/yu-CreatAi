@@ -73,7 +73,8 @@ public class DesignLintChecker {
             String content;
             try {
                 content = FileUtil.readString(f, StandardCharsets.UTF_8);
-            } catch (Exception ignore) {
+            } catch (Exception e) {
+                log.debug("Lint 文件读取异常，跳过: {}", f.getAbsolutePath(), e);
                 continue;
             }
             String[] lines = content.split("\\r?\\n");

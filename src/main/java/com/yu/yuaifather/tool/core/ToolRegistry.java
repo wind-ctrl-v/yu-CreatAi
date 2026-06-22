@@ -53,17 +53,36 @@ public class ToolRegistry {
             return false;
         }
         Map<String, AtomicInteger> counts = callCounts.computeIfAbsent(agentName, k -> new ConcurrentHashMap<>());
-        int totalCalls = counts.values().stream().mapToInt(AtomicInteger::get).sum();
-        if (totalCalls >= maxCallsPerRun) {
-            log.warn("ToolRegistry 拒绝调用 agent={} tool={}（超出总次数 {}）", agentName, toolName, maxCallsPerRun);
-            return false;
-        }
-        AtomicInteger toolCalls = counts.computeIfAbsent(toolName, k -> new AtomicInteger(0));
-        if (toolCalls.get() >= maxCallsPerTool) {
+
+        // 原子操作：获取或初始化计数器，同时检查上限。
+        // ConcurrentHashMap.compute() 对同一 key 是串行化的，保证内部 thread-safe。
+        final boolean[] incremented = {false};
+        AtomicInteger toolCalls = counts.compute(toolName, (k, v) -> {
+            if (v == null) {
+                incremented[0] = true;
+                return new AtomicInteger(1);
+            }
+            int current = v.get();
+            if (current >= maxCallsPerTool) {
+                return v; // 已达上限，不递增
+            }
+            v.incrementAndGet();
+            incremented[0] = true;
+            return v;
+        });
+
+        if (!incremented[0]) {
             log.warn("ToolRegistry 拒绝调用 agent={} tool={}（超出单 Tool 次数 {}）", agentName, toolName, maxCallsPerTool);
             return false;
         }
-        toolCalls.incrementAndGet();
+
+        // 检查总调用次数（非原子快照，但用于限流场景已足够）
+        int totalCalls = counts.values().stream().mapToInt(AtomicInteger::get).sum();
+        if (totalCalls > maxCallsPerRun) {
+            toolCalls.decrementAndGet(); // 只回滚确实递增过的计数
+            log.warn("ToolRegistry 拒绝调用 agent={} tool={}（超出总次数 {}）", agentName, toolName, maxCallsPerRun);
+            return false;
+        }
         return true;
     }
 

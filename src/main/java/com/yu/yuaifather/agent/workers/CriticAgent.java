@@ -234,8 +234,8 @@ public class CriticAgent implements Agent {
                 if (IMG_PLACEHOLDER.matcher(content).find()) {
                     issues.placeholderResidual.add(root.relativize(f.toPath()).toString());
                 }
-            } catch (Exception ignore) {
-                // 忽略二进制读取异常
+            } catch (Exception e) {
+                log.trace("二进制文件读取异常，跳过检查", e);
             }
         }
         return issues;

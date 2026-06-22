@@ -30,8 +30,8 @@ public class PgVectorDataSourceConfig {
     @Value("${spring.pgvector.datasource.driver-class-name:org.postgresql.Driver}")
     private String driverClassName;
 
-    @Bean
-    public JdbcTemplate pgVectorJdbcTemplate() {
+    @Bean(destroyMethod = "close")
+    public HikariDataSource pgVectorDataSource() {
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(url);
         config.setUsername(username);
@@ -40,6 +40,11 @@ public class PgVectorDataSourceConfig {
         config.setMaximumPoolSize(5);
         config.setMinimumIdle(1);
         config.setConnectionTimeout(5000);
-        return new JdbcTemplate(new HikariDataSource(config));
+        return new HikariDataSource(config);
+    }
+
+    @Bean
+    public JdbcTemplate pgVectorJdbcTemplate(HikariDataSource pgVectorDataSource) {
+        return new JdbcTemplate(pgVectorDataSource);
     }
 }

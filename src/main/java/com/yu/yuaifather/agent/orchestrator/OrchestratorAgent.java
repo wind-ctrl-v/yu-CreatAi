@@ -14,7 +14,6 @@ import com.yu.yuaifather.tool.system.DeployTool;
 import com.yu.yuaifather.tool.system.ImageSearchTool;
 import com.yu.yuaifather.tool.system.ProjectProfileTool;
 import com.yu.yuaifather.tool.system.UserPreferenceTool;
-import com.yu.yuaifather.model.dto.agent.CriticReport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;

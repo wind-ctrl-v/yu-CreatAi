@@ -176,10 +176,18 @@ public class GenerationOrchestrator {
     }
 
     private Flux<AgentEvent> runCriticLoop(AgentContext ctx) {
-        return Flux.defer(() -> doCriticRound(ctx, 1));
+        return Flux.defer(() -> doCriticRound(ctx, 1, null, 0));
     }
 
-    private Flux<AgentEvent> doCriticRound(AgentContext ctx, int round) {
+    // 修复分支标识
+    private static final String BRANCH_STYLE = "STYLE";
+    private static final String BRANCH_CODER = "CODER";
+    private static final String BRANCH_BOTH = "BOTH";
+
+    /**
+     * 单轮 Critic 质检 + 按 issue 分类的修复分支（对齐 V1 OrchestratorAgent）。
+     */
+    private Flux<AgentEvent> doCriticRound(AgentContext ctx, int round, String lastBranch, int pingpongCount) {
         return criticAgent.handle(ctx)
                 .concatWith(Flux.defer(() -> {
                     CriticReport report = ctx.getBlackboard().getCriticReport();
@@ -190,9 +198,41 @@ public class GenerationOrchestrator {
                         return Flux.just(AgentEvent.status(NAME,
                                 "质检超出最大轮次（" + criticMaxRounds + "），降级返回"));
                     }
-                    return Flux.just(AgentEvent.status(NAME, "质检未通过，第 " + (round + 1) + " 轮修复"))
-                            .concatWith(coderAgent.handle(ctx))
-                            .concatWith(doCriticRound(ctx, round + 1));
+
+                    // 按 issue 分类决定本轮修复分支
+                    List<CriticReport.Issue> issues = report.getIssues();
+                    boolean hasStyle = issues != null && issues.stream().anyMatch(i ->
+                            "style".equalsIgnoreCase(i.getCategory()));
+                    boolean hasCoder = issues == null || issues.isEmpty()
+                            || issues.stream().anyMatch(i -> !"style".equalsIgnoreCase(i.getCategory()));
+                    String thisBranch = (hasStyle && hasCoder) ? BRANCH_BOTH
+                            : hasStyle ? BRANCH_STYLE : BRANCH_CODER;
+
+                    // 乒乓抑制
+                    boolean alternation = (BRANCH_STYLE.equals(lastBranch) && BRANCH_CODER.equals(thisBranch))
+                            || (BRANCH_CODER.equals(lastBranch) && BRANCH_STYLE.equals(thisBranch));
+                    int newPingpong = alternation ? pingpongCount + 1 : 0;
+                    if (newPingpong >= 2) {
+                        return Flux.just(AgentEvent.status(NAME,
+                                "检测到 Style↔Coder 反复修复未收敛，强制收敛降级"));
+                    }
+
+                    Flux<AgentEvent> repair;
+                    if (BRANCH_BOTH.equals(thisBranch)) {
+                        repair = Flux.just(AgentEvent.status(NAME,
+                                        "质检未通过，第 " + (round + 1) + " 轮修复（先样式后代码）"))
+                                .concatWith(styleAgent.handle(ctx))
+                                .concatWith(coderAgent.handle(ctx));
+                    } else if (BRANCH_STYLE.equals(thisBranch)) {
+                        repair = Flux.just(AgentEvent.status(NAME,
+                                        "质检未通过，第 " + (round + 1) + " 轮修复（样式）"))
+                                .concatWith(styleAgent.handle(ctx));
+                    } else {
+                        repair = Flux.just(AgentEvent.status(NAME,
+                                        "质检未通过，第 " + (round + 1) + " 轮修复（代码）"))
+                                .concatWith(coderAgent.handle(ctx));
+                    }
+                    return repair.concatWith(doCriticRound(ctx, round + 1, thisBranch, newPingpong));
                 }));
     }
 

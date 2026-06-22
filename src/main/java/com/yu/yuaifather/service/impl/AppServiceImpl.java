@@ -35,6 +35,7 @@ import com.yu.yuaifather.service.UserService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +48,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
@@ -81,6 +83,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
     @Autowired
     private GenerationOrchestrator generationOrchestrator;
+
+    /** 截图异步线程池，替代 Thread.startVirtualThread() 的无界创建 */
+    @Autowired
+    @Qualifier("screenshotExecutor")
+    private Executor screenshotExecutor;
 
     /** 多 Agent 流水线开关：仅对 VUE_PROJECT 生效，默认关闭，避免影响存量。 */
     @Value("${agent.orchestrator.enabled:false}")
@@ -326,45 +333,35 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         // 8. 构建应用访问 URL（通过后端静态资源服务访问，deployBaseUrl 通过配置注入）
         String appDeployUrl = deployBaseUrl + "/" + deployKey + "/";
 
-        generateAppScreenshotAsync(appId, appDeployUrl);
+        screenshotExecutor.execute(() -> generateAppScreenshot(appId, appDeployUrl));
         return appDeployUrl;
 
     }
 
 
     /**
-     * 异步生成应用截图并更新封面。
+     * 异步生成应用截图并更新封面（通过线程池执行）。
      * <p>
-     * 使用虚拟线程异步执行，不阻塞部署主流程。
      * 截图失败时仅记录错误日志，不影响应用正常访问。
      * </p>
-     *
-     * @param appId  应用ID
-     * @param appUrl 应用访问URL
      */
-    @Override
-    public void generateAppScreenshotAsync(Long appId, String appUrl) {
-        Thread.startVirtualThread(() -> {
-            try {
-                // 调用截图服务生成截图并上传
-                String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
-                if (StrUtil.isBlank(screenshotUrl)) {
-                    log.warn("截图 URL 为空，跳过封面更新 appId={}", appId);
-                    return;
-                }
-                // 更新应用封面字段
-                App updateApp = new App();
-                updateApp.setId(appId);
-                updateApp.setCover(screenshotUrl);
-                boolean updated = this.updateById(updateApp);
-                if (!updated) {
-                    log.warn("更新应用封面失败 appId={}", appId);
-                }
-            } catch (Exception e) {
-                // 截图或上传失败不影响应用正常使用，仅记录日志
-                log.error("异步截图生成失败 appId={}: {}", appId, e.getMessage(), e);
+    private void generateAppScreenshot(Long appId, String appUrl) {
+        try {
+            String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
+            if (StrUtil.isBlank(screenshotUrl)) {
+                log.warn("截图 URL 为空，跳过封面更新 appId={}", appId);
+                return;
             }
-        });
+            App updateApp = new App();
+            updateApp.setId(appId);
+            updateApp.setCover(screenshotUrl);
+            boolean updated = this.updateById(updateApp);
+            if (!updated) {
+                log.warn("更新应用封面失败 appId={}", appId);
+            }
+        } catch (Exception e) {
+            log.error("异步截图生成失败 appId={}: {}", appId, e.getMessage(), e);
+        }
     }
 
 
