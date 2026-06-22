@@ -15,8 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 偏好更新服务（阶段一：用户偏好闭环）。
@@ -241,37 +242,38 @@ public class PreferenceUpdateService {
     }
 
     /**
-     * 原子更新权重：INSERT ... ON DUPLICATE KEY UPDATE 或 UPDATE + INSERT。
+     * 原子更新权重：先尝试 UPDATE weight = weight + delta，0 行时 INSERT。
      * <p>
-     * MyBatis-Flex 不支持 ON DUPLICATE KEY UPDATE，这里先查后写（低频操作，性能可接受）。
+     * 利用 MySQL 行锁 + UNIQUE 约束保证并发安全：
+     * <ol>
+     *   <li>UPDATE 在匹配行上加行锁，原子地完成 weight + delta；</li>
+     *   <li>若记录不存在（affected = 0），INSERT 新行；</li>
+     *   <li>UNIQUE (userId, preferenceType, preferenceKey) 防止并发 INSERT 重复。</li>
+     * </ol>
      */
     private void upsertWeight(Long userId, String type, String key, double delta) {
         if (delta == 0d) return;
 
-        // 查询现有权重
-        UserPreferenceWeight existing = weightMapper.selectOneByMap(Map.of(
-                "userId", userId,
-                "preferenceType", type,
-                "preferenceKey", key
-        ));
+        // 原子 UPDATE：利用行锁，无需先查
+        int affected = weightMapper.atomicUpsertWeight(userId, type, key, delta);
 
-        if (existing != null) {
-            // 原子更新
-            existing.setWeight(existing.getWeight() + delta);
-            existing.setEvidenceCount(existing.getEvidenceCount() + 1);
-            existing.setLastEvidenceAt(LocalDateTime.now());
-            weightMapper.update(existing);
-        } else {
-            // 新建
-            UserPreferenceWeight newWeight = UserPreferenceWeight.builder()
-                    .userId(userId)
-                    .preferenceType(type)
-                    .preferenceKey(key)
-                    .weight(delta)
-                    .evidenceCount(1)
-                    .lastEvidenceAt(LocalDateTime.now())
-                    .build();
-            weightMapper.insert(newWeight);
+        if (affected == 0) {
+            // 记录不存在，尝试 INSERT（与其他并发线程竞争时 UNIQUE 约束可兜底）
+            try {
+                UserPreferenceWeight newWeight = UserPreferenceWeight.builder()
+                        .userId(userId)
+                        .preferenceType(type)
+                        .preferenceKey(key)
+                        .weight(delta)
+                        .evidenceCount(1)
+                        .lastEvidenceAt(LocalDateTime.now())
+                        .build();
+                weightMapper.insert(newWeight);
+            } catch (Exception dupEx) {
+                // 并发 INSERT 冲突：重试一次原子 UPDATE（另一个线程已创建记录）
+                log.debug("偏好权重并发冲突，重试原子更新 userId={} type={} key={}", userId, type, key);
+                weightMapper.atomicUpsertWeight(userId, type, key, delta);
+            }
         }
         log.debug("偏好权重更新 userId={} type={} key={} delta={}", userId, type, key, delta);
     }

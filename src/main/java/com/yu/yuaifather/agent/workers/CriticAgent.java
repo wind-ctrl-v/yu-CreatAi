@@ -163,7 +163,8 @@ public class CriticAgent implements Agent {
                                     .map(Long::parseLong)
                                     .collect(Collectors.toList());
                             double qualityScore = report.getScore() / 100.0;
-                            // 无 RAG trace，传 null
+                            // TODO: 阶段三补填 — ragTraceId 当前无法获取，需在 DesignRetrieveAgent 中将 traceId 写入 Blackboard
+                            //       方能在此正确关联 Critic 结果到 generation_rag_trace
                             feedbackService.feedbackFingerprintQuality(
                                     fpIds, qualityScore, null,
                                     JsonExtractor.mapper().writeValueAsString(report));

@@ -85,19 +85,19 @@ public class PersonalizedQueryBuilder {
         // 用户偏好（如果存在）
         if (userContext != null && userContext.hasPreferences()) {
             List<String> positives = new ArrayList<>();
-            addIfNotEmpty(positives, userContext.getPreferredStyles(), "preferredStyles");
-            addIfNotEmpty(positives, userContext.getPreferredColors(), "preferredColors");
-            addIfNotEmpty(positives, userContext.getPreferredLayouts(), "preferredLayouts");
-            addIfNotEmpty(positives, userContext.getPreferredComponents(), "preferredComponents");
+            addIfNotEmpty(positives, userContext.getPreferredStyles());
+            addIfNotEmpty(positives, userContext.getPreferredColors());
+            addIfNotEmpty(positives, userContext.getPreferredLayouts());
+            addIfNotEmpty(positives, userContext.getPreferredComponents());
             if (!positives.isEmpty()) {
                 appendTag(sb, "用户偏好", String.join(", ", positives));
             }
 
             List<String> negatives = new ArrayList<>();
-            addIfNotEmpty(negatives, userContext.getDislikedStyles(), "dislikedStyles");
-            addIfNotEmpty(negatives, userContext.getDislikedColors(), "dislikedColors");
-            addIfNotEmpty(negatives, userContext.getDislikedLayouts(), "dislikedLayouts");
-            addIfNotEmpty(negatives, userContext.getDislikedComponents(), "dislikedComponents");
+            addIfNotEmpty(negatives, userContext.getDislikedStyles());
+            addIfNotEmpty(negatives, userContext.getDislikedColors());
+            addIfNotEmpty(negatives, userContext.getDislikedLayouts());
+            addIfNotEmpty(negatives, userContext.getDislikedComponents());
             if (!negatives.isEmpty()) {
                 appendTag(sb, "用户不喜欢", String.join(", ", negatives));
             }
@@ -136,7 +136,7 @@ public class PersonalizedQueryBuilder {
         return build(requirement, plan, null, null);
     }
 
-    private void addIfNotEmpty(List<String> target, List<String> source, String prefix) {
+    private void addIfNotEmpty(List<String> target, List<String> source) {
         if (source != null && !source.isEmpty()) {
             target.addAll(source);
         }

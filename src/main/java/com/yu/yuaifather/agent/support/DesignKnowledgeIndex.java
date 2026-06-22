@@ -270,10 +270,16 @@ public class DesignKnowledgeIndex {
             return false;
         }
 
+        // ★ 提前解析 userId，后续权限过滤和权重加载都需要
+        Long queryUserId = (userContext != null) ? userContext.getUserId() : null;
+
         // ★ 构造个性化查询文本
         String queryText;
         if (personalizationEnabled && queryBuilder != null && userContext != null) {
-            queryText = queryBuilder.build(requirement, plan, userContext, null);
+            queryText = queryBuilder.build(requirement, plan, userContext,
+                    userPreferenceService != null
+                            ? userPreferenceService.loadPreferenceWeights(queryUserId)
+                            : null);
         } else {
             queryText = embeddingService.buildQueryText(styleProfile, queryTags);
         }
@@ -289,7 +295,6 @@ public class DesignKnowledgeIndex {
         }
 
         // ★ 阶段二：权限过滤（传递 userId）
-        Long queryUserId = (userContext != null) ? userContext.getUserId() : null;
         List<DesignFingerprintVector> vResults =
                 vectorRepo.search(queryEmbedding, styleProfile, k * 2, minSimilarity, queryUserId);
 
@@ -476,8 +481,10 @@ public class DesignKnowledgeIndex {
         List<Ranked> filtered = new ArrayList<>();
         int userPrivateCount = 0;
         int globalCuratedCount = 0;
-        int maxPrivate = (int) Math.ceil(k * privateMaxRatio);
-        int minCurated = (int) Math.ceil(k * curatedMinRatio);
+        // 基于候选池大小计算比例，而非最终输出数 k（见 review fix）
+        int poolSize = Math.max(ranked.size(), k);
+        int maxPrivate = (int) Math.ceil(poolSize * privateMaxRatio);
+        int minCurated = (int) Math.ceil(poolSize * curatedMinRatio);
 
         for (Ranked r : ranked) {
             DesignEvidence.Item item = r.item;

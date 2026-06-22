@@ -56,8 +56,9 @@ public class UserPreferenceService {
 
         UserDesignContext.UserDesignContextBuilder builder = UserDesignContext.builder().userId(userId);
 
-        // 1. 加载用户设计画像
-        UserDesignProfile profile = profileMapper.selectOneByEntityId(userId);
+        // 1. 加载用户设计画像（按 userId 查询，非主键 id）
+        UserDesignProfile profile = profileMapper.selectOneByMap(
+                Collections.singletonMap("userId", userId));
         if (profile != null) {
             builder.profileSummary(profile.getProfileSummary());
             builder.preferredStyles(parseJsonList(profile.getPreferredStyles()));

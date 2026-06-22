@@ -82,8 +82,8 @@ public class ProjectPreferenceAgent implements Agent {
     }
 
     private Long resolveProjectId(AgentContext ctx) {
-        // 从 Blackboard 中尝试获取项目ID
-        // 当前架构中 projectId 可通过 appId 获取（App 中有 userId）
+        // 当前架构中 appId 充当项目工作目录标识，project_brand_profile.projectId 与 appId 为一对一映射。
+        // 注意：若未来 projectId 与 appId 解耦，此处需改为从 Blackboard 或 ctx 获取真实 projectId。
         if (ctx.getAppId() != null) {
             return ctx.getAppId();
         }

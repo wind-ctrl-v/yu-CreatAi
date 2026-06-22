@@ -131,7 +131,10 @@ public class DesignRerankService {
                     // 项目禁用惩罚
                     scored.forbiddenPenalty = estimateForbiddenPenalty(item, brandContext);
 
-                    // 综合得分
+                    // 同风格去重惩罚（与已选条目高度相似时降权）
+                    scored.duplicatePenalty = estimateDuplicatePenalty(items, item, items.indexOf(item));
+
+                    // 综合得分（10项加权）
                     scored.finalScore = wSemantic * scored.semanticScore
                             + wStyle * scored.styleScore
                             + wComponent * scored.componentScore
@@ -140,7 +143,8 @@ public class DesignRerankService {
                             + wUserPref * scored.userPrefScore
                             + wProjectBrand * scored.projectBrandScore
                             + wDislikePenalty * scored.dislikePenalty
-                            + wForbiddenPenalty * scored.forbiddenPenalty;
+                            + wForbiddenPenalty * scored.forbiddenPenalty
+                            + wDuplicatePenalty * scored.duplicatePenalty;
 
                     return scored;
                 })
@@ -260,6 +264,33 @@ public class DesignRerankService {
     }
 
     /**
+     * 同风格去重惩罚：与列表中已有条目风格高度重叠时降权，避免重复注入相似指纹。
+     */
+    private double estimateDuplicatePenalty(List<DesignEvidence.Item> allItems,
+                                             DesignEvidence.Item current, int currentIndex) {
+        if (allItems == null || currentIndex <= 0) return 0;
+        double maxOverlap = 0;
+        for (int j = 0; j < currentIndex; j++) {
+            DesignEvidence.Item other = allItems.get(j);
+            double overlap = 0;
+            if (current.getTone() != null && other.getTone() != null) {
+                long common = current.getTone().stream()
+                        .filter(t -> other.getTone().contains(t))
+                        .count();
+                overlap += common > 0 ? (double) common / Math.max(1, current.getTone().size()) : 0;
+            }
+            if (current.getPreferredPatterns() != null && other.getPreferredPatterns() != null) {
+                long common = current.getPreferredPatterns().stream()
+                        .filter(p -> other.getPreferredPatterns().contains(p))
+                        .count();
+                overlap += common > 0 ? (double) common / Math.max(1, current.getPreferredPatterns().size()) : 0;
+            }
+            maxOverlap = Math.max(maxOverlap, overlap);
+        }
+        return Math.min(1.0, maxOverlap);
+    }
+
+    /**
      * 带评分的结果条目。
      */
     public static class ScoredItem {
@@ -273,6 +304,7 @@ public class DesignRerankService {
         public double projectBrandScore;
         public double dislikePenalty;
         public double forbiddenPenalty;
+        public double duplicatePenalty;
         public double finalScore;
     }
 }
