@@ -1,6 +1,6 @@
 package com.yu.yuaifather.service;
 
-import com.yu.yuaifather.ai.model.dto.DesignFingerprintVector;
+import com.yu.yuaifather.model.dto.agent.DesignFingerprintVector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;

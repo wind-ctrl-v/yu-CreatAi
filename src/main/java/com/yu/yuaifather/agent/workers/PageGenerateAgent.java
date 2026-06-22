@@ -5,10 +5,10 @@ import com.yu.yuaifather.agent.AgentAiService;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
-import com.yu.yuaifather.ai.model.dto.DesignSpec;
-import com.yu.yuaifather.ai.model.dto.GenerationPlan;
-import com.yu.yuaifather.ai.model.dto.PromptContext;
-import com.yu.yuaifather.ai.model.dto.RequirementDoc;
+import com.yu.yuaifather.model.dto.agent.DesignSpec;
+import com.yu.yuaifather.model.dto.agent.GenerationPlan;
+import com.yu.yuaifather.model.dto.agent.PromptContext;
+import com.yu.yuaifather.model.dto.agent.RequirementDoc;
 import com.yu.yuaifather.orchestrator.DesignContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -99,7 +99,7 @@ public class PageGenerateAgent implements Agent {
         GenerationPlan plan = ctx.getBlackboard().getPlan();
         if (plan != null) {
             sb.append("请严格按以下计划生成代码：\n")
-                    .append(com.yu.yuaifather.agent.support.JsonExtractor.mapper()
+                    .append(com.yu.yuaifather.utils.JsonExtractor.mapper()
                             .valueToTree(plan).toString()).append("\n");
         }
 

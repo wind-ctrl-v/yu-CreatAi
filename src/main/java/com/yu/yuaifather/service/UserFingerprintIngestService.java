@@ -1,7 +1,7 @@
 package com.yu.yuaifather.service;
 
 import cn.hutool.json.JSONUtil;
-import com.yu.yuaifather.ai.model.dto.DesignFingerprintDTO;
+import com.yu.yuaifather.model.dto.agent.DesignFingerprintDTO;
 import com.yu.yuaifather.mapper.GeneratedPageMapper;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 import com.yu.yuaifather.model.entity.GeneratedPage;

@@ -1,7 +1,7 @@
 package com.yu.yuaifather.orchestrator;
 
 import cn.hutool.core.util.StrUtil;
-import com.yu.yuaifather.ai.model.dto.*;
+import com.yu.yuaifather.model.dto.agent.*;
 import com.yu.yuaifather.tool.core.ToolContext;
 import com.yu.yuaifather.tool.system.*;
 import lombok.extern.slf4j.Slf4j;

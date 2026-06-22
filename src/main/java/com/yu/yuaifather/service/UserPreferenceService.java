@@ -5,7 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.yu.yuaifather.ai.model.dto.UserDesignContext;
+import com.yu.yuaifather.model.dto.agent.UserDesignContext;
 import com.yu.yuaifather.mapper.UserDesignProfileMapper;
 import com.yu.yuaifather.mapper.UserPreferenceWeightMapper;
 import com.yu.yuaifather.model.entity.UserDesignProfile;

@@ -1,6 +1,6 @@
 package com.yu.yuaifather.agent.core;
 
-import com.yu.yuaifather.ai.enums.CodeGenTypeEnum;
+import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.model.entity.User;
 import lombok.Builder;
 import lombok.Data;

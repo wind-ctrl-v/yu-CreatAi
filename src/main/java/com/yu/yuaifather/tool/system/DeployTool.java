@@ -4,7 +4,7 @@ import cn.hutool.core.io.FileUtil;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
-import com.yu.yuaifather.ai.core.bulider.VueProjectBuilder;
+import com.yu.yuaifather.agent.codegen.core.VueProjectBuilder;
 import com.yu.yuaifather.config.CosClientConfig;
 import com.yu.yuaifather.constant.AppConstant;
 import com.yu.yuaifather.manager.CosManager;

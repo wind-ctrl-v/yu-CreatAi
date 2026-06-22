@@ -1,7 +1,7 @@
 package com.yu.yuaifather.orchestrator;
 
-import com.yu.yuaifather.ai.model.dto.GenerationPlan;
-import com.yu.yuaifather.ai.model.dto.RequirementDoc;
+import com.yu.yuaifather.model.dto.agent.GenerationPlan;
+import com.yu.yuaifather.model.dto.agent.RequirementDoc;
 import lombok.Builder;
 import lombok.Data;
 

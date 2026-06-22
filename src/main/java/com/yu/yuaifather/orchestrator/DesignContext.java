@@ -1,6 +1,6 @@
 package com.yu.yuaifather.orchestrator;
 
-import com.yu.yuaifather.ai.model.dto.*;
+import com.yu.yuaifather.model.dto.agent.*;
 import lombok.Builder;
 import lombok.Data;
 

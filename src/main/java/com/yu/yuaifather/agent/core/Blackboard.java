@@ -1,12 +1,12 @@
 package com.yu.yuaifather.agent.core;
 
-import com.yu.yuaifather.ai.model.dto.CriticReport;
-import com.yu.yuaifather.ai.model.dto.DesignEvidence;
-import com.yu.yuaifather.ai.model.dto.DesignSpec;
-import com.yu.yuaifather.ai.model.dto.GenerationPlan;
-import com.yu.yuaifather.ai.model.dto.ProjectBrandContext;
-import com.yu.yuaifather.ai.model.dto.RequirementDoc;
-import com.yu.yuaifather.ai.model.dto.UserDesignContext;
+import com.yu.yuaifather.model.dto.agent.CriticReport;
+import com.yu.yuaifather.model.dto.agent.DesignEvidence;
+import com.yu.yuaifather.model.dto.agent.DesignSpec;
+import com.yu.yuaifather.model.dto.agent.GenerationPlan;
+import com.yu.yuaifather.model.dto.agent.ProjectBrandContext;
+import com.yu.yuaifather.model.dto.agent.RequirementDoc;
+import com.yu.yuaifather.model.dto.agent.UserDesignContext;
 
 import java.util.Collections;
 import java.util.HashMap;

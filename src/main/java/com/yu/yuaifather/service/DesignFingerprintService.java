@@ -1,7 +1,7 @@
 package com.yu.yuaifather.service;
 
 import com.mybatisflex.core.service.IService;
-import com.yu.yuaifather.ai.model.dto.DesignFingerprintDTO;
+import com.yu.yuaifather.model.dto.agent.DesignFingerprintDTO;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 
 import java.util.List;

@@ -1,8 +1,8 @@
 package com.yu.yuaifather.worker;
 
-import com.yu.yuaifather.agent.support.EmbeddingService;
-import com.yu.yuaifather.agent.support.JsonExtractor;
-import com.yu.yuaifather.ai.model.dto.DesignFingerprintDTO;
+import com.yu.yuaifather.service.design.EmbeddingService;
+import com.yu.yuaifather.utils.JsonExtractor;
+import com.yu.yuaifather.model.dto.agent.DesignFingerprintDTO;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 import com.yu.yuaifather.service.DesignFingerprintVectorRepository;
 import lombok.extern.slf4j.Slf4j;

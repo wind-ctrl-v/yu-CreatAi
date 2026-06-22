@@ -3,7 +3,7 @@ package com.yu.yuaifather.orchestrator;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
 import com.yu.yuaifather.agent.workers.*;
-import com.yu.yuaifather.ai.model.dto.CriticReport;
+import com.yu.yuaifather.model.dto.agent.CriticReport;
 import com.yu.yuaifather.tool.core.ToolContext;
 import com.yu.yuaifather.tool.system.*;
 import lombok.extern.slf4j.Slf4j;

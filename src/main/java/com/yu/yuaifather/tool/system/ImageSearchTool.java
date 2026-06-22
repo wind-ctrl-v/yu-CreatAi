@@ -3,8 +3,8 @@ package com.yu.yuaifather.tool.system;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
-// ImageSearchTool 内部组件引用使用全限定名，避免与当前 System Tool 同名冲突
-import com.yu.yuaifather.ai.model.dto.GenerationPlan;
+import com.yu.yuaifather.tool.engine.ImageSearchEngine;
+import com.yu.yuaifather.model.dto.agent.GenerationPlan;
 import com.yu.yuaifather.config.ImageProperties;
 import com.yu.yuaifather.tool.core.SystemTool;
 import com.yu.yuaifather.tool.core.ToolContext;
@@ -30,11 +30,11 @@ public class ImageSearchTool implements Agent, SystemTool<java.util.List<Generat
 
     public static final String TOOL_NAME = "ImageSearchTool";
 
-    private final com.yu.yuaifather.agent.tools.ImageSearchTool imageSearchTool;
+    private final ImageSearchEngine imageSearchTool;
     private final ImageProperties properties;
 
     @Autowired
-    public ImageSearchTool(com.yu.yuaifather.agent.tools.ImageSearchTool imageSearchTool, ImageProperties properties) {
+    public ImageSearchTool(ImageSearchEngine imageSearchTool, ImageProperties properties) {
         this.imageSearchTool = imageSearchTool;
         this.properties = properties;
     }

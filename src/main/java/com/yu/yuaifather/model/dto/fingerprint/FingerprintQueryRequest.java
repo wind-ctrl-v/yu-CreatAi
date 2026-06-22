@@ -1,6 +1,6 @@
 package com.yu.yuaifather.model.dto.fingerprint;
 
-import com.yu.yuaifather.common.PageRequest;
+import com.yu.yuaifather.model.dto.PageRequest;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 

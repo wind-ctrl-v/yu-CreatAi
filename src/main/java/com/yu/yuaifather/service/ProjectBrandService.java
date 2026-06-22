@@ -4,7 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.yu.yuaifather.ai.model.dto.ProjectBrandContext;
+import com.yu.yuaifather.model.dto.agent.ProjectBrandContext;
 import com.yu.yuaifather.mapper.ProjectBrandProfileMapper;
 import com.yu.yuaifather.model.entity.ProjectBrandProfile;
 import lombok.extern.slf4j.Slf4j;

@@ -3,7 +3,7 @@ package com.yu.yuaifather.tool.system;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
-import com.yu.yuaifather.ai.model.dto.ProjectBrandContext;
+import com.yu.yuaifather.model.dto.agent.ProjectBrandContext;
 import com.yu.yuaifather.service.ProjectBrandService;
 import com.yu.yuaifather.tool.core.SystemTool;
 import com.yu.yuaifather.tool.core.ToolContext;

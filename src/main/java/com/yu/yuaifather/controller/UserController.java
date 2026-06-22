@@ -4,7 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.yu.yuaifather.annotation.AuthCheck;
 import com.yu.yuaifather.common.BaseResponse;
-import com.yu.yuaifather.common.DeleteRequest;
+import com.yu.yuaifather.model.dto.DeleteRequest;
 import com.yu.yuaifather.common.ResultUtils;
 import com.yu.yuaifather.constant.UserConstant;
 import com.yu.yuaifather.exception.BusinessException;

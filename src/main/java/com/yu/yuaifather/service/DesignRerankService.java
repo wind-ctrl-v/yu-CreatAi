@@ -1,9 +1,9 @@
 package com.yu.yuaifather.service;
 
 import cn.hutool.core.collection.CollUtil;
-import com.yu.yuaifather.ai.model.dto.DesignEvidence;
-import com.yu.yuaifather.ai.model.dto.ProjectBrandContext;
-import com.yu.yuaifather.ai.model.dto.UserDesignContext;
+import com.yu.yuaifather.model.dto.agent.DesignEvidence;
+import com.yu.yuaifather.model.dto.agent.ProjectBrandContext;
+import com.yu.yuaifather.model.dto.agent.UserDesignContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
