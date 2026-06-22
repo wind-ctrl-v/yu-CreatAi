@@ -14,21 +14,10 @@ import reactor.core.scheduler.Schedulers;
 
 /**
  * DesignTokenAgent：阶段一「先验规则」加载器（新 Worker）。
- * <p>
- * <b>不调用 LLM</b>，纯 Java 根据 {@code GenerationPlan.styleProfile} 从 {@code skill/designs/*.md}
- * 解析出结构化 {@link DesignSpec} 写入 Blackboard，供并发分支的 StyleAgent / CoderAgent 消费。
  *
- * <h3>降级策略（绝不中断流水线）</h3>
- * <ul>
- *   <li>识别失败 / 不在白名单 / 低置信：归一为 {@code default} 规范（见计划 1.2.1）；</li>
- *   <li>md 读取或解析失败：回退内置默认规范，保证 tokenGroups 强契约始终存在；</li>
- *   <li>任意异常：仅推 status 事件 + {@code sink.complete()}，<b>绝不</b> {@code sink.error()}，
- *       保证后续 Image / Coder / Style 仍能运行。</li>
- * </ul>
- *
- * <p>插入位置：ArchitectAgent 之后、ImageAgent 之前（即并发分支之前），
- * 确保 Coder/Style 并发执行时 DesignSpec 已就绪。
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.tool.system.DesignTokenTool}，请使用 DesignTokenTool 替代。
  */
+@Deprecated
 @Slf4j
 @Component
 public class DesignTokenAgent implements Agent {

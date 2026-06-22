@@ -14,17 +14,10 @@ import reactor.core.scheduler.Schedulers;
 
 /**
  * UserPreferenceAgent：用户偏好加载 Worker（阶段一新增）。
- * <p>
- * 在 DesignTokenAgent 之后、DesignRetrieveAgent 之前执行，
- * 从数据库加载当前用户的设计偏好画像和权重数据，
- * 组装为 {@link UserDesignContext} 写入 Blackboard。
- * <p>
- * 本 Agent 不调用 LLM，纯 Java 从 DB 加载数据。
- * <p>
- * 开关：{@code agent.personalization.enabled:false}（默认关闭，不影响现有流水线）。
  *
- * @author yu
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.tool.system.UserPreferenceTool}，请使用 UserPreferenceTool 替代。
  */
+@Deprecated
 @Slf4j
 @Component
 public class UserPreferenceAgent implements Agent {

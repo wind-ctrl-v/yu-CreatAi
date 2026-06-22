@@ -10,20 +10,10 @@ import org.springframework.stereotype.Service;
 
 /**
  * 向量同步服务：绑定指纹生命周期到 PGvector。
- * <p>
- * 原则：向量同步失败不阻塞业务流程（MySQL 状态为主，PG 为辅助索引），
- * 异常仅记录日志，不向上抛出。
- * <p>
- * 触发时机：
- * <ul>
- *   <li>{@link #syncOnApprove(DesignFingerprint)} — 指纹 APPROVED 时调用；</li>
- *   <li>{@link #deactivateOnRejectOrArchive(Long)} — 指纹 REJECTED/ARCHIVED 时调用。</li>
- * </ul>
  *
- * @author yu
- * @see DesignFingerprintVectorRepository
- * @see EmbeddingService
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.worker.VectorSyncWorker}，请使用 VectorSyncWorker 替代。
  */
+@Deprecated
 @Service
 @ConditionalOnBean(EmbeddingService.class)
 @Slf4j

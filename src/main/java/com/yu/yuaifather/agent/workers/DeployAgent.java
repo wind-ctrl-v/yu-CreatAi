@@ -21,9 +21,10 @@ import java.util.Collection;
 
 /**
  * DeployAgent：执行 npm install → npm run build → 将 dist 上传 COS。
- * <p>
- * 安全约束：仅上传 dist 内文件，路径校验防穿越；凭证不外泄。
+ *
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.tool.system.DeployTool}，请使用 DeployTool 替代。
  */
+@Deprecated
 @Slf4j
 @Component
 public class DeployAgent implements Agent {

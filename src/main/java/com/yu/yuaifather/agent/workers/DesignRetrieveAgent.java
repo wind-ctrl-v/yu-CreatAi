@@ -24,22 +24,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * DesignRetrieveAgent：运行时召回 Worker（阶段三，见计划 3.4）。
- * <p>
- * 按 {@code styleProfile} + 需求语义，通过 {@link DesignKnowledgeIndex} 合并先验静态规范与
- * 后验 APPROVED 指纹，召回 top-k 受控证据写入 Blackboard，供 Coder / Style 受控注入。
+ * DesignRetrieveAgent：运行时召回 Worker。
  *
- * <h3>开关与降级（3.7）</h3>
- * <ul>
- *   <li>{@code agent.retrieve.enabled=false}（默认）：直接跳过，不查询 DB，
- *       保证阶段一/二在未建指纹表时仍可独立运行；</li>
- *   <li>启用后：检索失败 / 召回为空一律降级（仅状态事件），绝不 {@code sink.error()}，
- *       下游回退到阶段一静态 {@link DesignSpec}。</li>
- * </ul>
- *
- * <p>插入位置：DesignTokenAgent 之后（静态规范已就绪可作先验合并）、ImageAgent 之前
- * （并发分支之前，确保 Coder/Style 并发时证据已就绪）。
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.tool.system.DesignRetrieveTool}，请使用 DesignRetrieveTool 替代。
  */
+@Deprecated
 @Slf4j
 @Component
 @ConditionalOnBean(DesignKnowledgeIndex.class)

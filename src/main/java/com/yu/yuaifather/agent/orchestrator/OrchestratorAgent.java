@@ -3,17 +3,17 @@ package com.yu.yuaifather.agent.orchestrator;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
-import com.yu.yuaifather.agent.workers.ArchitectAgent;
 import com.yu.yuaifather.agent.workers.CoderAgent;
 import com.yu.yuaifather.agent.workers.CriticAgent;
-import com.yu.yuaifather.agent.workers.DeployAgent;
-import com.yu.yuaifather.agent.workers.DesignRetrieveAgent;
-import com.yu.yuaifather.agent.workers.DesignTokenAgent;
-import com.yu.yuaifather.agent.workers.ImageAgent;
-import com.yu.yuaifather.agent.workers.ProductAgent;
-import com.yu.yuaifather.agent.workers.ProjectPreferenceAgent;
+import com.yu.yuaifather.agent.workers.PlanningAgent;
 import com.yu.yuaifather.agent.workers.StyleAgent;
-import com.yu.yuaifather.agent.workers.UserPreferenceAgent;
+import com.yu.yuaifather.ai.model.dto.CriticReport;
+import com.yu.yuaifather.tool.system.DesignTokenTool;
+import com.yu.yuaifather.tool.system.DesignRetrieveTool;
+import com.yu.yuaifather.tool.system.DeployTool;
+import com.yu.yuaifather.tool.system.ImageSearchTool;
+import com.yu.yuaifather.tool.system.ProjectProfileTool;
+import com.yu.yuaifather.tool.system.UserPreferenceTool;
 import com.yu.yuaifather.ai.model.dto.CriticReport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,19 +35,24 @@ import java.util.List;
  *
  * <h3>完整流水线顺序</h3>
  * <pre>
- *  ① ProductAgent    用户 prompt → 结构化需求文档（RequirementDoc）
+ *  ① PlanningAgent     用户 prompt → RequirementDoc + GenerationPlan（合并 Product+Architect）
  *        ↓ 串行
- *  ② ArchitectAgent  需求文档 → 生成计划（GenerationPlan：文件列表、路由、图片槽）
+ *  ② DesignTokenTool    styleProfile → DesignSpec（零 LLM）
  *        ↓ 串行
- *  ③ ImageAgent      plan.imageSlots → imageMap（关键词 → 真实图片 URL）
- *        ↓ 串行（等 ImageAgent 完成，保证 Coder 写文件时 imageMap 已就绪）
- *  ④ CoderAgent  ┐  并发执行（Flux.merge）
+ *  ③ UserPreferenceTool 用户偏好加载（零 LLM）
+ *        ↓ 串行
+ *  ④ ProjectProfileTool 项目品牌加载（零 LLM）
+ *        ↓ 串行
+ *  ⑤ DesignRetrieveTool 向量检索 + 权限过滤（消耗 Embedding Token）
+ *        ↓ 串行
+ *  ⑥ ImageSearchTool    plan.imageSlots → imageMap（零 LLM）
+ *        ↓ 串行
+ *  ⑦ CoderAgent  ┐  并发执行（Flux.merge）
  *     StyleAgent ┘  CoderAgent 按 plan 逐文件落盘；StyleAgent 生成全局 CSS
- *        ↓ 串行（等 Coder + Style 全部完成）
- *  ⑤ CriticAgent     静态检查 + LLM 评分 → CriticReport（score ≥ 80 通过）
- *        ↓ 若未通过且未超出最大轮次，回到 CoderAgent 修复，最多循环 criticMaxRounds 次
- *  ⑥ DeployAgent     （可选，受 agent.deploy.enabled 开关控制）
- *                    npm build → 上传 COS → 返回部署 URL
+ *        ↓ 串行
+ *  ⑧ CriticAgent       静态检查 + LLM 评分 → CriticReport（score ≥ 80 通过）
+ *        ↓ 若未通过且未超出最大轮次，回到 CoderAgent 修复
+ *  ⑨ DeployTool        构建 + 部署（零 LLM，可选）
  * </pre>
  *
  * <h3>错误处理策略</h3>
@@ -94,17 +99,16 @@ public class OrchestratorAgent implements Agent {
     // 全部通过构造函数注入，便于单元测试时 mock 替换
     // =====================================================================
 
-    private final ProductAgent productAgent;
-    private final ArchitectAgent architectAgent;
-    private final DesignTokenAgent designTokenAgent;
-    private final UserPreferenceAgent userPreferenceAgent;  // 阶段一新增：可空，用户偏好加载
-    private final ProjectPreferenceAgent projectPreferenceAgent;  // 阶段三新增：可空，项目品牌加载
-    private final DesignRetrieveAgent designRetrieveAgent;  // 可空：无 EmbeddingModel 时不加载
-    private final ImageAgent imageAgent;
+    private final PlanningAgent planningAgent;
+    private final DesignTokenTool designTokenTool;
+    private final UserPreferenceTool userPreferenceTool;
+    private final ProjectProfileTool projectProfileTool;
+    private final DesignRetrieveTool designRetrieveTool;
+    private final ImageSearchTool imageSearchTool;
     private final CoderAgent coderAgent;
     private final StyleAgent styleAgent;
     private final CriticAgent criticAgent;
-    private final DeployAgent deployAgent;
+    private final DeployTool deployTool;
 
     /**
      * 构造函数注入所有 Worker Agent。
@@ -117,28 +121,26 @@ public class OrchestratorAgent implements Agent {
      * </ol>
      */
     @Autowired
-    public OrchestratorAgent(ProductAgent productAgent,
-                             ArchitectAgent architectAgent,
-                             DesignTokenAgent designTokenAgent,
-                             @Autowired(required = false) UserPreferenceAgent userPreferenceAgent,
-                             @Autowired(required = false) ProjectPreferenceAgent projectPreferenceAgent,
-                             @Autowired(required = false) DesignRetrieveAgent designRetrieveAgent,
-                             ImageAgent imageAgent,
+    public OrchestratorAgent(PlanningAgent planningAgent,
+                             DesignTokenTool designTokenTool,
+                             @Autowired(required = false) UserPreferenceTool userPreferenceTool,
+                             @Autowired(required = false) ProjectProfileTool projectProfileTool,
+                             @Autowired(required = false) DesignRetrieveTool designRetrieveTool,
+                             ImageSearchTool imageSearchTool,
                              CoderAgent coderAgent,
                              StyleAgent styleAgent,
                              CriticAgent criticAgent,
-                             DeployAgent deployAgent) {
-        this.productAgent = productAgent;
-        this.architectAgent = architectAgent;
-        this.designTokenAgent = designTokenAgent;
-        this.userPreferenceAgent = userPreferenceAgent;
-        this.projectPreferenceAgent = projectPreferenceAgent;
-        this.designRetrieveAgent = designRetrieveAgent;
-        this.imageAgent = imageAgent;
+                             DeployTool deployTool) {
+        this.planningAgent = planningAgent;
+        this.designTokenTool = designTokenTool;
+        this.userPreferenceTool = userPreferenceTool;
+        this.projectProfileTool = projectProfileTool;
+        this.designRetrieveTool = designRetrieveTool;
+        this.imageSearchTool = imageSearchTool;
         this.coderAgent = coderAgent;
         this.styleAgent = styleAgent;
         this.criticAgent = criticAgent;
-        this.deployAgent = deployAgent;
+        this.deployTool = deployTool;
     }
 
     /** 返回本 Agent 的名称标识，用于 AgentEvent 中的 agentName 字段 */
@@ -173,41 +175,32 @@ public class OrchestratorAgent implements Agent {
     public Flux<AgentEvent> handle(AgentContext ctx) {
         // ① 串行构建主流水线：每个 concatWith 保证前一步完成后再启动下一步
         Flux<AgentEvent> pipeline = Flux.just(AgentEvent.status(AGENT_NAME, "流水线启动"))
-                // Step1: 解析用户需求 → RequirementDoc 写入 Blackboard
-                .concatWith(productAgent.handle(ctx))
-                // Step2: 技术选型 + 文件规划 → GenerationPlan 写入 Blackboard
-                .concatWith(architectAgent.handle(ctx))
+                // Step1-2: PlanningAgent 一次完成需求解析 + 技术选型（合并 ProductAgent + ArchitectAgent）
+                .concatWith(planningAgent.handle(ctx))
                 // Step2.5: 加载行业设计规范 → DesignSpec 写入 Blackboard（零 LLM）
-                //          必须在并发分支之前完成，确保 Coder/Style 并发时 tokenGroups 强契约已就绪
-                .concatWith(designTokenAgent.handle(ctx))
+                .concatWith(designTokenTool.handle(ctx))
                 // Step2.55: 加载用户设计偏好 → UserDesignContext 写入 Blackboard（阶段一新增）
-                //           在 DesignToken 之后、DesignRetrieve 之前，确保检索可使用用户偏好
-                .concatWith(userPreferenceAgent != null
-                        ? userPreferenceAgent.handle(ctx)
-                        : Flux.just(AgentEvent.status(AGENT_NAME, "UserPreferenceAgent 未加载，跳过用户偏好")))
+                .concatWith(userPreferenceTool != null
+                        ? userPreferenceTool.handle(ctx)
+                        : Flux.just(AgentEvent.status(AGENT_NAME, "UserPreferenceTool 未加载，跳过用户偏好")))
                 // Step2.56: 加载项目品牌画像 → ProjectBrandContext 写入 Blackboard（阶段三新增）
-                .concatWith(projectPreferenceAgent != null
-                        ? projectPreferenceAgent.handle(ctx)
-                        : Flux.just(AgentEvent.status(AGENT_NAME, "ProjectPreferenceAgent 未加载，跳过项目品牌")))
+                .concatWith(projectProfileTool != null
+                        ? projectProfileTool.handle(ctx)
+                        : Flux.just(AgentEvent.status(AGENT_NAME, "ProjectProfileTool 未加载，跳过项目品牌")))
                 // Step2.6: 运行时召回受控设计证据 → DesignEvidence 写入 Blackboard（阶段三，开关默认关闭）
-                //          在 DesignToken 之后（可合并静态规范作先验）、并发分支之前
-                //          未配置 Embedding 模型时跳过
-                .concatWith(designRetrieveAgent != null
-                        ? designRetrieveAgent.handle(ctx)
-                        : Flux.just(AgentEvent.status(AGENT_NAME, "DesignRetrieveAgent 未加载，跳过召回（缺少 EmbeddingModel）")))
+                .concatWith(designRetrieveTool != null
+                        ? designRetrieveTool.handle(ctx)
+                        : Flux.just(AgentEvent.status(AGENT_NAME, "DesignRetrieveTool 未加载，跳过召回（缺少 EmbeddingModel）")))
                 // Step3: 搜图 → imageMap 写入 Blackboard
-                //        必须在 Coder 之前完成，确保 {{IMG:keyword}} 替换有素材
-                .concatWith(imageAgent.handle(ctx))
-                // Step4: Coder 和 Style 并发执行（互不依赖，并发可缩短总耗时）
-                //        Flux.merge 同时订阅两个 Flux，哪个有事件就先输出哪个
-                //        两者都 complete 后，merge 才 complete，concatWith 才继续
+                .concatWith(imageSearchTool.handle(ctx))
+                // Step4: Coder 和 Style 并发执行
                 .concatWith(Flux.merge(coderAgent.handle(ctx), styleAgent.handle(ctx)))
-                // Step5: Critic 质检 + 反馈循环（内部最多重试 criticMaxRounds 次）
+                // Step5: Critic 质检 + 反馈循环
                 .concatWith(runCriticLoop(ctx));
 
-        // Step6（可选）: 构建并部署，受 agent.deploy.enabled 开关控制
+        // Step6（可选）: 构建并部署
         if (deployEnabled) {
-            pipeline = pipeline.concatWith(deployAgent.handle(ctx));
+            pipeline = pipeline.concatWith(deployTool.handle(ctx));
         }
 
         return pipeline

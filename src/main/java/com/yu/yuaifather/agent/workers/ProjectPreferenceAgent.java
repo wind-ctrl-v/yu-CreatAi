@@ -14,14 +14,10 @@ import reactor.core.scheduler.Schedulers;
 
 /**
  * ProjectPreferenceAgent：项目品牌偏好加载 Worker（阶段三新增）。
- * <p>
- * 在 UserPreferenceAgent 之后、DesignRetrieveAgent 之前执行，
- * 从数据库加载当前项目的品牌画像数据，组装为 ProjectBrandContext 写入 Blackboard。
- * <p>
- * 本 Agent 不调用 LLM，纯 Java 从 DB 加载数据。
- * <p>
- * 开关：{@code agent.rerank.enabled:false}（默认关闭）。
+ *
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.tool.system.ProjectProfileTool}，请使用 ProjectProfileTool 替代。
  */
+@Deprecated
 @Slf4j
 @Component
 public class ProjectPreferenceAgent implements Agent {

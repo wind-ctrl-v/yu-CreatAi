@@ -21,18 +21,10 @@ import java.util.List;
 
 /**
  * 偏好更新服务（阶段一：用户偏好闭环）。
- * <p>
- * 基于用户行为事件的规则驱动偏好更新：
- * <ul>
- *   <li>正反馈：page_saved(+0.1), page_exported(+0.2), user_rating_5(+0.2)</li>
- *   <li>负反馈：page_deleted(-0.1), page_regenerated(-0.05), user_rating_1_2(-0.2)</li>
- *   <li>显式编辑：color_changed(from→to: -0.2/+0.2), component_removed(-0.2), component_added(+0.1)</li>
- * </ul>
- * <p>
- * 使用数据库原子操作 {@code UPDATE ... SET weight = weight + ?} 避免并发竞争。
  *
- * @author yu
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.worker.PreferenceUpdateWorker}，请使用 PreferenceUpdateWorker 替代。
  */
+@Deprecated
 @Slf4j
 @Service
 public class PreferenceUpdateService {

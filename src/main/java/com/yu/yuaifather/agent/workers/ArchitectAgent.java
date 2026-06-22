@@ -16,7 +16,10 @@ import reactor.core.scheduler.Schedulers;
 
 /**
  * ArchitectAgent：requirementDoc + techStack → GenerationPlan。
+ *
+ * @deprecated 已合并入 {@link PlanningAgent}，请使用 PlanningAgent 替代。
  */
+@Deprecated
 @Slf4j
 @Component
 public class ArchitectAgent implements Agent {

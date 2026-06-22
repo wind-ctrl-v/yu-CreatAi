@@ -17,22 +17,10 @@ import java.time.LocalDateTime;
 
 /**
  * 用户私有指纹入库服务（阶段二：用户私有指纹池）。
- * <p>
- * 用户保存/导出页面后异步触发，读取 generated_page 的 html/css/js，
- * 调用 DesignExtractorAgent 提炼六层指纹，标记 source_scope=USER 入库。
- * <p>
- * 质量门控条件（阈值 0.65，低于全局的 0.7）：
- * <ul>
- *   <li>extract_confidence >= 0.65</li>
- *   <li>页面有 html/css 内容</li>
- *   <li>非空 layout / components / tokens</li>
- * </ul>
- * <p>
- * 审核策略：用户私有指纹自动 APPROVED（仅影响自己，不污染全局），
- * 通过 source_scope='USER' 区分。
  *
- * @author yu
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.worker.FingerprintIngestWorker}，请使用 FingerprintIngestWorker 替代。
  */
+@Deprecated
 @Slf4j
 @Service
 public class UserFingerprintIngestService {

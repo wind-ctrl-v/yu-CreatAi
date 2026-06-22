@@ -42,6 +42,11 @@ public class DesignEvidence {
         return items == null || items.isEmpty();
     }
 
+    /** 空证据工厂方法。 */
+    public static DesignEvidence empty() {
+        return DesignEvidence.builder().build();
+    }
+
     /**
      * 单条受控证据（来自静态规范或一条指纹）。
      */

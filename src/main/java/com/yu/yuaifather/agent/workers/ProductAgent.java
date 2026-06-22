@@ -14,7 +14,10 @@ import reactor.core.scheduler.Schedulers;
 
 /**
  * ProductAgent：用户 prompt → 结构化 RequirementDoc。
+ *
+ * @deprecated 已合并入 {@link PlanningAgent}，请使用 PlanningAgent 替代。
  */
+@Deprecated
 @Slf4j
 @Component
 public class ProductAgent implements Agent {

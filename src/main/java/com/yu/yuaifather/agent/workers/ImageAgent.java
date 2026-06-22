@@ -19,20 +19,10 @@ import java.util.Map;
 
 /**
  * ImageAgent：消费 plan.imageSlots → 并发搜图 → 输出 imageMap。
- * <p>
- * 直接以代码方式调度 {@link ImageSearchTool}（无需 LLM 介入），
- * 因为该任务是确定性的，不需要语义推理。
  *
- * <h3>实现要点</h3>
- * <ul>
- *   <li>使用 {@code Flux.flatMap} + {@code Mono.fromCallable} 替代原来的
- *       {@code blockLast()}，全程非阻塞响应式，不占用响应式线程池。</li>
- *   <li>每个 slot 的搜图调用通过 {@code subscribeOn(Schedulers.boundedElastic())}
- *       切换到弹性线程池执行（IO 密集型），并发度由配置 {@code image.replace.concurrency} 控制。</li>
- *   <li>imageMap 仅以 keyword 为 key（去除冗余的 slotId 双写），
- *       与 {@code {{IMG:keyword}}} 占位符模板保持一致。</li>
- * </ul>
+ * @deprecated 已重命名为 {@link com.yu.yuaifather.tool.system.ImageSearchTool}，请使用 ImageSearchTool 替代。
  */
+@Deprecated
 @Slf4j
 @Component
 public class ImageAgent implements Agent {

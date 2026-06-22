@@ -64,4 +64,9 @@ public class ProjectBrandContext {
     public boolean hasBrandProfile() {
         return brandName != null && !brandName.isBlank();
     }
+
+    /** 空上下文工厂方法。 */
+    public static ProjectBrandContext empty() {
+        return ProjectBrandContext.builder().build();
+    }
 }

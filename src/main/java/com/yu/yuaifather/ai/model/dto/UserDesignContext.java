@@ -73,4 +73,9 @@ public class UserDesignContext {
                 || (preferredComponents != null && !preferredComponents.isEmpty())
                 || (preferenceWeights != null && !preferenceWeights.isEmpty());
     }
+
+    /** 空上下文工厂方法。 */
+    public static UserDesignContext empty() {
+        return UserDesignContext.builder().build();
+    }
 }
