@@ -14,12 +14,23 @@ export const useLoginUserStore = defineStore('loginUser', () => {
     fetched.value = true
   }
 
+  // TODO: 有后端后删掉这个 mock，恢复真实 fetchLoginUser
+  const DEV_MOCK = import.meta.env.DEV
+
   /** 拉取当前登录用户（失败返回 null，不抛出） */
   async function fetchLoginUser(): Promise<LoginUserVO | null> {
     const res = await getLoginUser().catch(() => null)
     fetched.value = true
     if (res && res.code === 0) {
       loginUser.value = res.data
+    } else if (DEV_MOCK && !res) {
+      // 开发阶段后端不可达时，注入 mock 管理员以便预览所有页面
+      loginUser.value = {
+        id: '1',
+        userAccount: 'admin',
+        userName: '管理员（Mock）',
+        userRole: 'admin',
+      }
     } else {
       loginUser.value = null
     }

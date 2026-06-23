@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, h } from 'vue'
-import { SearchOutlined, UserOutlined, RobotOutlined } from '@ant-design/icons-vue'
+import { SearchOutlined, UserOutlined, RobotOutlined, CopyOutlined } from '@ant-design/icons-vue'
 import { adminListChatHistory } from '../../api/admin'
+import { message } from 'ant-design-vue'
 import type { ChatHistory, ChatHistoryQueryRequest } from '../../types'
 
 // ======== 列表状态 ========
@@ -79,6 +80,15 @@ function msgTypeLabel(type: string) {
 }
 function msgTypeColor(type: string) {
   return type === 'ai' ? 'purple' : 'blue'
+}
+
+async function copyMessage(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success('已复制到剪贴板')
+  } catch {
+    message.error('复制失败，请手动选中复制')
+  }
 }
 </script>
 
@@ -179,7 +189,17 @@ function msgTypeColor(type: string) {
           </a-descriptions>
         </div>
         <div class="preview-content">
-          <div class="preview-label">消息内容</div>
+          <div class="preview-label">
+            消息内容
+            <a-button
+              type="link"
+              size="small"
+              :icon="h(CopyOutlined)"
+              @click="copyMessage(previewRecord.message)"
+            >
+              复制
+            </a-button>
+          </div>
           <div class="preview-body" :class="{ 'is-ai': previewRecord.messageType === 'ai' }">
             <pre>{{ previewRecord.message }}</pre>
           </div>
@@ -241,6 +261,9 @@ function msgTypeColor(type: string) {
   font-weight: 600;
   color: var(--gray-600);
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .preview-body {

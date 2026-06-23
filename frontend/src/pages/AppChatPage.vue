@@ -163,6 +163,12 @@ function sendMessage(content: string, displayText?: string) {
         message.error('登录已失效，请重新登录')
         return
       }
+      // 限流：提醒等待后重试
+      if (code === 42900) {
+        messages.value[aiIndex].content = '⚠️ 请求过于频繁，请稍等片刻后重试（每60秒最多5次）。'
+        message.warning('AI 对话请求过于频繁，请稍后再试')
+        return
+      }
       messages.value[aiIndex].content = `⚠️ ${errMsg}`
       message.error(errMsg)
     },
@@ -201,9 +207,27 @@ async function handleDeploy() {
     deployUrl.value = res.data
     Modal.success({
       title: '部署成功 🎉',
-      content: h('div', {}, [
-        h('span', '访问地址：'),
-        h('a', { href: deployUrl.value, target: '_blank' }, deployUrl.value),
+      content: h('div', { style: 'display:flex;flex-direction:column;gap:12px;' }, [
+        h('div', { style: 'word-break:break-all;font-size:13px;color:var(--gray-600);' }, [
+          h('span', '访问地址：'),
+          h('a', { href: deployUrl.value, target: '_blank', style: 'color:var(--accent);' }, deployUrl.value),
+        ]),
+        h(
+          'a-button',
+          {
+            type: 'default',
+            size: 'small',
+            onClick: async () => {
+              try {
+                await navigator.clipboard.writeText(deployUrl.value)
+                message.success('已复制到剪贴板')
+              } catch {
+                message.error('复制失败，请手动选中复制')
+              }
+            },
+          },
+          () => '📋 复制链接',
+        ),
       ]),
     })
   }

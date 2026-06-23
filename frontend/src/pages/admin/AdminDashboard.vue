@@ -6,8 +6,9 @@ import {
   AppstoreOutlined,
   MessageOutlined,
   RiseOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons-vue'
-import { adminListUserByPage, adminListAppByPage, adminListChatHistory } from '../../api/admin'
+import { adminListUserByPage, adminListAppByPage, adminListChatHistory, adminListFingerprintByPage } from '../../api/admin'
 
 const router = useRouter()
 
@@ -15,19 +16,22 @@ const stats = ref({
   totalUsers: 0,
   totalApps: 0,
   totalChats: 0,
+  totalFingerprints: 0,
 })
 const loading = ref(true)
 
 onMounted(async () => {
   try {
-    const [usersRes, appsRes, chatsRes] = await Promise.all([
+    const [usersRes, appsRes, chatsRes, fingerprintsRes] = await Promise.all([
       adminListUserByPage({ pageNum: 1, pageSize: 1 }),
       adminListAppByPage({ pageNum: 1, pageSize: 1 }),
       adminListChatHistory({ pageNum: 1, pageSize: 1 }),
+      adminListFingerprintByPage({ pageNum: 1, pageSize: 1 }).catch(() => ({ code: -1 })),
     ])
     if (usersRes?.code === 0) stats.value.totalUsers = usersRes.data?.totalRow ?? 0
     if (appsRes?.code === 0)  stats.value.totalApps  = appsRes.data?.totalRow ?? 0
     if (chatsRes?.code === 0) stats.value.totalChats = chatsRes.data?.totalRow ?? 0
+    if (fingerprintsRes?.code === 0) stats.value.totalFingerprints = (fingerprintsRes as any).data?.totalRow ?? 0
   } finally {
     loading.value = false
   }
@@ -61,6 +65,15 @@ const cards = [
     path: '/admin/chats',
     getValue: () => stats.value.totalChats,
   },
+  {
+    key: 'fingerprints',
+    label: '设计指纹',
+    icon: 'safety',
+    color: '#e8733a',
+    bg: '#fff8f3',
+    path: '/admin/fingerprints',
+    getValue: () => stats.value.totalFingerprints,
+  },
 ]
 </script>
 
@@ -83,6 +96,7 @@ const cards = [
           <UserOutlined     v-if="card.icon === 'user'"    :style="{ color: card.color, fontSize: '20px' }" />
           <AppstoreOutlined v-else-if="card.icon === 'app'" :style="{ color: card.color, fontSize: '20px' }" />
           <MessageOutlined  v-else-if="card.icon === 'message'" :style="{ color: card.color, fontSize: '20px' }" />
+          <SafetyOutlined   v-else-if="card.icon === 'safety'" :style="{ color: card.color, fontSize: '20px' }" />
         </div>
         <div class="stat-content">
           <div class="stat-label">{{ card.label }}</div>
@@ -114,6 +128,11 @@ const cards = [
           <span class="quick-label">对话历史</span>
           <span class="quick-desc">查看全平台用户的对话记录</span>
         </div>
+        <div class="quick-card" @click="router.push('/admin/fingerprints')">
+          <SafetyOutlined class="quick-icon" />
+          <span class="quick-label">设计指纹</span>
+          <span class="quick-desc">审核 AI 提取的设计指纹，纳入知识库</span>
+        </div>
       </div>
     </div>
   </div>
@@ -144,11 +163,14 @@ const cards = [
 /* 统计卡片 */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 32px;
 }
 
+@media (max-width: 1000px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 700px) {
   .stat-grid { grid-template-columns: 1fr; }
 }
@@ -209,10 +231,13 @@ const cards = [
 
 .quick-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 14px;
 }
 
+@media (max-width: 1000px) {
+  .quick-grid { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 700px) {
   .quick-grid { grid-template-columns: 1fr; }
 }
