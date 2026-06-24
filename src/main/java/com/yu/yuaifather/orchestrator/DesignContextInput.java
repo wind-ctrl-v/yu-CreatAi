@@ -26,4 +26,13 @@ public class DesignContextInput {
 
     /** 生成模式：standard / high_quality / low_cost。 */
     private String generationMode;
+
+    /** 注入的设计 evidence 最大条数（由 GenerationPolicy 决定，0 表示用装配器默认值）。 */
+    private int maxEvidenceCount;
+
+    /** 是否精简上下文（low_cost 模式下减少 token 占用）。 */
+    private boolean compactContext;
+
+    /** 是否注入完整项目品牌画像（high_quality 模式开启）。 */
+    private boolean fullProjectProfile;
 }

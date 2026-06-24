@@ -85,6 +85,9 @@ agent:
   orchestrator:
     # 是否启用多 Agent 流水线（仅 VUE_PROJECT 生效，默认关闭以避免影响存量）
     enabled: ${AGENT_ORCHESTRATOR_ENABLED:false}
+    # V2 编排器开关（架构分层后新流程），默认关闭
+    v2:
+      enabled: ${AGENT_ORCHESTRATOR_V2_ENABLED:false}
   critic:
     # Critic 反馈最大轮次
     max-rounds: 3
@@ -100,6 +103,59 @@ agent:
     vector:
       enabled: ${AGENT_RETRIEVE_VECTOR_ENABLED:false}
       min-similarity: ${AGENT_RETRIEVE_VECTOR_MIN_SIMILARITY:0.7}
+
+# 生成体系：链路 / 模式 / 套餐。由 GenerationModeResolver 消费产出 GenerationPolicy。
+# 未配置项由 GenerationProperties 内置默认值兜底；model 键暂未被编排器消费（后续接入）。
+generation:
+  # 默认生成模式（兼容入口 GenerationOrchestrator.generate(ctx) 使用）
+  mode: ${GENERATION_MODE:standard}
+  pipeline:
+    preferred: V2
+    allow-v1-fallback: true
+    allow-classic-fallback: true
+  modes:
+    low_cost:
+      enable-coder-style-parallel: false
+      enable-llm-critic: false
+      critic-trigger: never
+      max-critic-rounds: 0
+      max-evidence-count: 1
+      timeout-ms: 180000
+    standard:
+      enable-coder-style-parallel: true
+      enable-llm-critic: true
+      critic-trigger: on_rule_failure
+      max-critic-rounds: 1
+      max-evidence-count: 3
+      timeout-ms: 300000
+    high_quality:
+      enable-coder-style-parallel: true
+      enable-llm-critic: true
+      critic-trigger: always
+      max-critic-rounds: 3
+      max-evidence-count: 5
+      timeout-ms: 600000
+  entitlements:
+    FREE:
+      default-mode: low_cost
+      max-mode: low_cost
+      daily-low-cost-limit: 10
+    PRO:
+      default-mode: standard
+      max-mode: standard
+      daily-standard-limit: 50
+    PREMIUM:
+      default-mode: standard
+      max-mode: high_quality
+      daily-standard-limit: 100
+      daily-high-quality-limit: 10
+    ENTERPRISE:
+      default-mode: high_quality
+      max-mode: high_quality
+      daily-high-quality-limit: 100
+    ADMIN:
+      default-mode: high_quality
+      max-mode: high_quality
 
 # 设计指纹提炼（阶段二，离线）
 design:

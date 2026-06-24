@@ -3,16 +3,10 @@ package com.yu.yuaifather.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
-import com.yu.yuaifather.agent.core.AgentContext;
-import com.yu.yuaifather.agent.core.AgentEvent;
-import com.yu.yuaifather.agent.orchestrator.OrchestratorAgent;
-import com.yu.yuaifather.orchestrator.GenerationOrchestrator;
 import com.yu.yuaifather.agent.codegen.AiCodeGenTypeRoutingService;
 import com.yu.yuaifather.agent.codegen.core.AiCodeGeneratorFacade;
-import com.yu.yuaifather.agent.codegen.model.message.AiResponseMessage;
 import com.yu.yuaifather.agent.codegen.core.VueProjectBuilder;
 import com.yu.yuaifather.agent.codegen.core.StreamHandlerExecutor;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
@@ -32,6 +26,7 @@ import com.yu.yuaifather.service.AppService;
 import com.yu.yuaifather.service.ChatHistoryService;
 import com.yu.yuaifather.service.ScreenshotService;
 import com.yu.yuaifather.service.UserService;
+import com.yu.yuaifather.service.generation.GenerationPipelineRouter;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,23 +74,12 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private VueProjectBuilder vueProjectBuilder;
 
     @Autowired
-    private OrchestratorAgent orchestratorAgent;
-
-    @Autowired
-    private GenerationOrchestrator generationOrchestrator;
+    private GenerationPipelineRouter generationPipelineRouter;
 
     /** 截图异步线程池，替代 Thread.startVirtualThread() 的无界创建 */
     @Autowired
     @Qualifier("screenshotExecutor")
     private Executor screenshotExecutor;
-
-    /** 多 Agent 流水线开关：仅对 VUE_PROJECT 生效，默认关闭，避免影响存量。 */
-    @Value("${agent.orchestrator.enabled:false}")
-    private boolean orchestratorEnabled;
-
-    /** V2 编排器开关（架构分层后），默认关闭。 */
-    @Value("${agent.orchestrator.v2.enabled:false}")
-    private boolean orchestratorV2Enabled;
 
     /**
      * 应用部署基础 URL，用于拼接部署访问地址。
@@ -185,7 +169,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
 
     @Override
-    public Flux<String> chatToGenCode(Long appId, String message, User loginUser) {
+    public Flux<String> chatToGenCode(Long appId, String message, String requestedMode, User loginUser) {
 
         // 1. 参数校验
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
@@ -210,44 +194,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         } catch (Exception e) {
             log.warn("用户消息写入历史失败，appId={}，不影响生成流程: {}", appId, e.getMessage());
         }
-        // 6. 调用 AI 生成代码（流式）
-        //    阶段 0：当多 Agent 开关开启且为 Vue 项目时，进入 OrchestratorAgent 多 Agent 流水线；
-        //    否则维持经典 aiCodeGeneratorFacade 链路（开关关闭 / 非 Vue 类型均不受影响）。
-        if (orchestratorEnabled && codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
-            // V2 编排器优先（架构分层后新流程）
-            if (orchestratorV2Enabled) {
-                try {
-                    AgentContext ctx = AgentContext.builder()
-                            .appId(appId)
-                            .loginUser(loginUser)
-                            .userPrompt(message)
-                            .codeGenType(codeGenTypeEnum)
-                            .build();
-                    Flux<String> codeStream = generationOrchestrator.generate(ctx).map(this::toStreamPayload);
-                    return doExecuteStream(codeStream, appId, loginUser, codeGenTypeEnum);
-                } catch (Exception e) {
-                    log.error("GenerationOrchestrator 异常，降级经典链路 appId={}", appId, e);
-                }
-            }
-            try {
-                // 订阅前的同步构建逻辑：构建上下文 + 串联流水线。
-                // 此处尚未向 SSE emit 任何内容，若抛异常可安全回退到经典链路（见文档 0.1.1）。
-                AgentContext ctx = AgentContext.builder()
-                        .appId(appId)
-                        .loginUser(loginUser)
-                        .userPrompt(message)
-                        .codeGenType(codeGenTypeEnum)
-                        .build();
-                Flux<String> codeStream = orchestratorAgent.handle(ctx).map(this::toStreamPayload);
-                return doExecuteStream(codeStream, appId, loginUser, codeGenTypeEnum);
-            } catch (Exception e) {
-                // 订阅前异常回退：尚未 emit 任何内容，安全切回经典链路。
-                // 注意：流已开始 emit 后的 Worker 异常由 OrchestratorAgent.onErrorResume 兜底，不在此回退范围。
-                log.error("OrchestratorAgent 订阅前异常，回退经典生成链路 appId={}", appId, e);
-            }
-        }
-        // 7. 经典链路：收集 AI 响应内容并在完成后记录到对话历史
-        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
+        // 6. 路由到生成链路：V2 → V1 → Classic 三级降级由 GenerationPipelineRouter 统一编排，
+        //    本方法仅保留参数校验、鉴权、写历史与 doExecuteStream 收口。
+        Flux<String> codeStream = generationPipelineRouter.route(appId, message, requestedMode, loginUser, codeGenTypeEnum);
         return doExecuteStream(codeStream, appId, loginUser, codeGenTypeEnum);
 
     }
@@ -265,26 +214,6 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
      */
     private Flux<String> doExecuteStream(Flux<String> codeStream, Long appId, User loginUser, CodeGenTypeEnum codeGenTypeEnum) {
         return streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum);
-    }
-
-    /**
-     * 将 OrchestratorAgent 输出的 AgentEvent 序列化为前端 SSE 文本，复用既有 StreamHandlerExecutor 的解析格式。
-     * <ul>
-     *   <li>TEXT_CHUNK / TOOL_CALL / TOOL_RESULT 已是 SSE 协议字符串，原样透传；</li>
-     *   <li>STATUS_CHANGE / ERROR 以 AiResponseMessage 包装为可读文本。</li>
-     * </ul>
-     */
-    private String toStreamPayload(AgentEvent event) {
-        if (event.getType() == AgentEvent.EventType.TEXT_CHUNK
-                || event.getType() == AgentEvent.EventType.TOOL_CALL
-                || event.getType() == AgentEvent.EventType.TOOL_RESULT) {
-            return event.getContent() == null ? "" : event.getContent();
-        }
-        String prefix = event.getType() == AgentEvent.EventType.ERROR ? "[错误]" : "[阶段]";
-        String text = String.format("\n%s %s：%s\n", prefix,
-                event.getAgentName() == null ? "" : event.getAgentName(),
-                event.getContent() == null ? "" : event.getContent());
-        return JSONUtil.toJsonStr(new AiResponseMessage(text));
     }
 
 

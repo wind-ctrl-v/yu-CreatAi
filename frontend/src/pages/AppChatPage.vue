@@ -36,6 +36,8 @@ const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const generating = ref(false)
 const deploying = ref(false)
+// 生成模式意图（low_cost/standard/high_quality），后端按套餐封顶
+const genMode = ref<string>('standard')
 
 const previewUrl = ref('')
 const previewKey = ref(0) // 用于强制刷新 iframe
@@ -146,7 +148,10 @@ function sendMessage(content: string, displayText?: string) {
   generating.value = true
   scrollToBottom()
 
-  closeSSE = connectChatSSE(appId.value, real, {
+  closeSSE = connectChatSSE(
+    appId.value,
+    real,
+    {
     onChunk: (chunk) => {
       messages.value[aiIndex].content += chunk
       scrollToBottom()
@@ -178,7 +183,9 @@ function sendMessage(content: string, displayText?: string) {
         messages.value[aiIndex].content = '⚠️ 生成中断，请重试。'
       }
     },
-  })
+    },
+    genMode.value,
+  )
 }
 
 function handleSend() {
@@ -335,6 +342,17 @@ onBeforeUnmount(() => {
             <a-button type="text" size="small" @click="clearPicked">✕</a-button>
           </div>
           <div class="chat-input-row">
+            <a-select
+              v-model:value="genMode"
+              size="small"
+              :disabled="generating"
+              class="gen-mode-select"
+              :options="[
+                { value: 'low_cost', label: '快速生成' },
+                { value: 'standard', label: '标准生成' },
+                { value: 'high_quality', label: '高质量生成' },
+              ]"
+            />
             <a-textarea
               v-model:value="input"
               :auto-size="{ minRows: 1, maxRows: 4 }"

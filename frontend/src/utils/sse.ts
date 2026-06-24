@@ -13,19 +13,27 @@ export interface SSECallbacks {
 
 /**
  * 连接 AI 代码生成的 SSE 流。
- * 后端：GET /app/chat/gen/code?appId=&message=
+ * 后端：GET /app/chat/gen/code?appId=&message=&mode=
  * 每条数据：data: {"d": "片段"}；结束发送 event: done
  *
+ * @param appId     应用 ID
+ * @param message   用户消息
+ * @param callbacks 回调
+ * @param mode      生成模式意图（low_cost/standard/high_quality，可选；后端按套餐封顶）
  * @returns 关闭连接的函数
  */
 export function connectChatSSE(
   appId: string,
   message: string,
   callbacks: SSECallbacks,
+  mode?: string,
 ): () => void {
-  const url = `${API_BASE_URL}/app/chat/gen/code?appId=${appId}&message=${encodeURIComponent(
+  let url = `${API_BASE_URL}/app/chat/gen/code?appId=${appId}&message=${encodeURIComponent(
     message,
   )}`
+  if (mode) {
+    url += `&mode=${encodeURIComponent(mode)}`
+  }
 
   // 原生 EventSource，GET 请求会自动携带同源 Cookie
   const es = new EventSource(url, { withCredentials: true })

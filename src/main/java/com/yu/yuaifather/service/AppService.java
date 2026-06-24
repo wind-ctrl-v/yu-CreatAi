@@ -33,7 +33,7 @@ public interface AppService extends IService<App> {
     QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest);
 
     //调用ai大模型接口
-    Flux<String> chatToGenCode(Long appId, String message, User loginUser);
+    Flux<String> chatToGenCode(Long appId, String message, String requestedMode, User loginUser);
 
     //部署应用
     String deployApp(Long appId, User loginUser);
