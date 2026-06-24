@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../request'
+import type { GenerationStartedEvent, PipelineFallbackEvent } from '../types'
 
 export interface SSECallbacks {
   /** 收到一个内容片段（已解析出的 d 字段） */
@@ -9,6 +10,31 @@ export interface SSECallbacks {
   onBusinessError?: (err: { code: number; message: string }) => void
   /** 网络/传输层出错 */
   onError?: (err: Event) => void
+  /** 生成开始：解析自流首部 `[生成] {json}` 结构化事件 */
+  onGenerationStarted?: (event: GenerationStartedEvent) => void
+  /** 链路降级：解析自 `[降级] {json}` 结构化事件 */
+  onPipelineFallback?: (event: PipelineFallbackEvent) => void
+}
+
+/** 结构化事件文本前缀（与后端 GenerationPipelineRouter 保持一致） */
+const GENERATION_STARTED_PREFIX = '[生成]'
+const PIPELINE_FALLBACK_PREFIX = '[降级]'
+
+/**
+ * 从形如 `\n[生成] {json}\n` 的文本中提取并解析 JSON。
+ * 用首个 `{` 到末个 `}` 截取，兼容前后的前缀与换行。
+ * @returns 解析成功返回对象，失败返回 null
+ */
+function extractEventJson<T>(text: string): T | null {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) return null
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as T
+  } catch (err) {
+    console.warn('SSE 结构化事件 JSON 解析失败：', err, text)
+    return null
+  }
 }
 
 /**
@@ -54,9 +80,25 @@ export function connectChatSSE(
     if (!e.data) return
     try {
       const parsed = JSON.parse(e.data)
-      if (typeof parsed.d === 'string') {
-        callbacks.onChunk(parsed.d)
+      if (typeof parsed.d !== 'string') return
+      const chunk: string = parsed.d
+      // 结构化事件分流：命中前缀的 chunk 提取 JSON 解析后分发到对应回调，
+      // 不再作为普通文本拼接进气泡；解析失败则安全兜底回退为普通文本。
+      if (chunk.includes(GENERATION_STARTED_PREFIX)) {
+        const event = extractEventJson<GenerationStartedEvent>(chunk)
+        if (event && event.event === 'generation_started') {
+          callbacks.onGenerationStarted?.(event)
+          return
+        }
+      } else if (chunk.includes(PIPELINE_FALLBACK_PREFIX)) {
+        const event = extractEventJson<PipelineFallbackEvent>(chunk)
+        if (event && event.event === 'pipeline_fallback') {
+          callbacks.onPipelineFallback?.(event)
+          return
+        }
       }
+      // 普通文本片段（含 [阶段]/[错误] 可读文本）按原逻辑展示
+      callbacks.onChunk(chunk)
     } catch (err) {
       console.error('SSE 数据解析失败：', err, e.data)
     }

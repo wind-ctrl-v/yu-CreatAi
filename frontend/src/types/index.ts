@@ -161,3 +161,41 @@ export interface FingerprintReviewRequest {
   id: string
   remark?: string
 }
+
+// ==================== 生成流水线结构化 SSE 事件 ====================
+
+/** 生成模式意图/实际值 */
+export type GenerationMode = 'low_cost' | 'standard' | 'high_quality'
+
+/** 生成链路类型 */
+export type PipelineType = 'V2' | 'V1' | 'CLASSIC'
+
+/**
+ * 生成开始事件：后端在 VUE 生成流首部下发，
+ * 文本形如 `\n[生成] {json}\n`，json 即本对象。
+ */
+export interface GenerationStartedEvent {
+  event: 'generation_started'
+  /** 本次生成全局追踪 ID */
+  generationId: string
+  /** 实际选择的链路（V2/V1/CLASSIC） */
+  pipeline: PipelineType | string
+  /** 套餐封顶后实际生效的生成模式 */
+  mode: GenerationMode | string
+  /** 是否允许降级 */
+  fallbackEnabled: boolean
+}
+
+/**
+ * 链路降级事件：后端在发生 V2→V1 / V2→Classic / V1→Classic 降级时下发，
+ * 文本形如 `\n[降级] {json}\n`，json 即本对象。
+ */
+export interface PipelineFallbackEvent {
+  event: 'pipeline_fallback'
+  /** 降级前链路 */
+  from: PipelineType | string
+  /** 降级后链路 */
+  to: PipelineType | string
+  /** 降级原因摘要 */
+  reason: string
+}

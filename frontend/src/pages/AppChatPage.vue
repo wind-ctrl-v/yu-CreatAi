@@ -23,6 +23,26 @@ interface ChatMessage {
   content: string
 }
 
+/** 生成模式 → 中文文案（与模式选择器 options 文案统一） */
+const MODE_LABELS: Record<string, string> = {
+  low_cost: '快速',
+  standard: '标准',
+  high_quality: '高质量',
+}
+function modeLabel(mode?: string): string {
+  return (mode && MODE_LABELS[mode]) || mode || '标准'
+}
+
+/** 本轮生成的结构化运行信息 */
+interface GenerationRunInfo {
+  /** 实际生效模式 */
+  mode: string
+  /** 实际链路 */
+  pipeline: string
+  /** 降级提示（发生降级时） */
+  fallbackText?: string
+}
+
 const route = useRoute()
 const router = useRouter()
 // 用 computed 让应用切换（路由参数变化）时能够响应
@@ -38,6 +58,8 @@ const generating = ref(false)
 const deploying = ref(false)
 // 生成模式意图（low_cost/standard/high_quality），后端按套餐封顶
 const genMode = ref<string>('standard')
+// 本轮生成的结构化运行信息（生效模式/链路/降级提示），由 SSE 结构化事件填充
+const runInfo = ref<GenerationRunInfo | null>(null)
 
 const previewUrl = ref('')
 const previewKey = ref(0) // 用于强制刷新 iframe
@@ -146,6 +168,8 @@ function sendMessage(content: string, displayText?: string) {
   // 记录 AI 消息索引，通过响应式代理修改以触发视图更新
   const aiIndex = messages.value.length - 1
   generating.value = true
+  // 重置上一轮的结构化运行信息
+  runInfo.value = null
   scrollToBottom()
 
   closeSSE = connectChatSSE(
@@ -155,6 +179,26 @@ function sendMessage(content: string, displayText?: string) {
     onChunk: (chunk) => {
       messages.value[aiIndex].content += chunk
       scrollToBottom()
+    },
+    onGenerationStarted: (event) => {
+      // 展示后端封顶后实际生效的模式与链路
+      runInfo.value = {
+        mode: event.mode,
+        pipeline: event.pipeline,
+        fallbackText: runInfo.value?.fallbackText,
+      }
+    },
+    onPipelineFallback: (event) => {
+      const reason = (event.reason || '').slice(0, 60)
+      const text = `已从 ${event.from} 链路自动切换至 ${event.to} 链路${
+        reason ? `（${reason}）` : ''
+      }`
+      message.warning(text)
+      runInfo.value = {
+        mode: runInfo.value?.mode || genMode.value,
+        pipeline: event.to,
+        fallbackText: text,
+      }
     },
     onDone: () => {
       generating.value = false
@@ -256,12 +300,15 @@ async function init() {
   app.value = null
   previewUrl.value = ''
   deployUrl.value = ''
+  runInfo.value = null
 
   await loadApp()
   await loadHistory()
   // 从首页带 init=1 进入：自动发起首轮生成
-  if (route.query.init === '1' && app.value?.initPrompt) {
-    sendMessage(app.value.initPrompt)
+  // 显式取出当前应用，避免 TS 因前面 app.value=null 的控制流收窄误判为 never
+  const loadedApp = app.value as AppVO | null
+  if (route.query.init === '1' && loadedApp?.initPrompt) {
+    sendMessage(loadedApp.initPrompt)
     router.replace({ name: 'appChat', params: { id: appId.value } })
   } else {
     refreshPreview()
@@ -290,6 +337,9 @@ onBeforeUnmount(() => {
         <a-button type="text" @click="router.push('/')">← 返回</a-button>
         <span class="app-name">{{ appName }}</span>
         <a-tag v-if="app" color="blue">{{ app.codeGenType }}</a-tag>
+        <a-tag v-if="runInfo" color="purple">
+          {{ modeLabel(runInfo.mode) }} · {{ runInfo.pipeline }}
+        </a-tag>
       </div>
       <div class="right">
         <a-button @click="handleDownload">下载代码</a-button>
@@ -303,6 +353,10 @@ onBeforeUnmount(() => {
       <!-- 左：对话区 -->
       <section class="chat-panel">
         <div ref="chatListRef" class="chat-list">
+          <div v-if="runInfo?.fallbackText" class="fallback-bar">
+            <span class="fallback-icon">⚠️</span>
+            <span class="fallback-text">{{ runInfo.fallbackText }}</span>
+          </div>
           <div
             v-for="m in messages"
             :key="m.id"
@@ -475,6 +529,25 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   padding: 18px;
+}
+.fallback-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  background: rgba(250, 173, 20, 0.1);
+  border: 1px solid rgba(250, 173, 20, 0.35);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.fallback-icon {
+  flex-shrink: 0;
+}
+.fallback-text {
+  flex: 1;
+  min-width: 0;
 }
 .msg-row {
   display: flex;
