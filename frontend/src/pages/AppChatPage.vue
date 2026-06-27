@@ -7,6 +7,7 @@ import {
   buildPreviewUrl,
   deployApp,
   getAppVOById,
+  recordEditEvent,
 } from '../api/app'
 import { listAppChatHistory } from '../api/chatHistory'
 import { getPlanCapabilities } from '../api/user'
@@ -284,13 +285,28 @@ function handleSend() {
     const real =
       buildEditContext(target) + (userText || '请优化这个元素的样式与交互体验')
     const display = `🎯 已选中 <${target.tagName}>${
-      target.text ? ` “${target.text.slice(0, 20)}”` : ''
+      target.text ? ` "${target.text.slice(0, 20)}"` : ''
     }\n${userText || '请优化这个元素的样式与交互体验'}`
     clearPicked()
     exitSelecting()
+    // 记录可视化修改事件（偏好闭环）
+    recordElementEditEvent(target, userText)
     sendMessage(real, display)
   } else {
     sendMessage(userText)
+  }
+}
+
+/** 根据选中元素和修改文本，检测类型并发事件给后端 */
+function recordElementEditEvent(el: PickedElement, instruction: string) {
+  const cls = (el.className || '').toLowerCase() + ' ' + instruction.toLowerCase()
+  if (/color|bg-|background|gradient|#([0-9a-f]{3,6})|rgb/.test(cls)) {
+    const toTag = (instruction.match(/(?:改为|换成|改成)(.+)/)?.[1] || '自定义').slice(0, 30)
+    recordEditEvent({ appId: appId.value, eventType: 'color_changed', metadata: `toTag=${toTag}` })
+  } else if (/nav|header|footer|sidebar|section|layout|grid|flex|排列|布局/.test(el.tagName + ' ' + cls)) {
+    recordEditEvent({ appId: appId.value, eventType: 'layout_changed', metadata: `from=${el.tagName}` })
+  } else {
+    recordEditEvent({ appId: appId.value, eventType: 'component_added', metadata: `component=${el.tagName}` })
   }
 }
 

@@ -402,5 +402,32 @@ public class AppController {
     }
 
 
+    /**
+     * 记录用户可视化修改事件（用于偏好闭环）
+     */
+    @PostMapping("/record-edit-event")
+    public BaseResponse<Boolean> recordEditEvent(@RequestBody Map<String, Object> body,
+                                                  HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        Long appId = body.get("appId") != null ? Long.valueOf(body.get("appId").toString()) : null;
+        String eventType = (String) body.get("eventType");
+        String metaStr = (String) body.get("metadata");
+        ThrowUtils.throwIf(appId == null || eventType == null, ErrorCode.PARAMS_ERROR);
+
+        try {
+            UserDesignEvent event = UserDesignEvent.builder()
+                    .userId(loginUser.getId())
+                    .generationId(appId)
+                    .eventType(eventType)
+                    .metadata(metaStr)
+                    .createTime(LocalDateTime.now())
+                    .build();
+            preferenceUpdateWorker.recordAndUpdate(event);
+        } catch (Exception e) {
+            log.warn("修改事件记录失败 appId={} type={}", appId, eventType, e);
+        }
+        return ResultUtils.success(true);
+    }
+
 
 }

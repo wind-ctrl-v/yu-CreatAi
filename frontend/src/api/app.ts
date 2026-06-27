@@ -45,3 +45,12 @@ export function buildDownloadUrl(appId: string) {
 export function buildPreviewUrl(codeGenType: string, appId: string) {
   return `${API_BASE_URL}/static/${codeGenType}_${appId}/`
 }
+
+/** 记录可视化修改事件（偏好闭环） */
+export function recordEditEvent(params: {
+  appId: string
+  eventType: string
+  metadata?: string
+}) {
+  return request.post<any, BaseResponse<boolean>>('/app/record-edit-event', params)
+}
