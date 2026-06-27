@@ -240,13 +240,16 @@ INSERT INTO user_preference_weight (...) VALUES (...)
 ```
 UserPreferenceTool (注入在 V1/V2 流水线中)
     │
-    ├─ 读取 user_design_profile → 获取 preferredStyles / preferredColors / ...
-    ├─ 读取 user_preference_weight → queryTags: 权重最高的 Top-N 标签
+    ├─ 调用 UserPreferenceService.loadUserDesignContext(userId)
+    │   ├─ 加载 user_design_profile
+    │   └─ 加载 user_preference_weight
     │
-    ├─ 注入 UserPreferenceContext → Blackboard
+    ├─ 写入 Blackboard: putUserDesignContext(context)
+    │   （注意：UserPreferenceTool 只负责加载数据，不拼接 prompt；
+    │    prompt 拼接由 ContextCompressTool 统一完成）
     │
-    └─ DesignRetrieveTool 读取 queryTags
-         → 增强 DesignKnowledgeIndex.retrieve(tags) 的检索精度
+    └─ DesignRetrieveTool 读取 UserDesignContext
+         → 增强 DesignKnowledgeIndex.retrieve() 的检索精度
          → 同一个 styleProfile 下，不同用户的召回结果不同
 ```
 
@@ -264,35 +267,34 @@ UserPreferenceTool (注入在 V1/V2 流水线中)
 
 ### 3.8 profileSummary 自然语言摘要
 
-`UserDesignProfile.profileSummary` 字段将偏好权重聚合为一个自然语言句子（由 `UserDesignProfileService` 定期刷新），直接注入 CoderAgent/StyleAgent 的 prompt 中：
+`UserDesignProfile.profileSummary` 字段用于存储偏好权重的自然语言聚合句。该字段在 `loadUserDesignContext()` 时被读取并注入 `UserDesignContext`，最终由 `ContextCompressTool` 拼接到 LLM prompt 中。
 
 > "该用户偏爱极简(minimal)和科技(tech)风格，偏好深色(dark)和蓝色(blue)色调，喜欢卡片(card)和网格(grid)布局，讨厌轮播(slider)组件"
 
-这使得即便 RAG 检索失败（阶段三关闭或空结果），用户偏好仍然通过这段文本注入到生成中。
+**注意**：当前代码中 `profileSummary` 仅被读取，**没有自动定期刷新的实现**。该字段的更新需后续接入（如定时 Job 聚合 `user_preference_weight` 表中的 Top-K 标签拼接为摘要）。
 
-### 3.9 对外接口
+### 3.9 对外接口现状
 
-`UserDesignProfileController`：
+**当前没有独立的 `UserDesignProfileController`**，用户画像操作全部通过内部服务完成：
 
-| 接口 | 说明 |
-|------|------|
-| `GET /user_design_profile/{userId}` | 获取用户画像 |
-| `POST /user_design_profile/event` | 上报行为事件（触发权重更新） |
-| `POST /user_design_profile/feedback` | 用户主动反馈（rating + comment） |
+| 组件 | 调用方式 | 说明 |
+|------|---------|------|
+| `UserPreferenceService` | 流水线内部调用 | 加载画像 + 权重 |
+| `PreferenceUpdateWorker` | 由生成流水线/事件触发 | 写入行为事件 + 更新权重 |
+| `PromptPreferenceExtractor` | 由 `AppController.chatToGenCode` 调用 | 从 prompt 提取偏好并写入权重 |
 
-前端在用户对生成结果进行操作时调用上报接口，形成闭环。
+> **待实现**：对外暴露 REST API（如 `POST /user_design_profile/event`、`POST /user_design_profile/feedback`），使前端能在用户交互（保存/删除/改色）时上报行为事件。
 
 ### 3.10 与 PromptPreferenceExtractor 的互补
 
-| 维度 | PromptPreferenceExtractor | 用户画像体系 |
-|------|---------------------------|-------------|
-| 提取来源 | 当前对话 prompt | 历史行为日志 |
-| 时效性 | 即时 | 长期累积 |
+| 维度 | PromptPreferenceExtractor | 用户画像体系（行为侧） |
+|------|---------------------------|----------------------|
+| 提取来源 | 当前对话 prompt（LLM 提取） | 历史操作行为（规则引擎） |
+| 时效性 | 每次对话即时 | 长期累积 |
 | 体现 | "这次想要什么" | "一直以来喜欢什么" |
-| LLM 参与 | 无（规则引擎） | 无（规则引擎） |
-| 权重 | 单次对话有效 | 永久存储，跨对话累积 |
+| 写入方式 | LLM 提取 → 写入 `user_preference_weight` | 行为事件 → 写入 `user_preference_weight` |
 
-两者在检索时**合并**为最终的 query tags：`extract(prompt) + getTopTags(userId, topK=10)`
+两者写入**同一张权重表**，最终融合为统一的用户偏好向量，由 `UserPreferenceTool` 加载后注入 Blackboard。
 
 ---
 
@@ -323,20 +325,26 @@ FingerprintParser (校验)
     │  APPROVE → 可检索
     │  REJECT  → 记录原因，不入检索池
     ▼
-VectorSyncService (PGvector 同步)
+VectorSyncWorker (PGvector 同步)
     │  拼接 content = styleProfile + " " + tone
     │  调用 EmbeddingModel.embed(content) → vector(768)
-    │  INSERT INTO design_fingerprint_vector
+    │  UPSERT INTO design_fingerprint_vector
+    │  （注：旧版 VectorSyncService 已 @Deprecated，功能迁移至 VectorSyncWorker）
     ▼
 可检索 (DesignKnowledgeIndex.retrieve)
 ```
 
-### 4.2 DesignSourcePreprocessor 安全措施
+### 4.2 DesignSourcePreprocessor 处理逻辑
 
-- 移除所有 `<script>` 标签（防 XSS/注入）
-- 移除业务文案（公司名、价格、用户数据）
-- 保留结构标签 + CSS 类名 + 布局信息
-- 保留设计相关属性（颜色、字体、间距）
+文件：`service/design/DesignSourcePreprocessor.java`
+
+采用**选择性提取**策略（而非主动移除业务文案）：
+- 移除所有 `<script>` 标签（防 XSS/Prompt Injection）
+- 提取结构化标签计数（header/nav/main/section/article/aside/footer/h1-h3/form/button/table/ul/ol）
+- 提取关键 CSS 声明（color/background/font-size/padding/margin/border-radius 等）
+- 输出格式化的"结构骨架 + 关键样式"摘要（`summarizeHtml()`）
+
+> 注意：业务文案（公司名、价格等）不被主动剥离，而是因为只提取结构信息和 CSS 属性而被自然过滤。
 
 ### 4.3 指纹提炼规则（LLM Prompt 约束）
 
@@ -347,69 +355,81 @@ VectorSyncService (PGvector 同步)
 
 ---
 
-## 四、阶段二：离线知识库建设## 五、阶段三：运行时检索
+## 五、阶段三：运行时检索
 
-### 4.1 DesignKnowledgeIndex 三层检索策略
+### 5.1 DesignKnowledgeIndex 三层检索策略
 
 文件：`service/rag/DesignKnowledgeIndex.java`
 
+两个重载入口：
+- 基础版：`retrieve(styleProfile, queryTags, staticSpec, topK)`
+- 个性化增强版：`retrieve(styleProfile, queryTags, staticSpec, requirement, plan, userContext, topK)`
+
 ```
-retrieve(styleProfile, queryTags)
+retrieve(...)
   │
-  ├─ Layer 1: VECTOR_3B（PGvector 向量检索）
-  │     content = styleProfile + " " + tone.join(" ")
+  ├─ Layer 1: VECTOR_3B（PGvector 向量检索，受 agent.retrieve.vector.enabled 子开关控制）
+  │     content = styleProfile + " " + queryTags.join(" ")
   │     embedding = EmbeddingModel.embed(content) → vector(768)
-  │     PGvector: SELECT *, embedding <=> ? AS distance
-  │            FROM design_fingerprint_vector
-  │            ORDER BY distance ASC LIMIT topK
-  │     → 余弦距离最近的前 K 个指纹
+  │     vectorRepo.search(embedding, topK) → 余弦距离最近的 K 条
+  │     失败则降级到 Layer 2
   │
   ├─ Layer 2: STRUCTURAL_3A（MySQL 结构化检索）
-  │     SELECT * FROM design_fingerprint
-  │     WHERE status = 'APPROVED'
-  │       AND styleProfile = ?
-  │       AND (tone REGEXP ? OR fingerprintJson REGEXP ?)
-  │     ORDER BY priority DESC, confidence DESC
-  │     → 精确匹配 styleProfile + 关键词匹配
+  │     fingerprintService.listApproved(styleProfile, limit)
+  │     → 查 status=APPROVED 且 styleProfile 匹配的指纹
+  │     → Java 侧 softMatchScore() 对 queryTags 做软匹配评分排序
+  │     →（注意：关键词匹配在 Java 层完成，非 SQL REGEXP）
   │
-  └─ Layer 3: STATIC_FALLBACK（静态兜底）
+  └─ Layer 3: STATIC_FALLBACK（始终加入）
          classpath:skill/designs/{profile}.md
-         → 解析 preferredPatterns 节
-         → 作为兜底证据返回
+         → 解析 preferredPatterns / forbiddenPatterns
+         → 作为兜底证据条目加入结果
 ```
 
-### 4.2 去重与排序
+### 5.2 去重与排序
 
-三层结果：
-1. 按 `fingerprintId` 去重（向量层和结构化层可能命中同一指纹）
+三层结果合并后：
+1. 按 `sourceId` 去重（向量层和结构化层可能命中同一指纹）
 2. 按 `priority DESC, confidence DESC` 统一排序
-3. 截取 Top-K（由 `maxEvidenceCount` 控制）
+3. 截取 Top-K（由 `GenerationPolicy.maxEvidenceCount` 控制）
 
-### 4.3 DesignEvidence 包装
+### 5.3 DesignEvidence 数据结构
 
-检索结果包装为 `DesignEvidence` DTO：
+检索结果包装为 `DesignEvidence` DTO（`model/dto/agent/DesignEvidence.java`）：
 
 ```
 DesignEvidence {
-    List<DesignFingerprintDTO> fingerprints;
-    Map<String, List<String>> aggregatedTokens;     // 合并去重 CSS Token
-    List<String> aggregatedPreferredPatterns;        // 推荐写法
-    List<String> aggregatedForbiddenPatterns;         // 反模式
-    String toneSummary;                               // 调性摘要文本
+    String styleProfile;           // 风格画像
+    String channel;                // 命中的检索通道（STRUCTURAL_3A / VECTOR_3B / STATIC_FALLBACK）
+    List<Item> items;              // 按优先级排序的证据条目列表
+}
+
+DesignEvidence.Item {
+    String sourceType;             // APPROVED_FINGERPRINT / STATIC_SPEC
+    String sourceId;               // 指纹 ID 或 .md 文件名
+    int priority;                  // 优先级
+    double confidence;             // 置信度
+    List<String> tone;             // 调性标签
+    List<String> layoutPatterns;   // 布局模式
+    List<String> preferredPatterns;// 推荐写法
+    List<String> interactionPatterns; // 交互规则
+    List<String> forbiddenPatterns;// 反模式
 }
 ```
 
 写入 Blackboard：`putDesignEvidence(evidence)`
 
+> 注意：证据按**条目（Item）维度**组织，不做预聚合；聚合逻辑由消费方（`ContextCompressTool`）在拼接 prompt 时完成。
+
 ---
 
 ## 六、消费：注入 LLM Prompt
 
-### 5.1 CoderAgent prompt 注入
+### 6.1 CoderAgent prompt 注入
 
 文件：`agent/codegen/CoderAgent.java`
 
-CoderAgent 从 Blackboard 读取 `designEvidence`，`buildUserMessage()` 方法注入：
+设计证据由 `ContextCompressTool` 统一压缩拼接后注入 prompt。CoderAgent 的 `buildUserMessage()` 读取 Blackboard 的压缩上下文，最终注入内容形如：
 
 ```
 === 设计参考证据（来自精选应用库）===
@@ -431,7 +451,7 @@ CoderAgent 从 Blackboard 读取 `designEvidence`，`buildUserMessage()` 方法�
 克制、专业、中性色调
 ```
 
-### 5.2 StyleAgent prompt 注入
+### 6.2 StyleAgent prompt 注入
 
 文件：`agent/style/StyleAgent.java`
 
@@ -441,7 +461,7 @@ StyleAgent 同样读取 `designEvidence`，重点关注：
 - `toneSummary`：影响 `global.css` 的整体风格基调
 - `aggregatedForbiddenPatterns`：禁止使用的 CSS 模式
 
-### 5.3 tokenGroups 强契约机制
+### 6.3 tokenGroups 强契约机制
 
 **这是 RAG 最关键的质量保障机制**：
 
@@ -485,9 +505,10 @@ Level 4: 整个 retrieve 步骤抛异常
 
 | 配置 | 位置 | 效果 |
 |------|------|------|
-| `agent.retrieve.enabled=true` | `application.yml` | 总开关 |
-| PGvector EmbeddingModel Bean 存在 | Spring 自动检测 | 无则向量检索降级为纯结构化 |
-| `@ConditionalOnBean(DesignKnowledgeIndex.class)` | DesignRetrieveTool 类注解 | 无则 Tool 不注入 → 流水线跳过 |
+| `agent.retrieve.enabled` | `application.yml` / `DesignRetrieveTool @Value` | 总开关，false 则整个检索步骤跳过 |
+| `agent.retrieve.vector.enabled` | `application.yml` / `DesignKnowledgeIndex` | 向量检索子开关，false 则跳过 PGvector 层，仅走结构化+静态 |
+| `@ConditionalOnBean(DesignFingerprintVectorRepository.class)` | `DesignKnowledgeIndex` 类注解 | 无 PGvector Repo → Index 不注入 |
+| `@ConditionalOnBean(DesignKnowledgeIndex.class)` | `DesignRetrieveTool` 类注解 | 无 Index → Tool 不注入 → 流水线跳过 |
 | `maxEvidenceCount` | `GenerationPolicy` | 控制注入证据条数（LOW=1, STD=3, HQ=5） |
 
 ### 证据条数控制
@@ -510,33 +531,42 @@ Level 4: 整个 retrieve 步骤抛异常
 
 ### 工作方式
 
+**使用 LLM 调用**（非规则引擎），通过 LangChain4j `AiServices.create()` 构建 LLM 代理：
+
+```java
+interface PromptPreferenceAi {
+    @SystemMessage("你是一个设计偏好提取器。从用户创建应用的提示词中提取设计偏好标签...")
+    String extract(String prompt);
+}
+```
+
 ```
 用户输入："帮我做一个科技感的数据大屏，要深色主题"
         ↓
-PromptPreferenceExtractor.extract(prompt)
+PromptPreferenceExtractor.extractAndRecord(prompt, userId)
         ↓
-关键词映射（规则引擎，无 LLM 调用）：
-  "科技感"   → style=tech, color=dark, component=chart
-  "数据大屏" → style=dashboard, layout=grid
-  "深色主题" → color=dark, color=blue
+1. LLM 调用 ai.extract(prompt)
+   → 返回 JSON 偏好标签：{"style":["tech","dashboard"], "color":["dark"], ...}
         ↓
-关键词列表：["tech", "dark", "dashboard", "grid", "chart", "blue"]
+2. 解析 JSON，提取各类标签
         ↓
-追加到 DesignRetrieveTool 的 queryTags 参数
-        ↓
-结构化和向量检索同时匹配这些关键词 → 更精准的 Top-K
+3. 调用 preferenceUpdateWorker.updateSingleWeight(userId, type, key, delta)
+   → 写入 user_preference_weight 表
+   → 与用户历史行为偏好融合（长期累积）
 ```
 
-### 与用户偏好记忆的区别
+> 注意：提取的标签不是直接传递给检索 queryTags，而是通过写入 `user_preference_weight` 表，间接影响后续 `UserPreferenceTool` 加载的 `UserDesignContext`，最终由 `DesignRetrieveTool` 消费。
 
-| 维度 | PromptPreferenceExtractor | UserPreferenceWeight |
-|------|---------------------------|----------------------|
-| 提取来源 | 当前对话 prompt | 历史行为日志 |
-| 时效性 | 即时 | 长期累积 |
-| 更新方式 | 每次对话提取一次 | 每次行为事件触发 |
-| LLM 参与 | 无（规则引擎） | 无（规则引擎） |
+### 与用户行为偏好的区别
 
-两者互补：即时意图 + 长期偏好 → 更精准的检索。
+| 维度 | PromptPreferenceExtractor | UserPreferenceWeight（行为侧） |
+|------|---------------------------|-------------------------------|
+| 提取来源 | 当前对话 prompt | 历史操作行为（保存/删除/改色等） |
+| 时效性 | 每次对话即时提取 | 长期累积 |
+| LLM 参与 | **是**（LLM 提取标签） | 无（规则引擎） |
+| 写入方式 | 提取后写入同一张权重表 | 行为事件触发写入同一张权重表 |
+
+两者写入同一张 `user_preference_weight` 表，最终融合为统一的用户偏好向量。
 
 ---
 
@@ -581,10 +611,15 @@ SSE 事件流中可能透传检索步骤的 `STATUS_CHANGE` 事件：
 | | `model/dto/agent/DesignFingerprintDTO.java` | 六层指纹 DTO |
 | **SQL** | `docs/sql/design_fingerprint.sql` | 指纹表 DDL |
 | | `docs/sql/design_fingerprint_vector.sql` | 向量表 DDL |
-| **离线提炼** | `agent/design/extractor/DesignExtractorAgent.java` | LLM 提炼指纹 |
-| | `agent/support/DesignSourcePreprocessor.java` | HTML 预处理 |
+| **离线提炼** | `agent/workers/DesignExtractorAgent.java` | LLM 提炼指纹 |
+| | `service/design/DesignSourcePreprocessor.java` | HTML 预处理 |
+| | `service/design/FingerprintParser.java` | 指纹 JSON 校验+置信度+MD5签名 |
+| | `worker/FingerprintCrawlScheduler.java` | 定时爬取精选应用 |
+| | `worker/VectorSyncWorker.java` | 审核后同步 PGvector |
 | **运行时检索** | `service/rag/DesignKnowledgeIndex.java` | 三层检索入口 |
-| | `agent/support/DesignRetrieveTool.java` | 检索工具（注入流水线） |
+| | `tool/system/DesignRetrieveTool.java` | 检索工具（V1 Agent / V2 SystemTool） |
+| **上下文装配** | `orchestrator/DesignContextAssembler.java` | V2 设计上下文统一装配（6 个 System Tool） |
+| | `tool/system/ContextCompressTool.java` | 上下文压缩 + prompt 拼接 |
 | **提示词注入** | `agent/codegen/CoderAgent.java` | CoderAgent prompt 装配 |
 | | `agent/style/StyleAgent.java` | StyleAgent prompt 装配 |
 | **审核管理** | `controller/DesignFingerprintController.java` | 审核 API |
