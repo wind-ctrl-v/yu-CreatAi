@@ -27,6 +27,7 @@ import com.yu.yuaifather.ratelimiter.enums.RateLimitType;
 import com.yu.yuaifather.service.ProjectDownloadService;
 import com.yu.yuaifather.service.UserService;
 import com.yu.yuaifather.model.entity.UserDesignEvent;
+import com.yu.yuaifather.service.PromptPreferenceExtractor;
 import com.yu.yuaifather.worker.PreferenceUpdateWorker;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -67,12 +68,21 @@ public class AppController {
     @Autowired
     private PreferenceUpdateWorker preferenceUpdateWorker;
 
+    @Autowired
+    private PromptPreferenceExtractor promptPreferenceExtractor;
+
     @PostMapping("/add")
     public BaseResponse<Long> addApp(@RequestBody AppAddRequest appAddRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appAddRequest == null, ErrorCode.PARAMS_ERROR);
-        // 获取当前登录用户
         User loginUser = userService.getLoginUser(request);
         Long appId = appService.createApp(appAddRequest, loginUser);
+
+        // 异步从提示词中提取用户偏好标签（不阻塞创建流程）
+        String prompt = appAddRequest.getInitPrompt();
+        if (StrUtil.isNotBlank(prompt)) {
+            new Thread(() -> promptPreferenceExtractor.extractAndRecord(loginUser.getId(), prompt)).start();
+        }
+
         return ResultUtils.success(appId);
     }
 

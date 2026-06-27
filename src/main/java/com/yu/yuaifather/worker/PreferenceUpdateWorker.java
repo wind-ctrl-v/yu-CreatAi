@@ -59,9 +59,7 @@ public class PreferenceUpdateWorker {
     }
 
     public void updateFromFingerprint(Long userId, DesignFingerprintDTO fingerprint, double delta) {
-        if (userId == null || fingerprint == null) {
-            return;
-        }
+        if (userId == null || fingerprint == null) return;
         List<WeightChange> changes = new ArrayList<>();
         if (CollUtil.isNotEmpty(fingerprint.getTone())) {
             for (String tone : fingerprint.getTone()) {
@@ -96,6 +94,11 @@ public class PreferenceUpdateWorker {
         for (WeightChange change : changes) {
             upsertWeight(userId, change.type, change.key, change.delta);
         }
+    }
+
+    /** 简单直接更新单个偏好权重（供外部低成本调用，如提示词提取）。 */
+    public void updateSingleWeight(Long userId, String type, String key, double delta) {
+        upsertWeight(userId, type, key, delta);
     }
 
     public void handleColorChanged(Long userId, String fromTag, String toTag) {
