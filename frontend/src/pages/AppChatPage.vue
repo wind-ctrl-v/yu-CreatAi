@@ -228,7 +228,11 @@ function sendMessage(content: string, displayText?: string) {
       generating.value = false
       // Vue 项目需触发后端构建生成 dist/ 目录，否则 iframe 预览白屏
       if (app.value?.codeGenType === 'vue_project') {
-        deployApp(appId.value).finally(() => refreshPreview())
+        deploying.value = true
+        deployApp(appId.value)
+          .then(() => refreshPreview())
+          .catch(() => message.warning('自动构建失败，请手动点击「部署」'))
+          .finally(() => { deploying.value = false })
       } else {
         refreshPreview()
       }
