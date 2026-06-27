@@ -3,6 +3,7 @@ package com.yu.yuaifather.controller;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import lombok.extern.slf4j.Slf4j;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.yu.yuaifather.annotation.AuthCheck;
@@ -25,6 +26,8 @@ import com.yu.yuaifather.ratelimiter.annotation.RateLimit;
 import com.yu.yuaifather.ratelimiter.enums.RateLimitType;
 import com.yu.yuaifather.service.ProjectDownloadService;
 import com.yu.yuaifather.service.UserService;
+import com.yu.yuaifather.model.entity.UserDesignEvent;
+import com.yu.yuaifather.worker.PreferenceUpdateWorker;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -49,6 +52,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/app")
+@Slf4j
 public class AppController {
 
     @Autowired
@@ -59,6 +63,9 @@ public class AppController {
 
     @Resource
     private ProjectDownloadService projectDownloadService;
+
+    @Autowired
+    private PreferenceUpdateWorker preferenceUpdateWorker;
 
     @PostMapping("/add")
     public BaseResponse<Long> addApp(@RequestBody AppAddRequest appAddRequest, HttpServletRequest request) {
@@ -380,6 +387,18 @@ public class AppController {
         String downloadFileName = String.valueOf(appId);
         // 7. 调用通用下载服务
         projectDownloadService.downloadProjectAsZip(sourceDirPath, downloadFileName, response);
+
+        // 8. 记录用户下载行为（偏好闭环：page_exported 事件，权重 +0.2）
+        try {
+            UserDesignEvent event = new UserDesignEvent();
+            event.setUserId(loginUser.getId());
+            event.setEventType("page_exported");
+            event.setGenerationId(appId);
+            event.setCreateTime(LocalDateTime.now());
+            preferenceUpdateWorker.recordAndUpdate(event);
+        } catch (Exception e) {
+            log.warn("下载行为记录失败，不影响主流程 appId={}", appId, e);
+        }
     }
 
 
