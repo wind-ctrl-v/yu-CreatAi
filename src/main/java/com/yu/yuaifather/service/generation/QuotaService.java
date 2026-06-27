@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * 额度服务：每日按模式限制生成次数，不足时自动降级。
@@ -93,11 +94,14 @@ public class QuotaService {
             update.setUsedCount(existing.getUsedCount() + 1);
             userQuotaMapper.update(update);
         } else {
+            LocalDateTime now = LocalDateTime.now();
             UserQuota record = UserQuota.builder()
                     .userId(userId)
                     .quotaDate(today)
                     .generationMode(modeValue)
                     .usedCount(1)
+                    .createTime(now)
+                    .updateTime(now)
                     .build();
             userQuotaMapper.insert(record);
         }
