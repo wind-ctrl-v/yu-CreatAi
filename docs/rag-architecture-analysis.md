@@ -15,7 +15,8 @@
 6. [个性化——用户画像体系](#6-个性化用户画像体系)
 7. [怎么注入——Prompt 消费](#7-怎么注入prompt-消费)
 8. [怎么保障——降级与开关](#8-怎么保障降级与开关)
-9. [关键文件索引](#9-关键文件索引)
+9. [优化路线图](#9-优化路线图)
+10. [关键文件索引](#10-关键文件索引)
 
 ---
 
@@ -332,7 +333,193 @@ CriticAgent 的 `dangling-var` 检查扫描所有文件，引用了未定义的�
 
 ---
 
-## 9. 关键文件索引
+## 9. 优化路线图
+
+> 以下按投入产出比排序，分三个阶段。
+
+### 9.1 短期：接通最后一公里（1-2 天）
+
+#### ① 补齐行为事件上报 API（P0，预估 2h）
+
+**问题**：`PreferenceUpdateWorker` 引擎已完整实现（规则映射、权重 upsert、并发安全），但没有对外 REST API，前端无法上报用户行为。整个"越用越懂你"闭环是**断裂的**——引擎空转，没有燃料。
+
+**方案**：新增 `POST /user/design/event` 接口，前端在 `AppChatPage` 的保存/删除/部署等操作后调用上报。
+
+```
+前端操作 → POST /user/design/event {eventType, metadata}
+         → PreferenceUpdateWorker.recordAndUpdate()
+         → user_preference_weight 更新
+         → 下次生成时 UserPreferenceTool 加载到更精准的偏好
+```
+
+**这是激活整个用户画像体系的最关键一步。**
+
+#### ② profileSummary 自动刷新（P0，预估 1h）
+
+**问题**：`profileSummary` 字段只被读取，从未更新。即使权重表有数据，摘要也永远是空的，导致 prompt 中的"用户偏好"段落是空白。
+
+**方案**：在 `PreferenceUpdateWorker.recordAndUpdate()` 末尾加一步——每 N 次更新（如每 10 次）触发摘要重算：
+
+```java
+if (totalUpdates % 10 == 0) {
+    List<Weight> topPreferred = getTopK(userId, 5, "DESC");  // 最喜欢
+    List<Weight> topDisliked  = getTopK(userId, 3, "ASC");   // 最讨厌
+    String summary = buildSummary(topPreferred, topDisliked); // 纯字符串拼接
+    profileMapper.updateSummary(userId, summary);
+}
+```
+
+无需 LLM，纯 Java 拼接。
+
+#### ③ PromptPreferenceExtractor 异步化（P1，预估 30min）
+
+**问题**：当前在 `chatToGenCode` 中同步调用 LLM 提取偏好标签，增加了生成首字延迟（约 1-3 秒）。
+
+**方案**：
+
+```java
+// 改前：同步阻塞
+promptPreferenceExtractor.extractAndRecord(message, userId);
+
+// 改后：异步不阻塞当前请求
+CompletableFuture.runAsync(() ->
+    promptPreferenceExtractor.extractAndRecord(message, userId)
+);
+```
+
+偏好写入是**下次生成**才生效的，不需要阻塞当前请求。
+
+---
+
+### 9.2 中期：检索质量与可观测性（3-5 天）
+
+#### ④ RAG Trace 落表（P1，预估 4h）
+
+**问题**：检索是黑盒，无法知道"命中了什么、对生成质量有没有帮助"。`generation_rag_trace` 表已在 `rag-design.md` 中设计但未实现。
+
+**方案**：在 `DesignKnowledgeIndex.retrieve()` 返回时记录：
+
+```sql
+INSERT INTO generation_rag_trace
+  (generation_id, query_tags, channel, hit_fingerprint_ids, latency_ms, top_k_used)
+VALUES (?, ?, ?, ?, ?, ?)
+```
+
+**价值**：
+- 哪些指纹被高频命中 → 重点维护
+- 哪些从未命中 → 考虑 ARCHIVE
+- 向量 vs 结构化命中率对比 → 决定是否值得维护 PGvector
+
+#### ⑤ 向量与结构化并行检索（P2，预估 2h）
+
+**现状**：三层是级联降级——向量失败才走结构化。
+
+**问题**：
+- 向量擅长**语义模糊匹配**（"科技感" ≈ "futuristic, tech"）
+- 结构化擅长**精确字段匹配**（styleProfile = "ecommerce"）
+- 级联降级意味着向量成功时完全不走结构化，**丢失了精确匹配的补充**
+
+**方案**：
+
+```java
+CompletableFuture<List<Item>> vectorFuture = supplyAsync(() -> vectorSearch(...));
+CompletableFuture<List<Item>> structFuture = supplyAsync(() -> structSearch(...));
+
+List<Item> merged = mergeAndDedup(
+    vectorFuture.get(3, SECONDS),  // 向量超时 3 秒
+    structFuture.get(1, SECONDS)   // 结构化超时 1 秒
+);
+```
+
+合并后按 `(0.6 × vectorScore + 0.4 × structScore)` 混合排序。
+
+#### ⑥ 偏好权重时间衰减（P2，预估 1h）
+
+**问题**：权重只增不减（除非负向行为），3 个月前的偏好和今天的同等重要。
+
+**方案**：查询时引入衰减因子（不改表结构）：
+
+```java
+// UserPreferenceService.loadUserDesignContext()
+double daysSince = ChronoUnit.DAYS.between(weight.getLastEvidenceAt(), LocalDate.now());
+double effectiveWeight = weight.getWeight() * Math.pow(0.995, daysSince);
+// decay=0.995 → 半衰期 ≈ 138 天
+```
+
+效果：最近频繁保存的"深色项目"权重远高于半年前保存的一个。
+
+---
+
+### 9.3 长期：架构升级（1-2 周）
+
+#### ⑦ 指纹粒度：从"整站"到"组件"（P3，预估 1-2d）
+
+**问题**：一个指纹 = 一整个页面的六层摘要。粒度太粗——"电商首页"的指纹同时包含导航栏、商品卡片、页脚的设计模式，无法精准匹配"我只需要一个好看的导航栏"。
+
+**方案**：
+
+```
+DesignExtractorAgent 提炼时拆分：
+  一个页面 → N 条组件级指纹（sourceScope=COMPONENT）
+  
+  NavBar 指纹 { layout: "sticky-top", preferredPatterns: ["flex-between", "logo-left"] }
+  ProductCard 指纹 { layout: "card-grid", preferredPatterns: ["shadow-hover", "aspect-ratio-1:1"] }
+  Footer 指纹 { layout: "multi-column", preferredPatterns: ["grid-4-cols"] }
+```
+
+**价值**：当需求是"加一个商品卡片"时，精确召回卡片组件的设计参考，而非整站泛泛而谈。
+
+#### ⑧ 反馈闭环：生成后评分反写指纹置信度（P3，预估 4h）
+
+**问题**：指纹 `confidence` 是 LLM 提炼时给出的初始值，入库后就不再变化。好的指纹和差的指纹长期共存。
+
+**方案**：
+
+```
+用户打 5 星 → 本次命中的指纹 confidence += 0.02
+用户打 1-2 星 → 本次命中的指纹 confidence -= 0.05
+confidence < 0.3 → 自动 ARCHIVE（退出检索池）
+```
+
+**价值**：知识库形成**正反馈循环**——好指纹越用越强，差的自然淘汰，无需人工维护。
+
+#### ⑨ 多模态证据：截图 embedding（P4，预估 2-3d）
+
+**问题**：向量检索只用 `styleProfile + tone` 的文本 embedding，语义信息有限（"科技感"的文本表示不如一张科技风截图直观）。
+
+**方案**：
+
+```
+指纹入库时：
+  精选页面截图 → CLIP 图像编码器 → image_embedding(512d)
+  写入新列：design_fingerprint_vector.image_embedding
+
+检索时：
+  用户上传参考截图 → CLIP 编码 → 与 image_embedding 余弦距离
+  文本+图像混合排序：0.5 × textScore + 0.5 × imageScore
+```
+
+**价值**：支持"以图搜指纹"，视觉匹配比纯文本语义精准得多。
+
+---
+
+### 总览
+
+| 优先级 | 方案 | 工作量 | 价值 | 依赖 |
+|:---:|------|:---:|------|------|
+| **P0** | ① 行为事件上报 API | 2h | 激活闭环 | 无 |
+| **P0** | ② profileSummary 自动刷新 | 1h | 修复空数据 | 无 |
+| **P1** | ③ Extractor 异步化 | 30min | 降低延迟 | 无 |
+| **P1** | ④ RAG Trace 落表 | 4h | 可观测性 | `generation_rag_trace` DDL |
+| **P2** | ⑤ 并行检索 | 2h | 检索质量 | 无 |
+| **P2** | ⑥ 权重时间衰减 | 1h | 偏好时效性 | 无 |
+| **P3** | ⑦ 组件级指纹 | 1-2d | 检索精度 | ExtractorAgent 改造 |
+| **P3** | ⑧ 反馈反写置信度 | 4h | 知识库自进化 | ① 行为上报 |
+| **P4** | ⑨ 多模态截图 embedding | 2-3d | 视觉匹配 | CLIP 模型接入 |
+
+---
+
+## 10. 关键文件索引
 
 ### 离线知识库建设
 
