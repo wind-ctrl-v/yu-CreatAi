@@ -34,6 +34,7 @@ const formData = reactive<UserAddRequest & { id?: string }>({
   userAvatar: '',
   userProfile: '',
   userRole: 'user',
+  planType: 'FREE',
 })
 
 // ======== 表格列定义 ========
@@ -42,6 +43,7 @@ const columns = [
   { title: '账号', dataIndex: 'userAccount', width: 120 },
   { title: '昵称', dataIndex: 'userName', width: 120 },
   { title: '角色', dataIndex: 'userRole', width: 90 },
+  { title: '套餐', dataIndex: 'planType', width: 100 },
   { title: '简介', dataIndex: 'userProfile', ellipsis: true },
   { title: '注册时间', dataIndex: 'createTime', width: 170 },
   { title: '操作', key: 'action', width: 120, fixed: 'right' },
@@ -87,6 +89,7 @@ function openAddDialog() {
   formData.userAvatar = ''
   formData.userProfile = ''
   formData.userRole = 'user'
+  formData.planType = 'FREE'
   dialogVisible.value = true
 }
 
@@ -99,6 +102,7 @@ function openEditDialog(row: UserVO) {
   formData.userAvatar = row.userAvatar || ''
   formData.userProfile = row.userProfile || ''
   formData.userRole = row.userRole
+  formData.planType = row.planType || 'FREE'
   dialogVisible.value = true
 }
 
@@ -118,6 +122,7 @@ async function handleSave() {
         userAvatar:  formData.userAvatar,
         userProfile: formData.userProfile,
         userRole:    formData.userRole,
+        planType:    formData.planType,
       } as UserAddRequest)
     } else {
       res = await adminUpdateUser({
@@ -126,6 +131,7 @@ async function handleSave() {
         userAvatar:  formData.userAvatar,
         userProfile: formData.userProfile,
         userRole:    formData.userRole,
+        planType:    formData.planType,
       } as UserUpdateRequest)
     }
     if (res?.code === 0) {
@@ -161,6 +167,12 @@ function roleColor(role: string) {
 }
 function roleLabel(role: string) {
   return role === 'admin' ? '管理员' : '普通用户'
+}
+const planLabels: Record<string, string> = {
+  FREE: '免费', PRO: '会员', PREMIUM: '高级', ENTERPRISE: '企业', ADMIN: '管理员',
+}
+const planColors: Record<string, string> = {
+  FREE: 'default', PRO: 'blue', PREMIUM: 'purple', ENTERPRISE: 'orange', ADMIN: 'red',
 }
 </script>
 
@@ -230,6 +242,12 @@ function roleLabel(role: string) {
             </a-tag>
           </template>
 
+          <template v-else-if="column.dataIndex === 'planType'">
+            <a-tag v-if="record.planType" :color="planColors[record.planType] || 'default'" style="border-radius:4px;">
+              {{ planLabels[record.planType] || record.planType }}
+            </a-tag>
+          </template>
+
           <template v-else-if="column.key === 'action'">
             <a-space>
               <a-button type="text" size="small" :icon="h(EditOutlined)" @click="openEditDialog(record)">
@@ -274,6 +292,15 @@ function roleLabel(role: string) {
           <a-select v-model:value="formData.userRole">
             <a-select-option value="user">普通用户</a-select-option>
             <a-select-option value="admin">管理员</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="套餐">
+          <a-select v-model:value="formData.planType">
+            <a-select-option value="FREE">免费用户</a-select-option>
+            <a-select-option value="PRO">普通会员</a-select-option>
+            <a-select-option value="PREMIUM">高级会员</a-select-option>
+            <a-select-option value="ENTERPRISE">企业版</a-select-option>
+            <a-select-option value="ADMIN">管理员</a-select-option>
           </a-select>
         </a-form-item>
       </a-form>

@@ -193,6 +193,27 @@ public class UserController {
 
 
     /**
+     * 当前用户更新自己的资料（非管理员，仅允许改昵称/头像/简介）。
+     */
+    @PostMapping("/update/me")
+    public BaseResponse<Boolean> updateMyProfile(@RequestBody UserUpdateRequest userUpdateRequest,
+                                                  HttpServletRequest request) {
+        ThrowUtils.throwIf(userUpdateRequest == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+
+        User update = new User();
+        update.setId(loginUser.getId());
+        // 仅允许更新昵称、头像、简介，不允许改 role/planType
+        if (userUpdateRequest.getUserName() != null) update.setUserName(userUpdateRequest.getUserName());
+        if (userUpdateRequest.getUserAvatar() != null) update.setUserAvatar(userUpdateRequest.getUserAvatar());
+        if (userUpdateRequest.getUserProfile() != null) update.setUserProfile(userUpdateRequest.getUserProfile());
+
+        boolean result = userService.updateById(update);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        return ResultUtils.success(true);
+    }
+
+    /**
      * 创建用户
      */
     @PostMapping("/add")

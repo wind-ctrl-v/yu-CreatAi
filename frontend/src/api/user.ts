@@ -29,3 +29,12 @@ export function logout() {
 export function getPlanCapabilities() {
   return request.get<any, BaseResponse<PlanCapabilities>>('/user/plan')
 }
+
+/** 当前用户更新自己的资料（昵称/头像/简介） */
+export function updateMyProfile(params: {
+  userName?: string
+  userAvatar?: string
+  userProfile?: string
+}) {
+  return request.post<any, BaseResponse<boolean>>('/user/update/me', params)
+}

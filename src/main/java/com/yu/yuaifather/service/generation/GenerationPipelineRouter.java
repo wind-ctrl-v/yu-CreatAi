@@ -55,18 +55,21 @@ public class GenerationPipelineRouter {
     private final AiCodeGeneratorFacade aiCodeGeneratorFacade;
     private final GenerationModeResolver modeResolver;
     private final GenerationRunService generationRunService;
+    private final QuotaService quotaService;
 
     @Autowired
     public GenerationPipelineRouter(GenerationOrchestrator generationOrchestrator,
                                     OrchestratorAgent orchestratorAgent,
                                     AiCodeGeneratorFacade aiCodeGeneratorFacade,
                                     GenerationModeResolver modeResolver,
-                                    GenerationRunService generationRunService) {
+                                    GenerationRunService generationRunService,
+                                    QuotaService quotaService) {
         this.generationOrchestrator = generationOrchestrator;
         this.orchestratorAgent = orchestratorAgent;
         this.aiCodeGeneratorFacade = aiCodeGeneratorFacade;
         this.modeResolver = modeResolver;
         this.generationRunService = generationRunService;
+        this.quotaService = quotaService;
     }
 
     /**
@@ -161,7 +164,10 @@ public class GenerationPipelineRouter {
         }
 
         return result
-                .doOnComplete(() -> generationRunService.success(run, activePipeline.get(), fallbackOccurred.get()))
+                .doOnComplete(() -> {
+                    generationRunService.success(run, activePipeline.get(), fallbackOccurred.get());
+                    quotaService.recordUsage(loginUser, policy.getGenerationMode());
+                })
                 .doOnError(e -> generationRunService.fail(run, e.getMessage()));
     }
 

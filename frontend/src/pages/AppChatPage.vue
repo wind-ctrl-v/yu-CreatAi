@@ -58,6 +58,9 @@ const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const generating = ref(false)
 const deploying = ref(false)
+// SSE 连接状态
+const reconnecting = ref(false)
+const reconnectHint = ref('')
 // 生成模式意图（low_cost/standard/high_quality），后端按套餐封顶
 const genMode = ref<string>('standard')
 // 本轮生成的结构化运行信息（生效模式/链路/降级提示），由 SSE 结构化事件填充
@@ -189,6 +192,8 @@ function sendMessage(content: string, displayText?: string) {
   generating.value = true
   // 重置上一轮的结构化运行信息
   runInfo.value = null
+  reconnecting.value = false
+  reconnectHint.value = ''
   scrollToBottom()
 
   closeSSE = connectChatSSE(
@@ -240,7 +245,18 @@ function sendMessage(content: string, displayText?: string) {
       messages.value[aiIndex].content = `⚠️ ${errMsg}`
       message.error(errMsg)
     },
+    onReconnecting: (retriesLeft, delayMs) => {
+      reconnecting.value = true
+      reconnectHint.value = `连接断开，${delayMs / 1000}s 后重试（剩余 ${retriesLeft + 1} 次）…`
+    },
+    onReconnected: () => {
+      reconnecting.value = false
+      reconnectHint.value = ''
+      message.success('已重新连接')
+    },
     onError: () => {
+      reconnecting.value = false
+      reconnectHint.value = ''
       generating.value = false
       if (!messages.value[aiIndex].content) {
         messages.value[aiIndex].content = '⚠️ 生成中断，请重试。'
@@ -320,6 +336,8 @@ async function init() {
   previewUrl.value = ''
   deployUrl.value = ''
   runInfo.value = null
+  reconnecting.value = false
+  reconnectHint.value = ''
   // 拉取套餐能力（应用切换不重复拉，只在进入时首次获取）
   if (!planCaps.value) {
     const res = await getPlanCapabilities().catch(() => null)
@@ -427,6 +445,9 @@ onBeforeUnmount(() => {
               picked.text || picked.selector
             }}</span>
             <a-button type="text" size="small" @click="clearPicked">✕</a-button>
+          </div>
+          <div v-if="reconnecting" class="reconnect-bar">
+            {{ reconnectHint }}
           </div>
           <div class="chat-input-row">
             <a-select
@@ -641,6 +662,14 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.reconnect-bar {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #8c6d00;
+  background: rgba(250, 173, 20, 0.1);
+  border-bottom: 1px solid rgba(250, 173, 20, 0.25);
+  text-align: center;
 }
 .chat-input-row {
   display: flex;

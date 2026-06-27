@@ -44,6 +44,7 @@ export interface UserVO {
   userAvatar?: string
   userProfile?: string
   userRole: string
+  planType?: string
   createTime?: string
 }
 
@@ -101,6 +102,7 @@ export interface UserAddRequest {
   userAvatar?: string
   userProfile?: string
   userRole?: string
+  planType?: string
 }
 
 /** 用户更新请求（管理员） */
@@ -110,6 +112,7 @@ export interface UserUpdateRequest {
   userAvatar?: string
   userProfile?: string
   userRole?: string
+  planType?: string
 }
 
 /** 删除请求 */

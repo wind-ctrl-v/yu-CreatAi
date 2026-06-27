@@ -39,6 +39,11 @@ public class UserVO implements Serializable {
     private String userRole;
 
     /**
+     * 套餐类型：FREE/PRO/PREMIUM/ENTERPRISE/ADMIN
+     */
+    private String planType;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;

@@ -1,14 +1,37 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { message, Modal } from 'ant-design-vue'
 import { useLoginUserStore } from '../stores/loginUser'
-import { getPlanCapabilities } from '../api/user'
+import { getPlanCapabilities, updateMyProfile } from '../api/user'
 import { PLAN_LABELS, type PlanCapabilities } from '../types'
 
 const router = useRouter()
 const store = useLoginUserStore()
 const user = computed(() => store.loginUser)
 const plan = ref<PlanCapabilities | null>(null)
+const editing = ref(false)
+
+const editForm = ref({ userName: '', userProfile: '' })
+
+function startEdit() {
+  editForm.value.userName = user.value?.userName || ''
+  editForm.value.userProfile = user.value?.userProfile || ''
+  editing.value = true
+}
+
+async function saveEdit() {
+  const res = await updateMyProfile({
+    userName: editForm.value.userName,
+    userProfile: editForm.value.userProfile,
+  })
+  if (res?.code === 0) {
+    message.success('保存成功')
+    // 刷新登录用户信息
+    await store.fetchLoginUser()
+    editing.value = false
+  }
+}
 
 const planColor = (pt: string) => {
   const colors: Record<string, string> = { FREE: '#8c8c8c', PRO: '#1677ff', PREMIUM: '#722ed1', ENTERPRISE: '#f5a623', ADMIN: '#f5222d' }
@@ -37,11 +60,13 @@ onMounted(async () => {
       <div class="detail-list">
         <div class="detail-row">
           <span class="label">昵称</span>
-          <span class="value">{{ user?.userName || '-' }}</span>
+          <a-input v-if="editing" v-model:value="editForm.userName" size="small" class="edit-input" />
+          <span v-else class="value">{{ user?.userName || '-' }}</span>
         </div>
         <div class="detail-row">
           <span class="label">简介</span>
-          <span class="value">{{ user?.userProfile || '-' }}</span>
+          <a-textarea v-if="editing" v-model:value="editForm.userProfile" :rows="2" size="small" class="edit-input" />
+          <span v-else class="value">{{ user?.userProfile || '-' }}</span>
         </div>
         <div class="detail-row">
           <span class="label">注册时间</span>
@@ -54,8 +79,15 @@ onMounted(async () => {
       </div>
 
       <div class="links">
-        <a-button type="primary" ghost @click="router.push('/apps')">我的作品</a-button>
-        <a-button v-if="user?.userRole === 'admin'" @click="router.push('/admin')">管理后台</a-button>
+        <template v-if="editing">
+          <a-button type="primary" @click="saveEdit">保存</a-button>
+          <a-button @click="editing = false">取消</a-button>
+        </template>
+        <template v-else>
+          <a-button type="primary" ghost @click="router.push('/apps')">我的作品</a-button>
+          <a-button @click="startEdit">编辑资料</a-button>
+          <a-button v-if="user?.userRole === 'admin'" @click="router.push('/admin')">管理后台</a-button>
+        </template>
       </div>
     </div>
   </div>
@@ -82,5 +114,6 @@ onMounted(async () => {
 }
 .label { color: var(--gray-400); }
 .value { color: var(--geist-black); font-weight: 500; }
-.links { display: flex; gap: 10px; justify-content: center; }
+.links { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.edit-input { flex: 1; min-width: 0; }
 </style>
