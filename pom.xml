@@ -23,6 +23,7 @@
         <hutool.version>5.8.39</hutool.version>
         <mybatis-flex.version>1.11.0</mybatis-flex.version>
         <langchain4j.version>1.1.0</langchain4j.version>
+        <langchain4j-starters.version>1.1.0-beta7</langchain4j-starters.version>
     </properties>
 
     <dependencies>
@@ -117,17 +118,17 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
-            <version>${langchain4j.version}</version>
+            <version>${langchain4j-starters.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-reactor</artifactId>
-            <version>${langchain4j.version}</version>
+            <version>${langchain4j-starters.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-community-redis-spring-boot-starter</artifactId>
-            <version>${langchain4j.version}</version>
+            <version>${langchain4j-starters.version}</version>
         </dependency>
 
 

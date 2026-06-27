@@ -55,7 +55,7 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
             boolean missingRequiredFiles,
             java.util.List<String> missingFiles
     ) {
-        public static RuleCriticResult passed() {
+        public static RuleCriticResult allPassed() {
             return new RuleCriticResult(true, 100, java.util.List.of(), false, false, false, false, false, java.util.List.of());
         }
     }
@@ -68,7 +68,7 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
     @Override
     public RuleCriticResult execute(RuleCriticInput input, ToolContext context) {
         if (input == null) {
-            return RuleCriticResult.passed();
+            return RuleCriticResult.allPassed();
         }
         java.util.List<String> issues = new java.util.ArrayList<>();
         int score = 100;

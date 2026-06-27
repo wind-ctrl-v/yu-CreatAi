@@ -73,29 +73,26 @@ public class DesignContextAssembler {
         builder.designSpec(designSpec);
 
         // 2. 读取用户偏好
+        UserDesignContext userContext = UserDesignContext.empty();
         if (userId != null) {
             try {
-                UserDesignContext userContext = userPreferenceTool.execute(userId, toolContext);
-                builder.userContext(userContext);
+                userContext = userPreferenceTool.execute(userId, toolContext);
             } catch (Exception e) {
                 log.warn("UserPreferenceTool 失败，降级为空上下文 userId={}", userId, e);
-                builder.userContext(UserDesignContext.empty());
             }
         }
+        builder.userContext(userContext);
 
         // 3. 读取项目品牌
+        ProjectBrandContext projectContext = ProjectBrandContext.empty();
         if (projectId != null) {
             try {
-                ProjectBrandContext brandContext = projectProfileTool.execute(projectId, toolContext);
-                builder.projectContext(brandContext);
+                projectContext = projectProfileTool.execute(projectId, toolContext);
             } catch (Exception e) {
                 log.warn("ProjectProfileTool 失败，降级为空上下文 projectId={}", projectId, e);
-                builder.projectContext(ProjectBrandContext.empty());
             }
         }
-
-        UserDesignContext userContext = builder.userContext() != null ? builder.userContext()
-                : UserDesignContext.empty();
+        builder.projectContext(projectContext);
 
         // 4. 向量检索 + 权限过滤
         DesignEvidence rawEvidence = DesignEvidence.empty();
@@ -129,8 +126,7 @@ public class DesignContextAssembler {
         PromptContext promptContext = contextCompressTool.execute(
                 new ContextCompressTool.CompressInput(
                         designSpec, userContext,
-                        builder.projectContext() != null ? builder.projectContext()
-                                : ProjectBrandContext.empty(),
+                        projectContext,
                         evidence, imageMap, targetAgent),
                 toolContext);
         builder.promptContext(promptContext);

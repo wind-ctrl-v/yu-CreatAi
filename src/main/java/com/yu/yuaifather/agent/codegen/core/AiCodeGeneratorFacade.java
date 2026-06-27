@@ -112,7 +112,7 @@ public class AiCodeGeneratorFacade {
      * @return Flux<String> 流式响应
      */
     private Flux<String> processTokenStream(TokenStream tokenStream, Long appId) {
-        return Flux.create(sink -> {
+        return Flux.<String>create(sink -> {
             tokenStream.onPartialResponse((String partialResponse) -> {
                         AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
                         sink.next(JSONUtil.toJsonStr(aiResponseMessage));

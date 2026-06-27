@@ -35,7 +35,7 @@ import java.util.Set;
  */
 @Slf4j
 @Component
-@ConditionalOnBean(EmbeddingService.class)
+@ConditionalOnBean(DesignFingerprintVectorRepository.class)
 public class DesignKnowledgeIndex {
 
     private static final int MAX_TOP_K = 3;

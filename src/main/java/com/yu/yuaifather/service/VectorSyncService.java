@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
  */
 @Deprecated
 @Service
-@ConditionalOnBean(EmbeddingService.class)
+@ConditionalOnBean({EmbeddingService.class, DesignFingerprintVectorRepository.class})
 @Slf4j
 public class VectorSyncService {
 

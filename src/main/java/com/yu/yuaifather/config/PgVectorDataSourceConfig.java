@@ -3,19 +3,18 @@ package com.yu.yuaifather.config;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * PGvector 辅助数据源配置。
- * <p>
- * DataSource 不暴露为独立 Bean，避免被 Spring Boot 自动配置和 MyBatis-Flex 误抓取，
- * 仅通过 {@code pgVectorJdbcTemplate} 对外暴露 JDBC 操作能力。
+ * PGvector 辅助数据源配置。仅在 {@code agent.retrieve.vector.enabled=true} 时激活。
  *
  * @author yu
  */
 @Configuration
+@ConditionalOnProperty(name = "agent.retrieve.vector.enabled", havingValue = "true")
 public class PgVectorDataSourceConfig {
 
     @Value("${spring.pgvector.datasource.url}")

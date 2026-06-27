@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
  * 原则：向量同步失败不阻塞业务流程（MySQL 状态为主，PG 为辅助索引）。
  */
 @Service
-@ConditionalOnBean(EmbeddingService.class)
+@ConditionalOnBean({EmbeddingService.class, DesignFingerprintVectorRepository.class})
 @Slf4j
 public class VectorSyncWorker {
 

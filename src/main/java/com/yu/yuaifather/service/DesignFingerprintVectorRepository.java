@@ -3,6 +3,7 @@ package com.yu.yuaifather.service;
 import com.yu.yuaifather.model.dto.agent.DesignFingerprintVector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -28,6 +29,7 @@ import java.util.List;
  */
 @Repository
 @Slf4j
+@ConditionalOnProperty(name = "agent.retrieve.vector.enabled", havingValue = "true")
 public class DesignFingerprintVectorRepository {
 
     private final JdbcTemplate jdbc;

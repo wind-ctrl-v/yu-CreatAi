@@ -16,6 +16,7 @@ import org.redisson.api.RRateLimiter;
 import org.redisson.api.RateIntervalUnit;
 import org.redisson.api.RateType;
 import org.redisson.api.RedissonClient;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -25,6 +26,7 @@ import java.time.Duration;
 
 @Aspect
 @Component
+@ConditionalOnBean(RedissonClient.class)
 @Slf4j
 public class RateLimitAspect {
     @Resource
