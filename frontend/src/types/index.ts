@@ -30,6 +30,8 @@ export interface LoginUserVO {
   userAvatar?: string
   userProfile?: string
   userRole: string
+  /** 套餐类型：FREE/PRO/PREMIUM/ENTERPRISE/ADMIN */
+  planType?: string
   createTime?: string
   updateTime?: string
 }
@@ -198,4 +200,23 @@ export interface PipelineFallbackEvent {
   to: PipelineType | string
   /** 降级原因摘要 */
   reason: string
+}
+
+// ==================== 用户套餐 ====================
+
+/** 套餐中文名映射 */
+export const PLAN_LABELS: Record<string, string> = {
+  FREE: '免费用户',
+  PRO: '普通会员',
+  PREMIUM: '高级会员',
+  ENTERPRISE: '企业版',
+  ADMIN: '管理员',
+}
+
+/** 套餐能力（后端 /user/plan 返回） */
+export interface PlanCapabilities {
+  planType: string
+  planName: string
+  maxMode: string
+  availableModes: string[]
 }

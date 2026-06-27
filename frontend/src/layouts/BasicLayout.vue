@@ -12,6 +12,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '../stores/loginUser'
+import { PLAN_LABELS } from '../types'
 
 const router = useRouter()
 const route = useRoute()
@@ -19,6 +20,21 @@ const store = useLoginUserStore()
 
 const loginUser = computed(() => store.loginUser)
 const sidebarCollapsed = ref(false)
+
+const planTag = computed(() => {
+  const pt = loginUser.value?.planType || ''
+  return { label: PLAN_LABELS[pt] || '会员', color: planColor(pt) }
+})
+function planColor(pt: string): string {
+  const colors: Record<string, string> = {
+    FREE: '#8c8c8c',
+    PRO: '#1677ff',
+    PREMIUM: '#722ed1',
+    ENTERPRISE: '#f5a623',
+    ADMIN: '#f5222d',
+  }
+  return colors[pt] || '#8c8c8c'
+}
 
 onMounted(() => {
   if (!store.fetched) store.fetchLoginUser()
@@ -104,6 +120,13 @@ function navTo(path: string) { router.push(path) }
                 <span v-if="!sidebarCollapsed" class="user-name">
                   {{ loginUser.userName || loginUser.userAccount }}
                 </span>
+              </transition>
+              <transition name="fade-label">
+                <span
+                  v-if="!sidebarCollapsed && loginUser.planType"
+                  class="plan-badge"
+                  :style="{ color: planTag.color, borderColor: planTag.color }"
+                >{{ planTag.label }}</span>
               </transition>
             </div>
             <template #overlay>
@@ -284,6 +307,18 @@ function navTo(path: string) { router.push(path) }
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: var(--tracking-label);
+}
+
+.plan-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--r-subtle);
+  border: 1px solid;
+  white-space: nowrap;
+  line-height: 1.5;
+  opacity: 0.85;
+  flex-shrink: 0;
 }
 
 .login-btn-wrap { padding: 0 2px; }

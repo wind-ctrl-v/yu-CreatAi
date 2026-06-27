@@ -75,6 +75,13 @@ public class User implements Serializable {
     private String userRole;
 
     /**
+     * 套餐类型（FREE/PRO/PREMIUM/ENTERPRISE/ADMIN），默认 FREE。
+     * 由付费/充值流程更新，管理员后台也可手动调整。
+     */
+    @Column("planType")
+    private String planType;
+
+    /**
      * 编辑时间
      */
     @Column("editTime")

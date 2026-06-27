@@ -1,11 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLoginUserStore } from '../stores/loginUser'
+import { getPlanCapabilities } from '../api/user'
+import { PLAN_LABELS, type PlanCapabilities } from '../types'
 
 const router = useRouter()
 const store = useLoginUserStore()
 const user = computed(() => store.loginUser)
+const plan = ref<PlanCapabilities | null>(null)
+
+const planColor = (pt: string) => {
+  const colors: Record<string, string> = { FREE: '#8c8c8c', PRO: '#1677ff', PREMIUM: '#722ed1', ENTERPRISE: '#f5a623', ADMIN: '#f5222d' }
+  return colors[pt] || '#8c8c8c'
+}
+
+onMounted(async () => {
+  const res = await getPlanCapabilities().catch(() => null)
+  if (res?.code === 0) plan.value = res.data
+})
 </script>
 
 <template>
@@ -16,7 +29,10 @@ const user = computed(() => store.loginUser)
       </a-avatar>
       <h2 class="name">{{ user?.userName || user?.userAccount }}</h2>
       <p class="account">@{{ user?.userAccount }}</p>
-      <a-tag v-if="user?.userRole === 'admin'" color="gold">管理员</a-tag>
+      <div class="tags">
+        <a-tag v-if="user?.userRole === 'admin'" color="gold">管理员</a-tag>
+        <a-tag v-if="plan" :color="planColor(plan.planType)">{{ plan.planName }}</a-tag>
+      </div>
 
       <div class="detail-list">
         <div class="detail-row">
@@ -30,6 +46,10 @@ const user = computed(() => store.loginUser)
         <div class="detail-row">
           <span class="label">注册时间</span>
           <span class="value">{{ user?.createTime || '-' }}</span>
+        </div>
+        <div v-if="plan" class="detail-row">
+          <span class="label">套餐能力</span>
+          <span class="value">{{ plan.availableModes.map(m => m === 'low_cost' ? '快速' : m === 'standard' ? '标准' : '高质量').join('、') }}</span>
         </div>
       </div>
 
@@ -54,6 +74,7 @@ const user = computed(() => store.loginUser)
 .avatar { display: inline-flex; margin-bottom: 16px; }
 .name { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
 .account { font-size: 14px; color: var(--gray-400); margin: 0 0 8px; }
+.tags { display: flex; gap: 6px; justify-content: center; }
 .detail-list { text-align: left; margin: 28px 0; }
 .detail-row {
   display: flex; justify-content: space-between; padding: 10px 0;

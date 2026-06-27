@@ -11,6 +11,10 @@ import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.exception.ThrowUtils;
 import com.yu.yuaifather.model.dto.*;
+import com.yu.yuaifather.model.enums.GenerationMode;
+import com.yu.yuaifather.model.enums.PlanType;
+import com.yu.yuaifather.config.GenerationProperties;
+import com.yu.yuaifather.service.generation.UserEntitlementService;
 import com.yu.yuaifather.model.vo.LoginUserVO;
 import com.yu.yuaifather.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,6 +31,7 @@ import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.service.UserService;
 import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 用户 控制层。
@@ -39,6 +44,12 @@ public class UserController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private UserEntitlementService entitlementService;
+
+    @Autowired
+    private GenerationProperties generationProperties;
 
     /** 新建用户时的默认密码，通过配置项 user.default-password 注入（生产环境必须修改） */
     @Value("${user.default-password:ChangMe123456}")
@@ -147,6 +158,36 @@ public class UserController {
     public BaseResponse<Boolean> userLogout(HttpServletRequest request) {
         ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
         boolean result = userService.userLogout(request);
+        return ResultUtils.success(result);
+    }
+
+
+    /**
+     * 获取当前用户的套餐能力（planType、maxMode、可用模式列表）。
+     * 供前端展示会员身份 + 按套餐限制模式选择器。
+     */
+    @GetMapping("/plan")
+    public BaseResponse<Map<String, Object>> getPlanCapabilities(HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        PlanType plan = entitlementService.getPlan(loginUser);
+        GenerationProperties.EntitlementConfig cfg = generationProperties.getEntitlementOrDefault(plan.name());
+
+        GenerationMode maxMode = GenerationMode.getEnumByValue(cfg.getMaxMode());
+        int maxRank = maxMode != null ? maxMode.getRank() : 1;
+
+        // 列出当前套餐内所有可用模式（rank <= maxRank）
+        List<String> availableModes = new java.util.ArrayList<>();
+        for (GenerationMode m : GenerationMode.values()) {
+            if (m.getRank() <= maxRank) {
+                availableModes.add(m.getValue());
+            }
+        }
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("planType", plan.name());
+        result.put("planName", plan.getText());
+        result.put("maxMode", cfg.getMaxMode());
+        result.put("availableModes", availableModes);
         return ResultUtils.success(result);
     }
 

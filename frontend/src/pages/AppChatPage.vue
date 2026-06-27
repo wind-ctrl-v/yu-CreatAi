@@ -9,6 +9,7 @@ import {
   getAppVOById,
 } from '../api/app'
 import { listAppChatHistory } from '../api/chatHistory'
+import { getPlanCapabilities } from '../api/user'
 import { connectChatSSE } from '../utils/sse'
 import {
   attachElementPicker,
@@ -16,6 +17,7 @@ import {
   type PickedElement,
 } from '../utils/visualEditor'
 import type { AppVO } from '../types'
+import { PLAN_LABELS, type PlanCapabilities } from '../types'
 
 interface ChatMessage {
   id: number
@@ -60,6 +62,23 @@ const deploying = ref(false)
 const genMode = ref<string>('standard')
 // 本轮生成的结构化运行信息（生效模式/链路/降级提示），由 SSE 结构化事件填充
 const runInfo = ref<GenerationRunInfo | null>(null)
+// 套餐能力（拉取一次，整个会话复用）
+const planCaps = ref<PlanCapabilities | null>(null)
+
+const genModeOptions = computed(() => {
+  const available = planCaps.value?.availableModes || ['low_cost', 'standard', 'high_quality']
+  const allModes = [
+    { value: 'low_cost', label: '快速生成', rank: 1 },
+    { value: 'standard', label: '标准生成', rank: 2 },
+    { value: 'high_quality', label: '高质量生成', rank: 3 },
+  ]
+  return allModes.map(m => ({
+    ...m,
+    disabled: !available.includes(m.value),
+    // 不可用时追加说明
+    label: available.includes(m.value) ? m.label : `${m.label}（需升级套餐）`,
+  }))
+})
 
 const previewUrl = ref('')
 const previewKey = ref(0) // 用于强制刷新 iframe
@@ -301,9 +320,19 @@ async function init() {
   previewUrl.value = ''
   deployUrl.value = ''
   runInfo.value = null
-  // 从首页 ?mode= 参数读取并预设生成模式
-  if (route.query.mode === 'low_cost' || route.query.mode === 'standard' || route.query.mode === 'high_quality') {
-    genMode.value = route.query.mode
+  // 拉取套餐能力（应用切换不重复拉，只在进入时首次获取）
+  if (!planCaps.value) {
+    const res = await getPlanCapabilities().catch(() => null)
+    if (res?.code === 0) planCaps.value = res.data
+  }
+  // 从首页 ?mode= 参数读取并预设生成模式，但不能超过套餐上限
+  const queriedMode = route.query.mode as string | undefined
+  const available = planCaps.value?.availableModes || ['low_cost', 'standard', 'high_quality']
+  if (queriedMode && available.includes(queriedMode)) {
+    genMode.value = queriedMode
+  } else if (!available.includes(genMode.value)) {
+    // 当前模式超出套餐范围时自动降级
+    genMode.value = available[available.length - 1] || 'low_cost'
   }
 
   await loadApp()
@@ -405,11 +434,7 @@ onBeforeUnmount(() => {
               size="small"
               :disabled="generating"
               class="gen-mode-select"
-              :options="[
-                { value: 'low_cost', label: '快速生成' },
-                { value: 'standard', label: '标准生成' },
-                { value: 'high_quality', label: '高质量生成' },
-              ]"
+              :options="genModeOptions"
             />
             <a-textarea
               v-model:value="input"

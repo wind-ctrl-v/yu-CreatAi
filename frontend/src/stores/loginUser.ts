@@ -30,6 +30,7 @@ export const useLoginUserStore = defineStore('loginUser', () => {
         userAccount: 'admin',
         userName: '管理员（Mock）',
         userRole: 'admin',
+        planType: 'ADMIN',
       }
     } else {
       loginUser.value = null

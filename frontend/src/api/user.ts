@@ -1,5 +1,5 @@
 import request from '../request'
-import type { BaseResponse, LoginUserVO } from '../types'
+import type { BaseResponse, LoginUserVO, PlanCapabilities } from '../types'
 
 /** 用户注册 */
 export function register(params: {
@@ -23,4 +23,9 @@ export function getLoginUser() {
 /** 退出登录 */
 export function logout() {
   return request.post<any, BaseResponse<boolean>>('/user/logout')
+}
+
+/** 获取当前套餐能力（planType、maxMode、availableModes） */
+export function getPlanCapabilities() {
+  return request.get<any, BaseResponse<PlanCapabilities>>('/user/plan')
 }
