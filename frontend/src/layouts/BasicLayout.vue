@@ -9,6 +9,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SettingOutlined,
+  UserOutlined,
 } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '../stores/loginUser'
 
@@ -39,16 +40,14 @@ function handleLogout() {
 }
 
 const navItems = [
-  { key: 'home',    label: '首页',   icon: 'home',     path: '/' },
-  { key: 'myApps',  label: '我的作品', icon: 'appstore', path: '/?tab=mine' },
-  { key: 'explore', label: '精选应用', icon: 'compass',  path: '/?tab=good' },
+  { key: 'home',    label: '首页',     icon: 'home',     path: '/' },
+  { key: 'myApps',  label: '我的作品',  icon: 'appstore', path: '/apps' },
+  { key: 'explore', label: '精选应用',  icon: 'compass',  path: '/explore' },
 ]
 
 function isActive(path: string) {
-  if (path === '/') return route.path === '/' && !route.query.tab
-  if (path === '/?tab=mine') return route.path === '/' && route.query.tab === 'mine'
-  if (path === '/?tab=good') return route.path === '/' && route.query.tab === 'good'
-  return false
+  if (path === '/') return route.path === '/'
+  return route.path.startsWith(path)
 }
 function navTo(path: string) { router.push(path) }
 </script>
@@ -109,6 +108,9 @@ function navTo(path: string) { router.push(path) }
             </div>
             <template #overlay>
               <a-menu>
+                <a-menu-item key="profile" @click="router.push('/me')">
+                  <UserOutlined style="margin-right: 6px;" />个人中心
+                </a-menu-item>
                 <a-menu-item v-if="loginUser.userRole === 'admin'" key="admin" @click="router.push('/admin')">
                   <SettingOutlined style="margin-right: 6px;" />管理后台
                 </a-menu-item>

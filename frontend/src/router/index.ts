@@ -19,6 +19,30 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../pages/AppChatPage.vue'),
         meta: { requiresAuth: true },
       },
+      {
+        path: 'app/share/:id',
+        name: 'appShare',
+        component: () => import('../pages/AppSharePage.vue'),
+        meta: { requiresAuth: false },
+      },
+      {
+        path: 'apps',
+        name: 'myApps',
+        component: () => import('../pages/MyAppsPage.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
+        path: 'explore',
+        name: 'explore',
+        component: () => import('../pages/ExplorePage.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
+        path: 'me',
+        name: 'profile',
+        component: () => import('../pages/ProfilePage.vue'),
+        meta: { requiresAuth: true },
+      },
     ],
   },
   {
@@ -65,7 +89,8 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/:pathMatch(.*)*',
-    redirect: '/',
+    name: 'notFound',
+    component: () => import('../pages/NotFoundPage.vue'),
   },
 ]
 

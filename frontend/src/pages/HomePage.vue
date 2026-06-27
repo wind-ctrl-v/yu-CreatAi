@@ -17,11 +17,12 @@ const loadingApps = ref(false)
 const myApps = ref<AppVO[]>([])
 const loadingMyApps = ref(false)
 
-const toolItems = [
-  { key: 'type',   label: '应用类型' },
-  { key: 'upload', label: '上传参考' },
-  { key: 'style',  label: '风格偏好' },
-  { key: 'depth',  label: '深度模式' },
+const genMode = ref<string>('standard')
+
+const modeOptions = [
+  { value: 'low_cost', label: '快速' },
+  { value: 'standard', label: '标准' },
+  { value: 'high_quality', label: '高质量' },
 ]
 
 const suggestions = [
@@ -36,14 +37,14 @@ const suggestions = [
 
 async function loadGoodApps() {
   loadingApps.value = true
-  const res = await listGoodAppByPage({ pageNum: 1, pageSize: 12 }).catch(() => null)
+  const res = await listGoodAppByPage({ pageNum: 1, pageSize: 6 }).catch(() => null)
   loadingApps.value = false
   if (res?.code === 0) goodApps.value = res.data.records || []
 }
 
 async function loadMyApps() {
   loadingMyApps.value = true
-  const res = await listMyAppByPage({ pageNum: 1, pageSize: 12 }).catch(() => null)
+  const res = await listMyAppByPage({ pageNum: 1, pageSize: 6 }).catch(() => null)
   loadingMyApps.value = false
   if (res?.code === 0) myApps.value = res.data.records || []
 }
@@ -55,7 +56,7 @@ async function handleCreate() {
   const res = await addApp({ initPrompt }).catch(() => null)
   creating.value = false
   if (res?.code === 0) {
-    router.push({ name: 'appChat', params: { id: String(res.data) }, query: { init: '1' } })
+    router.push({ name: 'appChat', params: { id: String(res.data) }, query: { init: '1', mode: genMode.value } })
   }
 }
 
@@ -99,9 +100,13 @@ onMounted(() => { loadGoodApps(); loadMyApps() })
           <!-- 工具栏 -->
           <div class="prompt-toolbar">
             <div class="toolbar-left">
-              <span v-for="t in toolItems" :key="t.key" class="tool-chip">
-                {{ t.label }}
-              </span>
+              <a-select
+                v-model:value="genMode"
+                :options="modeOptions"
+                :bordered="false"
+                size="small"
+                class="mode-select"
+              />
             </div>
             <div class="toolbar-right">
               <kbd class="kbd-hint">⏎ Enter</kbd>
@@ -140,6 +145,7 @@ onMounted(() => { loadGoodApps(); loadMyApps() })
       <div class="section-header">
         <h2 class="section-title">我的作品</h2>
         <span class="section-count">{{ myApps.length }} 个</span>
+        <a-button type="link" class="view-all" @click="router.push('/apps')">查看全部 →</a-button>
       </div>
       <a-spin :spinning="loadingMyApps">
         <div v-if="myApps.length" class="grid">
@@ -156,6 +162,7 @@ onMounted(() => { loadGoodApps(); loadMyApps() })
       <div class="section-header">
         <h2 class="section-title">精选应用</h2>
         <span class="section-count">{{ goodApps.length }} 个</span>
+        <a-button type="link" class="view-all" @click="router.push('/explore')">查看全部 →</a-button>
       </div>
       <a-spin :spinning="loadingApps">
         <div v-if="goodApps.length" class="grid">
@@ -283,26 +290,8 @@ onMounted(() => { loadGoodApps(); loadMyApps() })
   gap: 4px;
   flex-wrap: wrap;
 }
-
-/* B09 半透明发光按钮风格 tool chip */
-.tool-chip {
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--gray-500);
-  background: transparent;
-  box-shadow: var(--shadow-ring);
-  border-radius: var(--r-base);
-  padding: 3px 8px;
-  cursor: pointer;
-  user-select: none;
-  transition: all var(--duration-fast) var(--spring);
-  letter-spacing: var(--tracking-label);
-}
-.tool-chip:hover {
-  background: var(--gray-50);
-  color: var(--geist-black);
-  box-shadow: var(--shadow-border);
-  transform: translateY(-1px) scale(1.02);
+.mode-select {
+  width: 100px;
 }
 
 .toolbar-right {
@@ -433,6 +422,14 @@ onMounted(() => { loadGoodApps(); loadMyApps() })
   border-radius: var(--r-pill);
   padding: 2px 8px;
   letter-spacing: 0;
+}
+
+.view-all {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0;
+  height: auto;
 }
 
 .grid {

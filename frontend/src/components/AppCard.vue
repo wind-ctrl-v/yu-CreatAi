@@ -49,6 +49,9 @@ const previewUrl = computed(() => buildPreviewUrl(props.app.codeGenType, props.a
         <span>{{ app.user?.userName || app.user?.userAccount || '匿名用户' }}</span>
       </div>
     </div>
+    <div v-if="$slots.actions" class="card-actions" @click.stop>
+      <slot name="actions" />
+    </div>
   </div>
 </template>
 
@@ -204,5 +207,12 @@ const previewUrl = computed(() => buildPreviewUrl(props.app.codeGenType, props.a
   font-size: 11.5px;
   color: var(--gray-400);
   letter-spacing: 0;
+}
+
+.card-actions {
+  padding: 0 14px 12px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 </style>

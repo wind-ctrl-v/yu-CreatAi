@@ -301,6 +301,10 @@ async function init() {
   previewUrl.value = ''
   deployUrl.value = ''
   runInfo.value = null
+  // 从首页 ?mode= 参数读取并预设生成模式
+  if (route.query.mode === 'low_cost' || route.query.mode === 'standard' || route.query.mode === 'high_quality') {
+    genMode.value = route.query.mode
+  }
 
   await loadApp()
   await loadHistory()
