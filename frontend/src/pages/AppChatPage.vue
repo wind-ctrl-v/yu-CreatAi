@@ -226,7 +226,12 @@ function sendMessage(content: string, displayText?: string) {
     },
     onDone: () => {
       generating.value = false
-      refreshPreview()
+      // Vue 项目需触发后端构建生成 dist/ 目录，否则 iframe 预览白屏
+      if (app.value?.codeGenType === 'vue_project') {
+        deployApp(appId.value).finally(() => refreshPreview())
+      } else {
+        refreshPreview()
+      }
     },
     onBusinessError: ({ code, message: errMsg }) => {
       generating.value = false
