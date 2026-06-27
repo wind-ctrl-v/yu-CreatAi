@@ -1,28 +1,33 @@
 # 多 Agent 协作工作流程文档
 
-> 本文档基于源码分析生成，覆盖 CreatAi 项目的完整多 Agent 流水线设计，包括每个 Agent 的职责、设计依据与协作机制。
+> 最后更新：2026-06-28
+> 本文档基于源码分析生成，覆盖 CreatAi 项目的完整多 Agent 流水线设计，包括路由决策、模式选择、套餐权益、降级链与 SSE 事件体系。
 
 ---
 
 ## 目录
 
 1. [整体架构概述](#一整体架构概述)
-2. [核心基础设施层](#二核心基础设施层)
-3. [流水线完整流程图](#三流水线完整流程图)
-4. [OrchestratorAgent — 总编排者](#四orchestratoragent--总编排者)
-5. [ProductAgent — 需求解析器](#五productagent--需求解析器)
-6. [ArchitectAgent — 架构规划师](#六architectagent--架构规划师)
-7. [DesignTokenAgent — 设计规范加载器](#七designtokenagent--设计规范加载器)
-8. [DesignRetrieveAgent — 运行时证据召回器](#八designretrieveagent--运行时证据召回器)
-9. [ImageAgent — 图片资源获取器](#九imageagent--图片资源获取器)
-10. [CoderAgent — 代码生成器](#十coderagent--代码生成器)
-11. [StyleAgent — 全局样式生成器](#十一styleagent--全局样式生成器)
-12. [CriticAgent — 质量检查器](#十二criticagent--质量检查器)
-13. [DeployAgent — 构建部署器](#十三deployagent--构建部署器)
-14. [DesignExtractorAgent — 离线指纹提炼器](#十四designextractoragent--离线指纹提炼器离线链路)
-15. [Blackboard 共享数据契约](#十五blackboard-共享数据契约)
-16. [关键支撑组件](#十六关键支撑组件)
-17. [设计思想总结](#十七设计思想总结)
+2. [请求入口与路由决策](#二请求入口与路由决策)
+3. [生成模式决策体系](#三生成模式决策体系)
+4. [用户套餐与权益系统](#四用户套餐与权益系统)
+5. [V2 编排器 — GenerationOrchestrator](#五v2-编排器--generationorchestrator)
+6. [核心基础设施层](#六核心基础设施层)
+7. [流水线完整流程图](#七流水线完整流程图)
+8. [V1 编排器 — OrchestratorAgent](#八v1-编排器--orchestratoragent)
+9. [ProductAgent — 需求解析器](#九productagent--需求解析器)
+10. [ArchitectAgent — 架构规划师](#十architectagent--架构规划师)
+11. [DesignTokenAgent — 设计规范加载器](#十一designtokenagent--设计规范加载器)
+12. [DesignRetrieveAgent — 运行时证据召回器](#十二designretrieveagent--运行时证据召回器)
+13. [ImageAgent — 图片资源获取器](#十三imageagent--图片资源获取器)
+14. [CoderAgent — 代码生成器](#十四coderagent--代码生成器)
+15. [StyleAgent — 全局样式生成器](#十五styleagent--全局样式生成器)
+16. [CriticAgent — 质量检查器](#十六criticagent--质量检查器)
+17. [DeployAgent — 构建部署器](#十七deployagent--构建部署器)
+18. [DesignExtractorAgent — 离线指纹提炼器](#十八designextractoragent--离线指纹提炼器离线链路)
+19. [Blackboard 共享数据契约](#十九blackboard-共享数据契约)
+20. [关键支撑组件](#二十关键支撑组件)
+21. [设计思想总结](#二十一设计思想总结)
 
 ---
 
@@ -30,14 +35,32 @@
 
 ### 背景与动机
 
-传统的「单 LLM 一次性生成整个前端项目」存在以下问题：
+传统「单 LLM 一次性生成整个前端项目」存在：上下文污染、无法修复、资源浪费、扩展困难。
 
-1. **上下文污染**：需求理解、技术选型、样式生成、代码生成、质量检查等任务混在同一个 prompt 中，LLM 容易顾此失彼
-2. **无法修复**：代码一次生成，没有反馈回路，质量无法保证
-3. **资源浪费**：图片搜索、设计规范加载等确定性任务也要消耗 LLM token
-4. **扩展困难**：新增能力（如设计知识库检索）需要改动整个生成逻辑
+**多 Agent 流水线**将上述问题分解为多个专职 Agent，通过共享 Blackboard 传递中间产物，通过 Reactor `Flux` 事件流对外透传执行过程。
 
-**多 Agent 流水线**将上述问题分解为多个专职 Agent，每个 Agent 聚焦单一职责，通过共享 Blackboard 传递中间产物，通过 Reactor `Flux` 事件流对外透传执行过程。
+### 架构层次
+
+```
+                        Controller (HTTP SSE)
+                              │
+              ┌───────────────┴───────────────┐
+              │   GenerationPipelineRouter     │   ← 路由决策层（新增）
+              │   ┌───────────────────────┐    │
+              │   │ GenerationModeResolver │    │   ← 模式决策层（新增）
+              │   │ → GenerationPolicy     │    │
+              │   └───────────────────────┘    │
+              └───────────────┬───────────────┘
+                              │
+         ┌────────────────────┼────────────────────┐
+         ▼                    ▼                     ▼
+  GenerationOrchestrator  OrchestratorAgent   AiCodeGeneratorFacade
+       (V2 主链路)          (V1 兼容链路)       (Classic 兜底)
+```
+
+- **V2**：三模式流水线（LOW_COST/STANDARD/HIGH_QUALITY），由 `GenerationPolicy` 驱动
+- **V1**：传统串并联流水线，由 `@Value` 配置驱动
+- **Classic**：单 LLM 全量生成，最终兜底
 
 ### 技术选型依据
 
@@ -50,9 +73,240 @@
 
 ---
 
-## 二、核心基础设施层
+## 二、请求入口与路由决策
 
-### 2.1 `Agent` 接口
+### 2.1 Controller 入口
+
+`AppController.chatToGenCode()` 接收 HTTP SSE 请求：
+
+```
+GET /app/chat/gen/code?appId={id}&message={msg}&mode={low_cost|standard|high_quality}
+```
+
+`mode` 参数可选，为前端不可信意图，由服务端按套餐封顶。
+
+Controller 将请求委托给 `AppServiceImpl`，后者调用 `GenerationPipelineRouter.route()`。
+
+### 2.2 GenerationPipelineRouter — 三级路由
+
+文件：`service/generation/GenerationPipelineRouter.java`
+
+**职责**：统一管理 **V2 → V1 → Classic** 三级降级。自身不调用 LLM，只负责决策与编排。
+
+**路由决策树**：
+
+```
+route(appId, message, requestedMode, loginUser, codeGenType)
+  │
+  ├─ ① modeResolver.resolve(...) → GenerationPolicy
+  │
+  ├─ ② 非 VUE_PROJECT 或 orchestratorEnabled=false
+  │     → 直接走 CLASSIC 链路
+  │
+  └─ ③ VUE_PROJECT 且 orchestratorEnabled=true
+        │
+        ├─ policy.isV2Enabled()
+        │     → 首选 V2: GenerationOrchestrator.generate(ctx, policy)
+        │        ├─ 异常 → isAllowV1Fallback()? → 降级 V1
+        │        └─ 异常 → isAllowClassicFallback()? → 降级 CLASSIC
+        │
+        └─ !policy.isV2Enabled()
+              → V1: OrchestratorAgent.handle(ctx)
+                 └─ 异常 → isAllowClassicFallback()? → 降级 CLASSIC
+```
+
+**关键条件**：
+
+| 条件 | 配置项 | 说明 |
+|------|--------|------|
+| 多 Agent 总开关 | `agent.orchestrator.enabled` | 关闭则全走 Classic |
+| V2 子开关 | `agent.orchestrator.v2.enabled` | 关闭则走 V1 |
+| V1 降级 | `generation.pipeline.allow-v1-fallback` | V2 失败是否降级 V1 |
+| Classic 降级 | `generation.pipeline.allow-classic-fallback` | 是否最终兜底 Classic |
+
+### 2.3 结构化 SSE 事件
+
+路由器在流中注入结构化事件（前端 `sse.ts` 解析分发）：
+
+| 事件 | 触发时机 | 字段 |
+|------|---------|------|
+| `generation_started` | VUE 项目流首部 | `generationId`, `pipeline`, `mode`, `fallbackEnabled` |
+| `pipeline_fallback` | 链路降级时 | `from`, `to`, `reason` |
+
+事件通过 `AiResponseMessage` 包裹为文本下发（`\n[生成] {json}\n` / `\n[降级] {json}\n`），前端识别前缀提取 JSON 后结构化消费，不会泄漏到聊天气泡。
+
+### 2.4 生成运行记录
+
+`GenerationRunService` 记录每次生成的完整生命周期：
+
+```
+start() → SUCCESS / FALLBACK_SUCCESS / FAILED
+            ├─ fallback()（记录每次降级）
+            └─ 耗时统计（startedAt → finishedAt → durationMs）
+```
+
+记录落表 `generation_run`，所有写入操作容错不阻断主流程。
+
+---
+
+## 三、生成模式决策体系
+
+文件：`service/generation/GenerationModeResolver.java`
+
+### 决策顺序
+
+```
+resolve(requestedMode, loginUser, message, codeGenType)
+  │
+  ├─ 步骤0: 获取套餐与权益配置
+  │    → UserEntitlementService.getPlan(loginUser) → PlanType
+  │    → GenerationProperties.getEntitlementOrDefault(plan)
+  │
+  ├─ 步骤1: 解析前端意图（不可信）
+  │    → low_cost / standard / high_quality，无效则用套餐默认模式
+  │
+  ├─ 步骤2: 复杂度动态调整
+  │    → RequirementComplexityService.analyze(message, codeGenType)
+  │    → SIMPLE → LOW_COST
+  │    → COMPLEX → HIGH_QUALITY
+  │    → NORMAL → 不变
+  │
+  ├─ 步骤3: 套餐封顶
+  │    → GenerationMode.min(candidate, maxAllowedMode)
+  │    → 模式序: LOW_COST(rank=1) < STANDARD(rank=2) < HIGH_QUALITY(rank=3)
+  │
+  ├─ 步骤4: 额度限制
+  │    → QuotaService.applyQuotaLimit(loginUser, capped)
+  │    → 额度不足时逐级降级
+  │
+  └─ 步骤5: 组装 GenerationPolicy（不可变对象）
+       → 含 preferredPipeline / v2Enabled / fallback 开关
+       → 含 enableLlmCritic / enableCoderStyleParallel
+       → 含 maxCriticRounds / maxEvidenceCount
+       → 含 planningModel / generateModel / criticModel / timeoutMs
+```
+
+### 三种生成模式
+
+| 属性 | LOW_COST (快速) | STANDARD (标准) | HIGH_QUALITY (高质量) |
+|------|:---:|:---:|:---:|
+| Coder∥Style 并发 | ❌ | ✅ | ✅ |
+| LLM Critic | ❌ | 规则失败时 1 轮 | 多轮 |
+| Design Evidence 条数 | 1 | 3 | 5 |
+| 超时 | 180s | 300s | 600s |
+| 适用场景 | 简单页面、快速验证 | 常规项目 | 复杂项目、生产级 |
+
+### GenerationPolicy 全部字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `preferredPipeline` | `PipelineType` | 首选链路（V2/V1） |
+| `generationMode` | `GenerationMode` | 最终生成模式 |
+| `v2Enabled` | `boolean` | 是否启用 V2 |
+| `allowV1Fallback` | `boolean` | V2 失败是否降 V1 |
+| `allowClassicFallback` | `boolean` | 是否兜底 Classic |
+| `enableLlmCritic` | `boolean` | LLM Critic 开关 |
+| `enableCoderStyleParallel` | `boolean` | Coder∥Style 并发 |
+| `maxCriticRounds` | `int` | Critic 最大轮次 |
+| `maxEvidenceCount` | `int` | Design evidence 条数 |
+| `planningModel` | `String` | 规划模型 |
+| `generateModel` | `String` | 生成模型 |
+| `criticModel` | `String` | Critic 模型 |
+| `timeoutMs` | `long` | 整体超时 |
+| `requestedModeRaw` | `String` | 前端原始意图（仅可观测） |
+
+---
+
+## 四、用户套餐与权益系统
+
+### 4.1 套餐等级
+
+文件：`model/enums/PlanType.java`
+
+| 套餐 | 中文名 | `defaultMode` | `maxMode`（封顶） | 每日配额 |
+|------|--------|:---:|:---:|------|
+| `FREE` | 免费用户 | `low_cost` | `low_cost` | low_cost × 10 |
+| `PRO` | 普通会员 | `standard` | `standard` | standard × 50 |
+| `PREMIUM` | 高级会员 | `standard` | `high_quality` | standard×100 + high_quality×10 |
+| `ENTERPRISE` | 企业版 | `high_quality` | `high_quality` | high_quality × 100 |
+| `ADMIN` | 管理员 | `high_quality` | `high_quality` | 无限制 |
+
+### 4.2 权益服务
+
+`UserEntitlementService.getPlan(loginUser)` 优先读 `User.planType` 字段，无值时回退角色映射兼容旧数据。
+
+`GenerationProperties.EntitlementConfig` 配置项通过 `application.yml` 注入，支持运行时调整。
+
+### 4.3 额度服务
+
+`QuotaService` 基于 `user_quota` 表（`userId + quotaDate + generationMode` 唯一）实施每日额度限制：
+
+- 每日额度不足时逐级降级：`high_quality → standard → low_cost`
+- 管理员不受额度限制
+- 每次生成完成时 `recordUsage()` 自动 upsert
+- 前端通过 `/user/plan` 接口获取剩余额度
+
+### 4.4 前端套餐感知
+
+- 侧边栏显示彩色会员 Badge（灰色免费/蓝色PRO/紫色高级/橙色企业/红色管理员）
+- 个人中心展示套餐名称 + 可用模式列表
+- 对话页模式选择器按套餐禁用高级模式 + 标注「需升级套餐」
+- 进入时自动降级超出套餐范围的模式
+
+---
+
+## 五、V2 编排器 — GenerationOrchestrator
+
+文件：`orchestrator/GenerationOrchestrator.java`
+
+### 与 V1 的核心区别
+
+| 维度 | V1 OrchestratorAgent | V2 GenerationOrchestrator |
+|------|----------------------|---------------------------|
+| 接口 | 实现 `Agent` 接口 | 独立 `@Component` |
+| 策略驱动 | `@Value` 配置 | 不可变 `GenerationPolicy` |
+| 模式分化 | 单一流水线 | 三种模式独立实现 |
+| 上下文装配 | 分散在流中逐工具调用 | `DesignContextAssembler` 统一装配 |
+| 规则检查 | 无独立步骤 | `RuleCriticTool` 零 LLM 规则检查 |
+| 并发控制 | Coder∥Style 始终并发 | 由 policy 决定 |
+
+### V2 三模式工作流
+
+| 步骤 | LOW_COST | STANDARD | HIGH_QUALITY |
+|------|:---:|:---:|:---:|
+| 1. PlanningAgent | ✅ | ✅ | ✅ |
+| 2. DesignContextAssembler | 精简 evidence=1 | 正常 evidence=3 | 完整 evidence=5 |
+| 3. 页面生成 | PageGenerateAgent | Coder∥Style 并发 | Coder∥Style 并发 |
+| 4. RuleCriticTool | ✅ | ✅ | ✅ |
+| 5. LLM Critic 循环 | ❌ | 规则失败时 1 轮 | 多轮 ≤ maxRounds |
+| 6. Deploy | ✅ | ✅ | ✅ |
+
+### DesignContextAssembler
+
+将原本分散在各 Agent 中的设计知识加载收敛为统一装配器，串联 7 个 System Tool，产出 `DesignContext` DTO：
+
+- DesignTokenTool：加载先验规则
+- UserPreferenceTool：用户偏好
+- ProjectBrandProfileTool：项目品牌
+- DesignKnowledgeRetrieveTool：指纹召回
+- ImageSearchTool：图片搜索
+- GlobalStyleTool：全局样式
+- PromptEnhanceTool：Prompt 增强
+
+装配失败降级继续，不阻断主流程。
+
+### Critic 循环
+
+- `LOW_COST`：不做 LLM Critic
+- `STANDARD`：`RuleCriticTool` 规则失败时才触发 1 轮 LLM Critic
+- `HIGH_QUALITY`：`RuleCriticTool` 之后始终触发 LLM Critic，最多 `maxCriticRounds` 轮
+- 乒乓抑制：Style↔Coder 来回 ≥ 2 次强制收敛
+
+---
+
+## 六、核心基础设施层
+
+### 6.1 `Agent` 接口
 
 ```java
 public interface Agent {
@@ -61,187 +315,111 @@ public interface Agent {
 }
 ```
 
-**设计依据**：统一接口使 Orchestrator 可以用相同方式驱动任意 Worker，新增 Agent 只需实现接口，无需修改编排逻辑（开闭原则）。
-
----
-
-### 2.2 `AgentContext` — 请求上下文
-
-贯穿整条流水线的不可变输入载体，包含：
+### 6.2 `AgentContext` — 请求上下文
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `appId` | `Long` | 应用 ID，同时作为内存标识与项目工作目录 |
-| `loginUser` | `User` | 发起请求的登录用户（权限鉴别） |
-| `userPrompt` | `String` | 用户原始需求（产品经理视角的中文描述） |
-| `codeGenType` | `CodeGenTypeEnum` | 路由器决定的生成类型（vue_project / html 等） |
-| `blackboard` | `Blackboard` | 线程安全的共享黑板，各 Agent 读写中间产物 |
+| `appId` | `Long` | 应用 ID |
+| `loginUser` | `User` | 登录用户 |
+| `userPrompt` | `String` | 用户原始需求 |
+| `codeGenType` | `CodeGenTypeEnum` | 生成类型 |
+| `blackboard` | `Blackboard` | 共享黑板 |
 
-**设计依据**：将不可变输入与可变共享状态分离。不可变字段在构造时设定，共享状态统一收归 Blackboard，避免 Agent 间直接传参导致的隐式耦合。
-
----
-
-### 2.3 `AgentEvent` — 统一事件模型
+### 6.3 `AgentEvent` — 统一事件模型
 
 | EventType | 用途 |
 |-----------|------|
-| `TEXT_CHUNK` | LLM 流式文本增量，前端打字机效果 |
-| `TOOL_CALL` | 工具调用请求（文件写入等） |
-| `TOOL_RESULT` | 工具执行完成回执 |
-| `STATUS_CHANGE` | Agent 阶段状态变更（开始/完成/阶段产物摘要） |
-| `ERROR` | 错误信息，流被安全终止 |
+| `TEXT_CHUNK` | LLM 流式文本增量 |
+| `TOOL_CALL` | 工具调用请求 |
+| `TOOL_RESULT` | 工具执行回执 |
+| `STATUS_CHANGE` | 阶段状态变更 |
+| `ERROR` | 错误信息 |
 
-**设计依据**：统一事件模型使前端 SSE 只需一套解析逻辑，即可展示所有 Agent 的实时进度。`agentName` 字段区分事件来源，前端可据此渲染各 Agent 的进度状态。
+### 6.4 `Blackboard` — 共享数据契约
+
+底层 `ConcurrentHashMap`，保证多 Agent 并发安全：
+
+```
+ProductAgent         → putRequirementDoc(RequirementDoc)
+ArchitectAgent       → putPlan(GenerationPlan)
+DesignTokenAgent     → putDesignSpec(DesignSpec)
+DesignRetrieveAgent  → putDesignEvidence(DesignEvidence)
+ImageAgent           → putImageMap(Map<String,String>)
+CoderAgent / Style   → addGeneratedFile(String)
+CriticAgent          → putCriticReport(CriticReport)
+DeployAgent          → putDeployUrl(String)
+```
+
+设计依据：各 Agent 只关心"我需要读什么、我需要写什么"，无需知道其他 Agent 的实现。
 
 ---
 
-### 2.4 `Blackboard` — 共享数据结构
-
-底层使用 `ConcurrentHashMap`，保证多 Agent 并发读写的线程安全。通过语义化方法封装具体 key，禁止外部直接操作原始 Map：
-
-```
-ProductAgent        → putRequirementDoc(RequirementDoc)
-ArchitectAgent      → putPlan(GenerationPlan)
-DesignTokenAgent    → putDesignSpec(DesignSpec)
-DesignRetrieveAgent → putDesignEvidence(DesignEvidence)
-ImageAgent          → putImageMap(Map<String,String>)
-CoderAgent/Style    → addGeneratedFile(String)
-CriticAgent         → putCriticReport(CriticReport)
-DeployAgent         → putDeployUrl(String)
-```
-
-**设计依据**：Blackboard 模式是多 Agent 协作的经典解耦方案。各 Agent 只知道"我需要读什么、我需要写什么"，无需关心其他 Agent 的实现细节，实现松耦合的协作。
-
----
-
-## 三、流水线完整流程图
+## 七、流水线完整流程图
 
 ```
 用户请求 (HTTP SSE)
         │
         ▼
- OrchestratorAgent（不调 LLM，纯调度）
-        │
-        │ 串行 concatWith
-        ▼
- ① ProductAgent       [LLM]
-    用户 prompt → RequirementDoc
-    写入黑板：requirementDoc
-        │ 串行
-        ▼
- ② ArchitectAgent      [LLM]
-    requirementDoc → GenerationPlan
-    写入黑板：plan
-        │ 串行
-        ▼
- ③ DesignTokenAgent    [零 LLM]
-    plan.styleProfile → DesignSpec（读 classpath MD 文件）
-    写入黑板：designSpec
-        │ 串行
-        ▼
- ④ DesignRetrieveAgent [零 LLM，可选]
-    styleProfile + queryTags → DesignEvidence（向量/结构化检索）
-    写入黑板：designEvidence
-    （未配置 EmbeddingModel 时跳过）
-        │ 串行
-        ▼
- ⑤ ImageAgent          [零 LLM]
-    plan.imageSlots → imageMap（并发调 Unsplash/Pexels API）
-    写入黑板：imageMap
-        │ 串行（等 ImageAgent 完成）
-        ▼
- ⑥ Flux.merge(并发)
-    ┌─────────────────────────────┐
-    │ CoderAgent  [LLM + 文件工具]│
-    │ 按 plan 流式落盘所有代码文件   │
-    │ 完成后替换图片占位符           │
-    └─────────────────────────────┘
-    ┌─────────────────────────────┐
-    │ StyleAgent   [LLM]          │
-    │ 生成 variables.css/global.css│
-    └─────────────────────────────┘
-        │ 串行（等 Coder + Style 均完成）
-        ▼
- ⑦ CriticAgent（质检反馈循环，最多 criticMaxRounds 轮）
-    静态检查（零 LLM）+ LLM 综合评分 → CriticReport
-    ┌─ passed=true 或 score≥80 ──→ 通过，结束循环
-    │
-    ├─ 仅样式问题 ──────────────→ 重跑 StyleAgent
-    │
-    ├─ 仅代码问题 ──────────────→ 重跑 CoderAgent
-    │
-    ├─ 样式+代码问题 ───────────→ 先 StyleAgent 再 CoderAgent
-    │
-    └─ 超出最大轮次 ────────────→ 降级返回当前结果
-        │
-        ▼ （可选，agent.deploy.enabled=true）
- ⑧ DeployAgent         [零 LLM]
-    npm install → npm run build → 上传 COS
-    写入黑板：deployUrl
+  AppController.chatToGenCode()
         │
         ▼
- 流水线完成，推送 "流水线完成" 状态事件，SSE 关闭
+  ★ GenerationPipelineRouter.route()
+        │
+        ├─ ★ GenerationModeResolver.resolve() → GenerationPolicy
+        │
+        ├─ 非 VUE / 开关关闭 → Classic 兜底
+        │
+        └─ VUE 项目 + 开关开启
+            │
+            ├─ V2 开启 → ★ GenerationOrchestrator.generate(ctx, policy)
+            │                │
+            │                ├─ LOW_COST:  Planning→Assembler→PageGenerateAgent→RuleCritic→Deploy
+            │                ├─ STANDARD:  Planning→Assembler→Coder∥Style→RuleCritic→(+LLM Critic)→Deploy
+            │                └─ HIGH_QUALITY: 同 STANDARD + 多轮 Critic + 5 evidence
+            │
+            ├─ V2 未开启 → V1: OrchestratorAgent.handle(ctx)
+            │                │
+            │                ├─ PlanningAgent → DesignTokenTool → ImageSearchTool
+            │                ├─ CoderAgent ∥ StyleAgent
+            │                └─ runCriticLoop → (可选) DeployTool
+            │
+            └─ 失败降级: V2→V1→Classic (按分级 fallback 配置)
+        │
+        ▼
+  SSE 流返回前端（含 generation_started / pipeline_fallback 结构化事件）
 ```
 
 ---
 
-## 四、OrchestratorAgent — 总编排者
+## 八、V1 编排器 — OrchestratorAgent
 
 ### 职责
 
-整条流水线的"指挥官"，**自身不调用任何 LLM**，只负责：
-- 按固定顺序串联/并联各 Worker Agent
-- 管理 Critic 反馈循环（最多 `criticMaxRounds` 轮）
-- 按问题分类（样式/代码/两者）精准路由修复分支
-- 全局异常兜底，保证 SSE 连接不因 Worker 异常断开
+V1 编排器，自身不调用 LLM，只负责串并联编排。
 
-### 设计依据
-
-**关注点分离原则**：将"什么顺序执行"（编排逻辑）与"具体执行什么"（业务逻辑）分离。Orchestrator 只持有编排图，Worker 只关注自身任务。
-
-**惰性构建（Lazy Evaluation）**：`handle()` 调用时仅构建 Flux 链，不立即执行。真正执行发生在 Spring WebFlux 订阅此 Flux 时，保证在 Coder 完成之前 Critic 不会提前触发。
-
-**乒乓抑制（Ping-Pong Guard）**：若 Style↔Coder 修复在两种分支间来回超过 2 次，强制收敛降级，避免无意义的重试循环消耗 LLM 调用次数。
-
-### 关键配置
-
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `agent.critic.max-rounds` | 3 | Critic 反馈循环最大轮次 |
-| `agent.deploy.enabled` | false | 是否在末尾自动构建并部署 |
-| `agent.retrieve.enabled` | false | 是否启用运行时设计证据召回 |
-
-### 串并联编排实现
+### 流水线
 
 ```
-Flux.just(status)
-  .concatWith(productAgent)       // 串行：必须在 architect 之前
-  .concatWith(architectAgent)     // 串行
-  .concatWith(designTokenAgent)   // 串行：必须在并发分支之前
-  .concatWith(designRetrieveAgent)// 串行
-  .concatWith(imageAgent)         // 串行：必须在 Coder 之前
-  .concatWith(Flux.merge(         // 并发：Coder 与 Style 互不依赖
-      coderAgent, styleAgent))
-  .concatWith(runCriticLoop())    // 串行：必须在生成完成后
-  .concatWith(deployAgent)        // 串行（可选）
+PlanningAgent → DesignTokenTool → UserPreferenceTool → ProjectProfileTool
+→ DesignRetrieveTool → ImageSearchTool → CoderAgent∥StyleAgent
+→ runCriticLoop → (可选) DeployTool → 完成
 ```
+
+V1 将工具调用嵌入流中逐个执行，没有装配器统一封装。
+
+### 乒乓球抑制
+
+Style↔Coder 修复来回 ≥ 2 次 → 强制收敛降级。
 
 ---
 
-## 五、ProductAgent — 需求解析器
+## 九、ProductAgent — 需求解析器
 
 ### 职责
 
-将用户的**一段中文自然语言**转化为下游 Agent 可直接消费的**结构化需求文档**（`RequirementDoc`）。
+将用户中文自然语言转化为结构化 `RequirementDoc`，充当"翻译官"角色。
 
-### 主要工作
-
-1. 接收用户原始 prompt（如"帮我做一个电商网站"）
-2. 调用 LLM（绑定 `agent-product-system-prompt.txt`）
-3. LLM 扮演"产品经理"角色，进行合理的产品补全与规划
-4. 输出严格 JSON，解析为 `RequirementDoc`，写入 Blackboard
-
-### 输出数据结构（`RequirementDoc`）
+### 输出数据结构
 
 ```json
 {
@@ -254,10 +432,8 @@ Flux.just(status)
     { "path": "/product/:id", "name": "商品详情", "purpose": "商品详情与购买" }
   ],
   "colorTheme": {
-    "primary": "#e74c3c",
-    "secondary": "#2c3e50",
-    "background": "#f5f5f5",
-    "text": "#333333"
+    "primary": "#e74c3c", "secondary": "#2c3e50",
+    "background": "#f5f5f5", "text": "#333333"
   },
   "imageNeeds": [
     { "slotId": "img_hero_1", "usage": "首页主图", "keyword": "modern shopping mall interior" }
@@ -267,342 +443,183 @@ Flux.just(status)
 
 ### 设计依据
 
-**前置语义对齐**：用户输入往往是模糊的自然语言，直接交给 ArchitectAgent 做技术规划，会因理解偏差导致生成的代码与用户需求不符。ProductAgent 充当"翻译官"，把模糊输入转化为精确的结构化契约。
-
-**职责隔离**：ProductAgent 的 system prompt 明确禁止涉及技术选型与代码实现，防止"越权"干扰 ArchitectAgent 的决策。
-
-**限制输出字段**：`pages` 默认 1 个（防止 LLM 过度脑补多页面），`coreFeatures` 限 3-6 项（避免需求膨胀），`imageNeeds.keyword` 强制英文（保证图片搜索质量）。
+- **前置语义对齐**：模糊输入 → 精确结构
+- **职责隔离**：不涉及技术选型
+- **输出限制**：pages 默认 1 个，coreFeatures 3-6 项
 
 ---
 
-## 六、ArchitectAgent — 架构规划师
+## 十、ArchitectAgent — 架构规划师
 
 ### 职责
 
-基于 `RequirementDoc` 进行**技术选型与文件结构规划**，输出 `GenerationPlan`，是代码生成的"蓝图"。
+基于 `RequirementDoc` 输出 `GenerationPlan`——代码生成的"蓝图"。
 
-### 主要工作
-
-1. 从 Blackboard 读取 `RequirementDoc`
-2. 结合 `ctx.getCodeGenType()`（路由器决策的技术栈）
-3. 调用 LLM（绑定 `agent-architect-system-prompt.txt`）
-4. LLM 输出：行业风格识别（`styleProfile`）、完整文件列表、路由配置、图片槽
-5. 解析为 `GenerationPlan`，写入 Blackboard
-
-### 输出数据结构（`GenerationPlan`）
+### 输出数据结构
 
 ```json
 {
   "techStack": "vue_project",
-  "requirementSummary": "电商商城，含商品列表、详情、购物车三页",
   "styleProfile": "ecommerce",
   "styleProfileConfidence": 0.88,
-  "fileStructure": [
-    "package.json", "vite.config.js", "index.html",
-    "src/main.js", "src/App.vue", "src/router/index.js",
-    "src/pages/Home.vue", "src/pages/ProductDetail.vue", "src/pages/Cart.vue",
-    "src/components/ProductCard.vue", "src/components/NavBar.vue",
-    "src/stores/cart.js", "src/data/products.js",
-    "src/styles/variables.css", "src/styles/global.css"
-  ],
-  "routerConfig": [
-    { "path": "/", "name": "home", "component": "src/pages/Home.vue" },
-    { "path": "/product/:id", "name": "product", "component": "src/pages/ProductDetail.vue" },
-    { "path": "/cart", "name": "cart", "component": "src/pages/Cart.vue" }
-  ],
-  "imageSlots": [
-    { "slotId": "img_hero_1", "keyword": "modern shopping bags products", "style": "photo", "usedIn": "首页 hero" }
-  ],
-  "colorTheme": { "primary": "#e74c3c", ... }
+  "fileStructure": ["package.json", "vite.config.js", "src/App.vue", ...],
+  "routerConfig": [...],
+  "imageSlots": [...],
+  "colorTheme": { ... }
 }
 ```
 
-### 设计依据
+### 设计风格枚举
 
-**行业风格枚举（`styleProfile`）**：设计了 6 种行业风格（`startup/enterprise/ecommerce/portfolio/dashboard/landing`）+ `default` 兜底。风格识别由 LLM 完成，但加置信度阈值（0.6），低置信自动归 `default`，防止误分类导致不协调的设计规范。
+`startup / enterprise / ecommerce / portfolio / dashboard / landing` + `default` 兜底。置信度阈值 0.6，低置信归 `default`。
 
-**技术栈强约束**：system prompt 明确禁止 TypeScript、Pinia、Vuex、UI 组件库，固定 Vue3 + Vite + 原生 CSS 变量，保证下游 CoderAgent 的代码风格一致。
+### 技术栈约束
 
-**文件结构蓝图**：`fileStructure` 给出精确的文件路径列表，使 CoderAgent 知道"应该创建哪些文件"，避免随意创建无关文件。
-
-**多页面强约束**：电商类必须包含 Home + ProductDetail + Cart 三页，防止 LLM 为了省事只生成单页应用。
+禁止 TypeScript、Pinia、Vuex、UI 组件库，固定 Vue3 + Vite + 原生 CSS 变量。
 
 ---
 
-## 七、DesignTokenAgent — 设计规范加载器
+## 十一、DesignTokenAgent — 设计规范加载器
 
-### 职责
+**阶段一「先验规则」**，不调用 LLM，纯 Java 解析 `classpath:skill/designs/{profile}.md`。
 
-**阶段一「先验规则」**加载器，**不调用任何 LLM**，纯 Java 根据 `GenerationPlan.styleProfile` 从 `classpath:skill/designs/{profile}.md` 加载并解析行业设计规范，输出 `DesignSpec`。
+### 三阶段设计知识注入
 
-### 主要工作
+- **阶段一（DesignTokenAgent）**：静态先验规则，零 LLM，每次都执行
+- **阶段二（DesignExtractorAgent）**：离线提炼六层指纹，入库
+- **阶段三（DesignRetrieveAgent）**：运行时召回证据，开关控制
 
-1. 从 Blackboard 读取 `GenerationPlan` 的 `styleProfile` 与 `styleProfileConfidence`
-2. 调用 `DesignProfileResolver.normalizeProfile()` 进行白名单校验与置信度过滤
-3. 读取对应的 `.md` 规范文件，解析出：
-   - `tokenGroups`：CSS 变量名与默认值的权威清单（分组）
-   - `tone`：调性描述（如"克制、中性、通用"）
-   - `layoutPatterns`：布局规则
-   - `preferredPatterns`：推荐写法
-   - `forbiddenPatterns`：禁用模式
-   - `interactionPatterns`：交互规则
-4. 写入 Blackboard，供并发分支的 StyleAgent/CoderAgent 消费
+### 降级策略
 
-### 设计依据
-
-**三阶段设计知识注入体系**：
-- **阶段一（DesignTokenAgent）**：静态先验规则，每次都执行，零 LLM，成本最低
-- **阶段二（离线 DesignExtractorAgent）**：从精选页面提炼六层指纹，入库为设计知识库
-- **阶段三（DesignRetrieveAgent）**：运行时从知识库召回受控证据，开关控制，需要向量搜索基础设施
-
-**零 LLM 设计**：设计规范是结构化知识，用 LLM 解析 MD 文件既浪费又不稳定。用 Java 正则解析既快又准，且无幻觉风险。
-
-**降级策略（绝不中断流水线）**：
-- 识别失败 / 不在白名单 → 归 `default` 规范
-- MD 读取或解析失败 → 回退内置硬编码默认规范
-- 任意异常 → 仅推 status 事件，绝不 `sink.error()`
-
-**插入时机**：必须在 ArchitectAgent 之后、并发分支（Coder/Style）之前，确保并发执行时 `DesignSpec` 已就绪。
+- 识别失败 → `default` 规范
+- MD 解析失败 → 内置硬编码默认值
+- 任意异常 → 仅推状态事件，不终止流
 
 ---
 
-## 八、DesignRetrieveAgent — 运行时证据召回器
+## 十二、DesignRetrieveAgent — 运行时证据召回器
 
-### 职责
+**阶段三「后验证据」**，由 `agent.retrieve.enabled` 控制。通过 `DesignKnowledgeIndex` 检索已批准的设计指纹。
 
-**阶段三「后验证据」**召回器（开关默认关闭），通过 `DesignKnowledgeIndex` 检索已批准的设计指纹，召回 top-k 受控证据（`DesignEvidence`）写入 Blackboard。
-
-### 主要工作
-
-1. 检查 `agent.retrieve.enabled` 开关，关闭则直接跳过
-2. 从 Blackboard 读取 `DesignSpec`（先验）和 `GenerationPlan`
-3. 构造查询标签：静态规范调性词 + 需求摘要关键词（去重）
-4. 调用 `DesignKnowledgeIndex.retrieve()` 执行检索
-5. 召回结果非空则写入 Blackboard `designEvidence`，供 Coder/Style 消费
-6. 检索失败一律降级（不 `sink.error()`）
-
-### 设计依据
-
-**渐进式增强**：系统在没有设计知识库时（阶段一）已能正常运行；有了精选指纹库后，通过开关启用阶段三，进一步提升生成质量，不破坏已有流程。
-
-**`@ConditionalOnBean(DesignKnowledgeIndex.class)`**：若未配置 EmbeddingModel，此 Agent 不会注入 Spring 容器，Orchestrator 通过 `designRetrieveAgent != null` 判断是否跳过。
+`@ConditionalOnBean(DesignKnowledgeIndex.class)`，未配置时不会注入容器。
 
 ---
 
-## 九、ImageAgent — 图片资源获取器
+## 十三、ImageAgent — 图片资源获取器
 
-### 职责
+消费 `plan.imageSlots`，并发调用 Unsplash/Pexels API，输出 `keyword → url` 的 Map。
 
-消费 `GenerationPlan.imageSlots`，并发调用图片搜索 API（Unsplash/Pexels），输出 `imageMap`（关键词 → 真实图片 URL），**不调用 LLM**。
+### 设计要点
 
-### 主要工作
-
-1. 从 Blackboard 读取 `plan.imageSlots`
-2. 若 slots 为空，直接跳过（减少不必要的网络请求）
-3. 使用 `Flux.flatMap` + `Mono.fromCallable` 实现**全程非阻塞并发搜图**
-4. 并发度由 `image.replace.concurrency` 配置控制
-5. 单个搜图失败只记录警告，不影响其他 slot
-6. 全部失败时写入空 map + 推完成事件（不终止流水线）
-7. 将 `keyword → url` 的 Map 写入 Blackboard，供 CoderAgent 的 `ImagePlaceholderReplacer` 替换占位符
-
-### 设计依据
-
-**零 LLM**：图片搜索是确定性任务（关键词 → API 调用），不需要语义推理，直接调用 API 即可，省去 LLM 调用成本。
-
-**必须在 Coder 之前**：CoderAgent 生成的代码中使用 `{{IMG:keyword}}` 占位符，CoderAgent 完成后会立即触发替换。若 ImageAgent 未完成，imageMap 为空，替换无法进行，导致 Critic 发现占位符残留失败。因此串行插入 Coder 之前。
-
-**非阻塞响应式实现**：`Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())` 将阻塞 HTTP 调用切换到弹性线程池，不占用 Reactor 调度线程，保证系统吞吐量。
+- 零 LLM，确定性任务
+- `Flux.flatMap` + `Mono.fromCallable` 非阻塞并发搜图
+- 单个失败不阻断整体
+- 必须在 Coder 之前完成（占位符替换需要 imageMap）
 
 ---
 
-## 十、CoderAgent — 代码生成器
+## 十四、CoderAgent — 代码生成器
 
-### 职责
+按 `GenerationPlan.fileStructure` 逐文件落盘代码。
 
-复用现有的 Vue 项目流式代码生成能力（携带文件写入工具），按 `GenerationPlan.fileStructure` 逐文件落盘代码。是整条流水线中最重量级的 Agent。
+### Prompt 注入内容
 
-### 主要工作
-
-1. 从 Blackboard 读取 `plan`、`designSpec`、`criticReport`（上一轮质检问题）
-2. 调用 `buildUserMessage()` 拼装完整 prompt，注入：
-   - 原始需求与过滤后的生成计划（已移除 StyleAgent 独占的样式文件）
-   - `tokenGroups` 确切变量名清单（CSS 组件只能引用，不得自创）
-   - `forbiddenPatterns`/`preferredPatterns` 强制设计约束
-   - `DesignEvidence`（阶段三召回的参考证据，来自指纹库）
-   - 上一轮 `CriticReport.issues`（带修复建议，避免盲目重写）
-3. 调用 `AiCodeGeneratorService` 启动流式生成（LLM + 文件写入工具）
-4. 流式事件透传：`TEXT_CHUNK`、`TOOL_CALL`、`TOOL_RESULT`
-5. 每次工具调用成功后向 Blackboard `addGeneratedFile()`
-6. 生成完成后触发 `ImagePlaceholderReplacer.replaceAll()`，替换代码中的 `{{IMG:keyword}}` 为真实 URL
+- 原始需求 + `GenerationPlan`
+- `tokenGroups` 精确变量名清单
+- `forbiddenPatterns` / `preferredPatterns`
+- `DesignEvidence`（阶段三召回）
+- 上一轮 `CriticReport.issues`（修复建议）
 
 ### 文件职责划分
 
-| 文件范围 | 归属 | 说明 |
-|---------|------|------|
-| `src/styles/variables.css` | StyleAgent 独占 | CoderAgent 禁止创建或覆盖 |
-| `src/styles/global.css` | StyleAgent 独占 | CoderAgent 禁止创建或覆盖 |
-| `src/main.js` | CoderAgent 负责 | **必须** import 两个样式文件 |
-| 其他所有文件 | CoderAgent 负责 | 按 plan.fileStructure 逐文件创建 |
-
-### 设计依据
-
-**Token 强契约**：将 `tokenGroups` 注入 prompt，告知 LLM"只能引用这些 CSS 变量名，不得自创"，与 StyleAgent 共享同一份变量名清单，消除两者之间的 CSS 变量不匹配问题。
-
-**Critic 驱动修复**：第二轮及以后，将上一轮的 `CriticReport.issues`（含 severity、file、description、suggestion）注入 prompt，使 LLM 知道"哪个文件的哪里有问题、应该怎么修"，而非盲目重写全部代码。
-
-**样式文件隔离**：通过 `filterStyleFiles()` 过滤掉 plan 中的样式文件，配合 system prompt 中"禁止创建 variables.css/global.css"的指令，双重保证 StyleAgent 对样式文件的独占写入权，避免两者并发时产生竞态写入。
+| 文件 | 归属 | 说明 |
+|------|------|------|
+| `src/styles/variables.css` | StyleAgent 独占 | 禁止创建 |
+| `src/styles/global.css` | StyleAgent 独占 | 禁止创建 |
+| `src/main.js` | CoderAgent | 必须 import 样式 |
+| 其他所有文件 | CoderAgent | 按 plan 创建 |
 
 ---
 
-## 十一、StyleAgent — 全局样式生成器
+## 十五、StyleAgent — 全局样式生成器
 
-### 职责
+根据 `plan.colorTheme` + `DesignSpec.tokenGroups` 生成 `variables.css` + `global.css`。
 
-根据 `plan.colorTheme` + `DesignSpec.tokenGroups` 生成 `variables.css`（CSS 变量定义）与 `global.css`（全局基础样式），并直接写入项目文件系统。
+### 设计要点
 
-### 主要工作
-
-1. 从 Blackboard 读取 `plan` 和 `designSpec`（含 tokenGroups）
-2. 构建 LLM 输入：colorTheme + tokenGroups（权威变量名清单）+ forbiddenPatterns + preferredPatterns
-3. 若有 `DesignEvidence`，追加其中的 `preferredPatterns` 作为参考调性
-4. 调用 LLM（绑定 `agent-style-system-prompt.txt`）
-5. 解析 LLM 输出的 JSON：`{"variables_css": "...", "global_css": "..."}`
-6. 路径安全校验（防止路径穿越）后写入 `src/styles/variables.css` 和 `src/styles/global.css`
-7. 向 Blackboard `addGeneratedFile()` 记录
-
-### variables.css 生成规则
-
-- `:root {}` 中定义所有 CSS 变量
-- **必须按 tokenGroups 给出的确切变量名逐一定义**（变量名是契约，不得改名增删，值可结合 colorTheme 微调）
-- 覆盖：颜色、字号、行高、字距、间距、圆角、阴影、字体
-
-### global.css 生成规则
-
-- 全局重置（box-sizing、margin、height）
-- body 默认字体/背景/颜色/行高全部引用变量
-- 响应式断点：768px / 480px
-- 工具类 `.container`（最大宽 1200px）
-- 链接、按钮、表单元素基础样式
-
-### 设计依据
-
-**与 CoderAgent 并发**：样式生成与代码生成互不依赖（StyleAgent 不读 Coder 输出，Coder 不读 Style 输出，两者都只读 Blackboard 中的 plan/designSpec），因此可以并发执行，缩短总耗时。
-
-**tokenGroups 强契约**：StyleAgent 负责"定义"CSS 变量，CoderAgent 负责"引用"这些变量。通过注入相同的 tokenGroups 清单，保证两者使用的变量名完全一致，彻底消除"CoderAgent 引用了 StyleAgent 未定义的变量"的问题。
-
-**设计禁用约束**：system prompt 明确禁止 `backdrop-filter` 毛玻璃、纯装饰性渐变背景、硬编码颜色/px 值，这些规则与 DesignLintChecker 的检测项一一对应，形成"生成约束 ↔ 静态检查"的闭环。
+- 与 CoderAgent **并发执行**（互不依赖，都只读 Blackboard）
+- `tokenGroups` 强契约：变量名由 Style 定义，Coder 引用，保证一致
+- 禁止 `backdrop-filter`、装饰性渐变、硬编码颜色/px
 
 ---
 
-## 十二、CriticAgent — 质量检查器
+## 十六、CriticAgent — 质量检查器
 
-### 职责
+综合**确定性静态检查** + **LLM 综合评分**。
 
-综合**确定性静态检查**（零 LLM）与 **LLM 综合评分**，输出结构化 `CriticReport`，供 Orchestrator 决策是否进入修复回路。
-
-### 主要工作
-
-#### 静态检查（零 LLM，确定性）
-
-1. **P0 核心文件检查**：`package.json`、`index.html`、`src/main.js`、`src/App.vue` 缺失则强制 `passed=false`
-2. **P1 推荐文件检查**：`vite.config.js`、`src/styles/variables.css`、`src/styles/global.css` 缺失只记录日志，不阻塞
-3. **图片占位符残留检查**：扫描所有 `.vue/.html/.js/.css` 文件中是否还有 `{{IMG:...}}` 未替换，有则强制 `passed=false`
-4. **DesignLintChecker 扫描**：检测 7 类反模式（详见下表）
-
-#### DesignLintChecker 检测项
+### 静态检查（零 LLM）
 
 | 检测项 | 级别 | 说明 |
-|--------|------|------|
-| `missing-global-style-import` | P0 | `src/main.js` 缺少全局样式 import |
-| `dangling-var` | P0 | 引用了不在 tokenGroups 清单内的 `var(--xxx)` |
-| `backdrop-filter` | P1 | 使用了毛玻璃效果 |
-| `decorative-gradient` | P1 | 使用了纯装饰性渐变背景 |
-| `hardcoded-px` | P1 | 硬编码 px 值（padding/margin/font-size 等属性） |
-| `hardcoded-color` | P1 | 硬编码十六进制颜色 |
-| `overscale-hover` | P1 | hover 时 scale > 1.05 的浮夸放大 |
+|--------|:---:|------|
+| 核心文件缺失 | P0 | `package.json`、`index.html`、`main.js`、`App.vue` |
+| 图片占位符残留 | P0 | `{{IMG:...}}` 未替换 |
+| 缺少全局样式 import | P0 | `main.js` 缺少样式引入 |
+| 悬空 CSS 变量 | P0 | 引用不在 tokenGroups 内的 `var(--xxx)` |
+| 毛玻璃效果 | P1 | `backdrop-filter` |
+| 装饰性渐变 | P1 | 纯装饰性渐变背景 |
+| 硬编码 px | P1 | padding/margin/font-size |
+| 硬编码颜色 | P1 | 十六进制颜色值 |
+| 浮夸 hover | P1 | scale > 1.05 |
 
-#### LLM 综合评分
+### 评分规则
 
-- 将静态检查结果（P0/P1 缺失、占位符残留、反模式计数）一并传给 LLM 参考
-- LLM 输出 `passed`、`score`（0-100）、`summary`、`issues`（含 severity/category/file/description/suggestion）
-- LLM 评分失败时退化为纯静态兜底报告（P0 问题每个扣 30 分）
+| 级别 | 扣分 | 通过 |
+|:---:|:---:|------|
+| P0 | -30/项 | P0 命中 → 强制 `passed=false` |
+| P1 | -15/项 | score ≥ 80 → passed=true |
+| P2 | -5/项 | |
 
-#### 强制规则（静态优先于 LLM）
+### 修复路由
 
-- P0 文件缺失 或 占位符残留 → 强制 `passed=false`（即使 LLM 打了高分）
-- 设计 P0 命中（缺少 import、悬空变量）→ 强制 `passed=false`
-
-#### 评分规则
-
-| 问题级别 | 扣分 | 通过阈值 |
-|---------|------|---------|
-| P0 | -30 / 项 | score ≥ 80 则 passed=true |
-| P1 | -15 / 项 | |
-| P2 | -5 / 项 | |
-
-### 设计依据
-
-**静态检查先行**：确定性问题（文件是否存在、占位符是否残留）不需要 LLM 判断，先用 Java 做静态扫描，既快又准，结果还作为 LLM 的参考输入，引导 LLM 做更精准的评估。
-
-**客观优先于主观**：静态检查结论（P0 命中 → 强制失败）的优先级高于 LLM 的主观评分，防止 LLM 对有明显错误的代码给出虚高分数。
-
-**结构化 issues + suggestion**：每个 issue 携带文件路径、问题描述、修复建议，CoderAgent 在下一轮修复时能精准定位并修复，而非盲目重写整个项目。
-
-**P0/P1 分级**：将文件缺失分为 P0（必须修复）和 P1（可选），避免因缺少可选文件导致 Critic 无限重试循环。
+- 仅样式问题 → StyleAgent
+- 仅代码问题 → CoderAgent
+- 两者都有 → StyleAgent → CoderAgent
+- 乒乓 ≥ 2 次 → 强制收敛
 
 ---
 
-## 十三、DeployAgent — 构建部署器
+## 十七、DeployAgent — 构建部署器
 
-### 职责
-
-在流水线末尾（受 `agent.deploy.enabled` 开关控制）执行 `npm install → npm run build → 上传 COS`，输出可访问的部署 URL。
-
-### 主要工作
-
-1. 检查项目目录是否存在
-2. 调用 `VueProjectBuilder.buildProject()` 执行 npm 构建
-3. 校验 `dist` 目录路径（防止路径穿越攻击）
-4. 递归上传 `dist` 内所有文件到腾讯云 COS
-5. 构建访问 URL，写入 Blackboard `deployUrl`，向前端推送部署完成事件
+受 `agent.deploy.enabled` 控制（默认关闭）。执行 `npm install → npm run build → 上传 COS`。
 
 ### 安全措施
 
-- 路径严格校验：`target.startsWith(projectRoot)` 防穿越
-- 相对路径检查：`rel.contains("..")` 则跳过该文件
-- COS 凭证通过 Spring Bean 注入，不暴露在代码/日志中
-
-### 设计依据
-
-**可选开关**：默认关闭，避免每次代码生成都消耗构建和存储资源。生产环境按需开启。
+- 路径严格校验 `target.startsWith(projectRoot)`
+- 相对路径 `..` 检查
+- COS 凭证不暴露
 
 ---
 
-## 十四、DesignExtractorAgent — 离线指纹提炼器（离线链路）
+## 十八、DesignExtractorAgent — 离线指纹提炼器（离线链路）
 
-### 职责
+**不接入实时流水线**。将精选页面按六层契约提炼为 `DesignFingerprintDTO`，入库供 `DesignRetrieveAgent` 检索。
 
-**阶段二「后验证据」**的离线预热工具，**不接入实时生成流水线**。调用 LLM 将精选页面摘要按六层契约（布局/颜色/排版/组件/交互/动效）提炼为 `DesignFingerprintDTO`，入库供 DesignRetrieveAgent 检索。
+### 六层指纹
 
-### 六层指纹提炼
+- 布局模式（layoutPatterns）
+- 颜色 Token 模式（colorPatterns）
+- 排版规则（typographyPatterns）
+- 组件推荐写法（preferredPatterns）
+- 交互规则（interactionPatterns）
+- 动效规则（motionPatterns）
 
-输入经 `DesignSourcePreprocessor` 归一化（剥离脚本、业务文案），防止 Prompt Injection 攻击，再交给 LLM 提炼：
-- **布局模式**（layoutPatterns）
-- **颜色/Token 模式**（colorPatterns）
-- **排版规则**（typographyPatterns）
-- **组件推荐写法**（preferredPatterns）
-- **交互规则**（interactionPatterns）
-- **动效规则**（motionPatterns）
+### 安全隔离
 
-### 设计依据
-
-**离线预热**：指纹提炼是低频、耗时的操作，适合离线批量执行（定时任务或手动触发），不适合实时流水线。Orchestrator 不包含此 Agent，失败不影响实时生成。
-
-**输入安全隔离**：原始 HTML 不直接喂给 LLM，先经 `DesignSourcePreprocessor` 归一化，移除可能包含的注入指令，防止页面内容劫持 LLM 行为。
+`DesignSourcePreprocessor` 预先剥离原始 HTML 的脚本与业务文案，防止 Prompt Injection。
 
 ---
 
-## 十五、Blackboard 共享数据契约
+## 十九、Blackboard 共享数据契约
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -613,30 +630,20 @@ Flux.just(status)
 ├──────────────────┼──────────────────┼───────────────────────┤
 │ requirementDoc   │ ProductAgent     │ ArchitectAgent        │
 ├──────────────────┼──────────────────┼───────────────────────┤
-│ plan             │ ArchitectAgent   │ DesignTokenAgent      │
-│                  │                  │ DesignRetrieveAgent   │
-│                  │                  │ ImageAgent            │
-│                  │                  │ CoderAgent            │
-│                  │                  │ StyleAgent            │
+│ plan             │ ArchitectAgent   │ DesignToken/Retrieve   │
+│                  │                  │ Image/Coder/Style      │
 │                  │                  │ CriticAgent           │
 ├──────────────────┼──────────────────┼───────────────────────┤
-│ designSpec       │ DesignTokenAgent │ DesignRetrieveAgent   │
-│                  │                  │ CoderAgent            │
-│                  │                  │ StyleAgent            │
-│                  │                  │ CriticAgent(Lint)     │
+│ designSpec       │ DesignTokenAgent │ DesignRetrieve/Coder   │
+│                  │                  │ Style/Critic(Lint)    │
 ├──────────────────┼──────────────────┼───────────────────────┤
-│ designEvidence   │DesignRetrieve    │ CoderAgent            │
-│                  │ Agent            │ StyleAgent            │
+│ designEvidence   │ DesignRetrieve   │ Coder/Style           │
 ├──────────────────┼──────────────────┼───────────────────────┤
-│ imageMap         │ ImageAgent       │ CoderAgent            │
-│                  │                  │ (ImagePlaceholder     │
-│                  │                  │  Replacer)            │
+│ imageMap         │ ImageAgent       │ Coder(Placeholder)    │
 ├──────────────────┼──────────────────┼───────────────────────┤
-│ generatedFiles   │ CoderAgent       │ CriticAgent           │
-│                  │ StyleAgent       │                       │
+│ generatedFiles   │ Coder/Style      │ CriticAgent           │
 ├──────────────────┼──────────────────┼───────────────────────┤
-│ criticReport     │ CriticAgent      │ OrchestratorAgent     │
-│                  │                  │ CoderAgent（下一轮）   │
+│ criticReport     │ CriticAgent      │ Orchestrator / Coder  │
 ├──────────────────┼──────────────────┼───────────────────────┤
 │ deployUrl        │ DeployAgent      │ 最终输出              │
 └──────────────────┴──────────────────┴───────────────────────┘
@@ -644,89 +651,64 @@ Flux.just(status)
 
 ---
 
-## 十六、关键支撑组件
+## 二十、关键支撑组件
 
-### 16.1 `DesignProfileResolver` — 规范解析器
+### DesignProfileResolver
 
-- **功能**：归一化 `styleProfile`（白名单校验 + 置信度过滤），从 `classpath:skill/designs/{profile}.md` 解析 `DesignSpec`
-- **安全**：仅从 classpath 读取白名单内的固定文件名，profile 经枚举校验，无路径穿越风险
-- **降级**：MD 解析失败 → 回退内置硬编码默认规范，保证 `tokenGroups` 强契约始终存在
+白名单校验 + 置信度过滤，从 `classpath:skill/designs/{profile}.md` 解析 `DesignSpec`。
 
-### 16.2 `DesignLintChecker` — 反模式扫描器
+### DesignLintChecker
 
-- **功能**：纯 Java 正则扫描生成产物，检测 7 类反模式，输出结构化命中清单
-- **特点**：零 LLM、确定性、可复现，命中数为 0 即客观达标
-- **用途**：为 CriticAgent 提供客观的静态检查依据，不依赖 LLM 主观判断
+零 LLM 正则扫描，检测 7 类反模式。
 
-### 16.3 `ImagePlaceholderReplacer` — 占位符替换器
+### ImagePlaceholderReplacer
 
-- **功能**：遍历项目目录下的代码文件，将 `{{IMG:keyword}}` 替换为 imageMap 中对应的真实 URL
-- **触发时机**：CoderAgent 流式生成完成后立即触发
+遍历项目文件，替换 `{{IMG:keyword}}` 为真实 URL。
 
-### 16.4 `JsonExtractor` — JSON 提取工具
+### JsonExtractor
 
-- **功能**：从 LLM 输出中提取 JSON（处理 LLM 偶尔输出的 markdown 围栏），并反序列化为目标 DTO
-- **重要性**：LLM 输出不总是严格 JSON，此工具负责容错解析
+从 LLM 输出中容错提取 JSON（处理 markdown 围栏）。
 
-### 16.5 `AgentAiService` — LLM 调用接口
+### AgentAiService
 
-通过 LangChain4j `@SystemMessage` 注解将 prompt 文件与方法绑定：
+LangChain4j `@SystemMessage` 绑定 prompt 文件：
 
-| 方法 | 绑定 Prompt | 调用 Agent |
-|------|------------|-----------|
-| `generateRequirementDoc` | `agent-product-system-prompt.txt` | ProductAgent |
-| `generatePlan` | `agent-architect-system-prompt.txt` | ArchitectAgent |
-| `generateStyleSheets` | `agent-style-system-prompt.txt` | StyleAgent |
-| `review` | `agent-critic-system-prompt.txt` | CriticAgent |
-| `generateFingerprint` | `agent-extractor-system-prompt.txt` | DesignExtractorAgent（离线） |
+| 方法 | Prompt | 调用 Agent |
+|------|--------|-----------|
+| `generateRequirementDoc` | `agent-product-system-prompt` | ProductAgent |
+| `generatePlan` | `agent-architect-system-prompt` | ArchitectAgent |
+| `generateStyleSheets` | `agent-style-system-prompt` | StyleAgent |
+| `review` | `agent-critic-system-prompt` | CriticAgent |
+| `generateFingerprint` | `agent-extractor-system-prompt` | DesignExtractorAgent |
 
 ---
 
-## 十七、设计思想总结
+## 二十一、设计思想总结
 
 ### 核心原则
 
 | 原则 | 体现 |
 |------|------|
-| **单一职责** | 每个 Agent 只做一件事，ProductAgent 不做技术选型，StyleAgent 不写业务代码 |
-| **确定性优先** | 能用 Java 做的绝不用 LLM（设计规范解析、图片搜索、静态代码检查） |
-| **契约先于实现** | tokenGroups 是 Style/Coder 的共同契约，plan 是 Image/Coder 的共同契约，先定义契约再并发执行 |
-| **降级不中断** | 每个非核心 Agent（DesignToken/DesignRetrieve/Image）出错只降级，绝不 `sink.error()` 中断流水线 |
-| **静态检查优先于 LLM** | CriticAgent 的 P0 静态结论高于 LLM 评分，防止 LLM 对有明显错误的代码打高分 |
-| **精准修复** | Critic → Coder/Style 的修复循环携带 issue 清单，避免 LLM 盲目重写 |
-| **安全设计** | 路径穿越防护、Prompt Injection 隔离、凭证不外泄、SSRF 防护 |
-
-### 流水线质量保障机制
-
-```
-静态检查（确定性）
-    ├─ 必备文件存在性检查（P0/P1 分级）
-    ├─ 图片占位符残留检查（P0）
-    └─ DesignLintChecker 反模式扫描（P0/P1）
-
-LLM 综合评分（主观评估）
-    ├─ 引用静态检查结果作为参考
-    └─ 输出结构化 issues（携带修复建议）
-
-强制规则（静态优先）
-    └─ P0 命中 → 强制 passed=false（覆盖 LLM 结论）
-
-修复路由（精准分流）
-    ├─ 仅样式问题 → StyleAgent
-    ├─ 仅代码问题 → CoderAgent
-    └─ 两类问题 → StyleAgent 串行 CoderAgent
-
-乒乓抑制
-    └─ Style↔Coder 来回 ≥ 2 次 → 强制收敛降级
-```
+| **单一职责** | 每个 Agent 只做一件事；Router 只做路由 |
+| **策略外置** | 模式/套餐/额度/超时全部由 `GenerationPolicy` 承载，编排器零判断 |
+| **确定性优先** | 能用 Java 的绝不用 LLM（规范解析、图片搜索、静态检查、规则检查） |
+| **契约先于实现** | tokenGroups 是 Style/Coder 的共同契约，plan 是各 Agent 的共同蓝图 |
+| **降级不中断** | 非核心 Agent 出错只降级不中断；链路失败按 V2→V1→Classic 降级 |
+| **职责收敛** | 身份/套餐/复杂度/额度全部收敛于 `GenerationModeResolver`，编排器不再重复判断 |
+| **静态优先于 LLM** | Critic 的 P0 静态结论高于 LLM 评分 |
+| **精准修复** | Critic → Coder/Style 携带 issue 清单，避免盲目重写 |
+| **安全设计** | 路径穿越防护、Prompt Injection 隔离、凭证不外泄 |
 
 ### 与传统单 LLM 方案的对比
 
 | 维度 | 单 LLM | 多 Agent 流水线 |
 |------|--------|----------------|
-| **上下文质量** | 所有任务混合，相互干扰 | 每个 LLM 调用聚焦单一任务 |
-| **可修复性** | 生成后无法自动修复 | Critic 反馈循环，最多 3 轮自动修复 |
-| **LLM 成本** | 所有任务都消耗 LLM | 确定性任务零 LLM（搜图/规范加载/静态检查） |
-| **生成质量** | 依赖单次 LLM 输出质量 | 三阶段设计知识注入 + Critic 质检双重保障 |
-| **可观测性** | 黑盒，前端无法展示进度 | 每个 Agent 推送 AgentEvent，前端可实时展示各阶段进度 |
-| **可扩展性** | 新增能力需改动整体 prompt | 新增 Worker 只需实现 `Agent` 接口 + Orchestrator 插入步骤 |
+| **上下文质量** | 所有任务混合干扰 | 每个 LLM 聚焦单一任务 |
+| **可修复性** | 生成后无法自动修复 | Critic 反馈循环自动修复 |
+| **LLM 成本** | 全部消耗 LLM | 确定性任务零 LLM |
+| **质量分级** | 不可控 | 三档模式按需选择 |
+| **套餐适配** | 无 | 按套餐封顶模式 + 额度限制 |
+| **生成质量** | 依赖单次输出 | 三阶段设计知识 + Critic 双重保障 |
+| **可观测性** | 黑盒 | AgentEvent + SSE 事件实时进度 |
+| **链路韧性** | 单 LLM 不可用=全局瘫痪 | V2→V1→Classic 三级降级 |
+| **可扩展性** | 改动整体 prompt | 新增 Worker 实现 Agent 接口即可 |
