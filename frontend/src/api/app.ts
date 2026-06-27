@@ -46,6 +46,11 @@ export function buildPreviewUrl(codeGenType: string, appId: string) {
   return `${API_BASE_URL}/static/${codeGenType}_${appId}/`
 }
 
+/** 增量编辑（只改不生成） */
+export function incrementalEdit(params: { appId: string; instruction: string }) {
+  return request.post<any, BaseResponse<{ success: boolean; message: string }>>('/app/incremental-edit', params)
+}
+
 /** 记录可视化修改事件（偏好闭环） */
 export function recordEditEvent(params: {
   appId: string

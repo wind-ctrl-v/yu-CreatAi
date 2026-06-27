@@ -28,6 +28,7 @@ import com.yu.yuaifather.service.ProjectDownloadService;
 import com.yu.yuaifather.service.UserService;
 import com.yu.yuaifather.model.entity.UserDesignEvent;
 import com.yu.yuaifather.service.PromptPreferenceExtractor;
+import com.yu.yuaifather.service.IncrementalEditService;
 import com.yu.yuaifather.worker.PreferenceUpdateWorker;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -70,6 +71,9 @@ public class AppController {
 
     @Autowired
     private PromptPreferenceExtractor promptPreferenceExtractor;
+
+    @Autowired
+    private IncrementalEditService incrementalEditService;
 
     @PostMapping("/add")
     public BaseResponse<Long> addApp(@RequestBody AppAddRequest appAddRequest, HttpServletRequest request) {
@@ -411,6 +415,24 @@ public class AppController {
         }
     }
 
+
+    /**
+     * 增量编辑：对已生成的 Vue 项目原地修改文件，不重新生成整个项目。
+     */
+    @PostMapping("/incremental-edit")
+    public BaseResponse<Map<String, Object>> incrementalEdit(@RequestBody Map<String, Object> body,
+                                                              HttpServletRequest request) {
+        userService.getLoginUser(request);
+        Long appId = body.get("appId") != null ? Long.valueOf(body.get("appId").toString()) : null;
+        String instruction = (String) body.get("instruction");
+        ThrowUtils.throwIf(appId == null || StrUtil.isBlank(instruction), ErrorCode.PARAMS_ERROR);
+
+        String result = incrementalEditService.incrementalEdit(appId, instruction);
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("success", !result.contains("失败") && !result.contains("不存在"));
+        data.put("message", result);
+        return ResultUtils.success(data);
+    }
 
     /**
      * 记录用户可视化修改事件（用于偏好闭环）

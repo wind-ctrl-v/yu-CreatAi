@@ -7,6 +7,7 @@ import {
   buildPreviewUrl,
   deployApp,
   getAppVOById,
+  incrementalEdit,
   recordEditEvent,
 } from '../api/app'
 import { listAppChatHistory } from '../api/chatHistory'
@@ -277,24 +278,39 @@ function sendMessage(content: string, displayText?: string) {
   )
 }
 
-function handleSend() {
+async function handleSend() {
   const userText = input.value.trim()
   input.value = ''
   if (picked.value) {
     const target = picked.value
-    const real =
-      buildEditContext(target) + (userText || '请优化这个元素的样式与交互体验')
+    const instruction = userText || '请优化这个元素的样式与交互体验'
     const display = `🎯 已选中 <${target.tagName}>${
       target.text ? ` "${target.text.slice(0, 20)}"` : ''
-    }\n${userText || '请优化这个元素的样式与交互体验'}`
+    }\n${instruction}`
     clearPicked()
     exitSelecting()
-    // 记录可视化修改事件（偏好闭环）
-    recordElementEditEvent(target, userText)
-    sendMessage(real, display)
+    // 记录偏好事件
+    recordElementEditEvent(target, instruction)
+    // 增量编辑
+    messages.value.push({ id: ++msgSeq, type: 'user', content: display })
+    generating.value = true
+    const res = await incrementalEdit({ appId: appId.value, instruction: buildEditContext(target) + instruction }).catch(() => null)
+    generating.value = false
+    if (res?.data?.success) {
+      messages.value.push({ id: ++msgSeq, type: 'ai', content: '✅ 修改完成' })
+    } else {
+      messages.value.push({ id: ++msgSeq, type: 'ai', content: '⚠️ 修改失败，请重试' })
+    }
+    refreshPreview()
+    scrollToBottom()
   } else {
     sendMessage(userText)
   }
+}
+
+/** 走原有完整生成流水线 */
+async function sendFullGeneration(userText: string) {
+  sendMessage(userText)
 }
 
 /** 根据选中元素和修改文本，检测类型并发事件给后端 */
