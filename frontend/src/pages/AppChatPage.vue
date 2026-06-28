@@ -7,12 +7,11 @@ import {
   buildPreviewUrl,
   deployApp,
   getAppVOById,
-  incrementalEdit,
   recordEditEvent,
 } from '../api/app'
 import { listAppChatHistory } from '../api/chatHistory'
 import { getPlanCapabilities } from '../api/user'
-import { connectChatSSE } from '../utils/sse'
+import { connectChatSSE, connectIncrementalEditSSE } from '../utils/sse'
 import {
   attachElementPicker,
   buildEditContext,
@@ -25,6 +24,22 @@ interface ChatMessage {
   id: number
   type: 'user' | 'ai'
   content: string
+}
+
+/** 工具调用图标 */
+const TOOL_LABELS: Record<string, string> = {
+  readDir: '📂',
+  readFile: '📄',
+  modifyFile: '✏️',
+  writeFile: '📝',
+  deleteFile: '🗑️',
+}
+const TOOL_DONE_LABELS: Record<string, string> = {
+  readDir: '📂',
+  readFile: '📄',
+  modifyFile: '✅',
+  writeFile: '✅',
+  deleteFile: '🗑️',
 }
 
 /** 生成模式 → 中文文案（与模式选择器 options 文案统一） */
@@ -278,6 +293,80 @@ function sendMessage(content: string, displayText?: string) {
   )
 }
 
+/** 判断用户输入是否为"修改现有项目"意图（而非"创建新项目"） */
+function isModifyIntent(text: string): boolean {
+  const modifyPatterns = [
+    /改(成|为|一下|一改)/, /修改/, /更换/, /换(成|一个|一下)/,
+    /调整/, /优化/, /美化/, /重构/, /重新设计/,
+    /颜色/, /配色/, /样式/, /字体/, /布局/, /排版/,
+    /颜色/, /背景/, /边框/, /圆角/, /阴影/, /间距/,
+    /大一点/, /小一点/, /缩小/, /放大/, /加粗/, /变细/,
+    /不.*好.*看/, /难看/, /丑/, /换.*风格/,
+    /把.*改/, /让.*更/, /加(上|一个|入)/, /去掉/, /删除/,
+    /换.*色/, /变.*色/, /改.*色/,
+  ]
+  return modifyPatterns.some((p) => p.test(text))
+}
+
+/** 执行增量编辑（SSE 流式），抽取公共逻辑 */
+function doIncrementalEdit(instruction: string, userDisplay?: string) {
+  const display = userDisplay || instruction
+  messages.value.push({ id: ++msgSeq, type: 'user', content: display })
+  messages.value.push({ id: ++msgSeq, type: 'ai', content: '' })
+  const aiIndex = messages.value.length - 1
+  const toolLines: string[] = []
+  let hasError = false
+
+  generating.value = true
+  closeSSE = connectIncrementalEditSSE(
+    appId.value,
+    instruction,
+    {
+      onText: (text) => {
+        if (toolLines[toolLines.length - 1]?.startsWith('💬 ')) {
+          toolLines[toolLines.length - 1] = '💬 ' + (toolLines[toolLines.length - 1].slice(3) + text)
+        } else {
+          toolLines.push('💬 ' + text)
+        }
+        messages.value[aiIndex].content = toolLines.join('\n')
+        scrollToBottom()
+      },
+      onToolCall: (_id, toolName) => {
+        const label = TOOL_LABELS[toolName] || '🔧'
+        toolLines.push(`${label} 调用 ${toolName}`)
+        messages.value[aiIndex].content = toolLines.join('\n')
+        scrollToBottom()
+      },
+      onToolExecuted: (_id, toolName, _args, result) => {
+        const label = TOOL_DONE_LABELS[toolName] || '✅'
+        const shortResult = result.length > 120 ? result.slice(0, 120) + '...' : result
+        for (let i = toolLines.length - 1; i >= 0; i--) {
+          if (toolLines[i].includes(`调用 ${toolName}`)) {
+            toolLines[i] = `${label} ${toolName} → ${shortResult}`
+            break
+          }
+        }
+        messages.value[aiIndex].content = toolLines.join('\n')
+        scrollToBottom()
+      },
+      onError: (msg) => {
+        hasError = true
+        toolLines.push(`⚠️ ${msg}`)
+        messages.value[aiIndex].content = toolLines.join('\n')
+      },
+      onDone: () => {
+        generating.value = false
+        if (!hasError) {
+          toolLines.push('✅ 修改完成')
+        }
+        messages.value[aiIndex].content = toolLines.join('\n')
+        refreshPreview()
+      },
+    },
+  )
+  scrollToBottom()
+}
+
 async function handleSend() {
   const userText = input.value.trim()
   input.value = ''
@@ -289,20 +378,12 @@ async function handleSend() {
     }\n${instruction}`
     clearPicked()
     exitSelecting()
-    // 记录偏好事件
     recordElementEditEvent(target, instruction)
-    // 增量编辑
-    messages.value.push({ id: ++msgSeq, type: 'user', content: display })
-    generating.value = true
-    const res = await incrementalEdit({ appId: appId.value, instruction: buildEditContext(target) + instruction }).catch(() => null)
-    generating.value = false
-    if (res?.data?.success) {
-      messages.value.push({ id: ++msgSeq, type: 'ai', content: '✅ 修改完成' })
-    } else {
-      messages.value.push({ id: ++msgSeq, type: 'ai', content: '⚠️ 修改失败，请重试' })
-    }
-    refreshPreview()
-    scrollToBottom()
+    doIncrementalEdit(buildEditContext(target) + instruction, display)
+  } else if (isModifyIntent(userText) && app.value?.codeGenType === 'vue_project') {
+    // 未选中元素但用户表达了修改意图（如"改成蓝色配色"），走增量编辑 + 记录偏好
+    recordTextEditEvent(userText)
+    doIncrementalEdit(userText)
   } else {
     sendMessage(userText)
   }
@@ -323,6 +404,22 @@ function recordElementEditEvent(el: PickedElement, instruction: string) {
     recordEditEvent({ appId: appId.value, eventType: 'layout_changed', metadata: `from=${el.tagName}` })
   } else {
     recordEditEvent({ appId: appId.value, eventType: 'component_added', metadata: `component=${el.tagName}` })
+  }
+}
+
+/** 从纯文本中推断修改事件类型并记录偏好 */
+function recordTextEditEvent(text: string) {
+  const lower = text.toLowerCase()
+  if (/颜色|配色|color|色系|色调|背景色|主题色|渐变色|蓝色|红色|绿色|黄色|紫色|粉色|白色|黑色|灰色/.test(lower)) {
+    recordEditEvent({ appId: appId.value, eventType: 'color_changed', metadata: `text=${text.slice(0, 50)}` })
+  } else if (/布局|排列|排版|结构|导航|侧边栏|顶栏|底栏|grid|flex|layout/.test(lower)) {
+    recordEditEvent({ appId: appId.value, eventType: 'layout_changed', metadata: `text=${text.slice(0, 50)}` })
+  } else if (/字体|字号|文字|标题|段落|加粗|斜体|typography|font/.test(lower)) {
+    recordEditEvent({ appId: appId.value, eventType: 'style_changed', metadata: `text=${text.slice(0, 50)}` })
+  } else if (/动画|过渡|交互|hover|动画|transition|animation/.test(lower)) {
+    recordEditEvent({ appId: appId.value, eventType: 'interaction_changed', metadata: `text=${text.slice(0, 50)}` })
+  } else {
+    recordEditEvent({ appId: appId.value, eventType: 'component_added', metadata: `text=${text.slice(0, 50)}` })
   }
 }
 

@@ -24,9 +24,11 @@ import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.vo.AppVO;
 import com.yu.yuaifather.ratelimiter.annotation.RateLimit;
 import com.yu.yuaifather.ratelimiter.enums.RateLimitType;
+import com.yu.yuaifather.service.ChatHistoryService;
 import com.yu.yuaifather.service.ProjectDownloadService;
 import com.yu.yuaifather.service.UserService;
 import com.yu.yuaifather.model.entity.UserDesignEvent;
+import com.yu.yuaifather.model.enums.ChatHistoryMessageTypeEnum;
 import com.yu.yuaifather.service.PromptPreferenceExtractor;
 import com.yu.yuaifather.service.IncrementalEditService;
 import com.yu.yuaifather.worker.PreferenceUpdateWorker;
@@ -71,6 +73,9 @@ public class AppController {
 
     @Autowired
     private PromptPreferenceExtractor promptPreferenceExtractor;
+
+    @Autowired
+    private ChatHistoryService chatHistoryService;
 
     @Autowired
     private IncrementalEditService incrementalEditService;
@@ -347,6 +352,83 @@ public class AppController {
     }
 
     /**
+     * 增量编辑流式 SSE
+     * 实时推送工具调用过程（readDir → readFile → modifyFile）和 AI 文本响应。
+     * 同时将用户消息和 AI 响应持久化到 chat_history，刷新页面不丢失对话。
+     */
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60,
+            message = "修改请求过于频繁，请稍后再试")
+    @GetMapping(value = "/incremental-edit-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> incrementalEditStream(@RequestParam Long appId,
+                                                                @RequestParam String instruction,
+                                                                HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
+        ThrowUtils.throwIf(StrUtil.isBlank(instruction), ErrorCode.PARAMS_ERROR, "修改指令不能为空");
+
+        // 保存用户消息到对话历史
+        try {
+            chatHistoryService.addChatMessage(appId, instruction,
+                    ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
+        } catch (Exception e) {
+            log.warn("增量编辑用户消息写入历史失败 appId={}", appId, e);
+        }
+
+        // 异步从修改指令中提取用户偏好（颜色/风格/布局标签）
+        try {
+            promptPreferenceExtractor.extractAndRecord(loginUser.getId(), instruction);
+        } catch (Exception e) {
+            log.warn("增量编辑偏好提取失败 appId={}", appId, e);
+        }
+
+        // 收集 AI 响应的完整文本，用于流结束后持久化
+        StringBuilder aiResponseBuffer = new StringBuilder();
+        Flux<String> contentFlux = incrementalEditService.incrementalEditStream(appId, instruction);
+        return contentFlux
+                .map(chunk -> {
+                    // 收集 ai_response 文本
+                    collectAiText(chunk, aiResponseBuffer);
+                    Map<String, String> wrapper = Map.of("d", chunk);
+                    return ServerSentEvent.<String>builder()
+                            .data(JSONUtil.toJsonStr(wrapper))
+                            .build();
+                })
+                .concatWith(Mono.just(
+                        ServerSentEvent.<String>builder()
+                                .event("done")
+                                .data("")
+                                .build()
+                ))
+                .doOnTerminate(() -> {
+                    // 流结束后保存 AI 响应到对话历史
+                    String aiText = aiResponseBuffer.toString().trim();
+                    if (StrUtil.isNotBlank(aiText)) {
+                        try {
+                            chatHistoryService.addChatMessage(appId, aiText,
+                                    ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                        } catch (Exception e) {
+                            log.warn("增量编辑 AI 响应写入历史失败 appId={}", appId, e);
+                        }
+                    }
+                });
+    }
+
+    /** 从 SSE chunk（JSON）中提取 ai_response 文本收集到 buffer */
+    private void collectAiText(String chunk, StringBuilder buffer) {
+        try {
+            Map<?, ?> msg = JSONUtil.toBean(chunk, Map.class);
+            if ("ai_response".equals(msg.get("type"))) {
+                Object data = msg.get("data");
+                if (data != null) {
+                    buffer.append(data.toString());
+                }
+            }
+        } catch (Exception ignored) {
+            // 非 JSON chunk 忽略
+        }
+    }
+
+    /**
      * 应用部署
      *
      * @param appDeployRequest 部署请求
@@ -429,7 +511,11 @@ public class AppController {
 
         String result = incrementalEditService.incrementalEdit(appId, instruction);
         Map<String, Object> data = new java.util.HashMap<>();
-        data.put("success", !result.contains("失败") && !result.contains("不存在"));
+        // 通过 AI 响应内容判断是否成功（AI 被指示成功时回复"修改完成"）
+        boolean success = result.contains("修改完成") || result.contains("修改成功")
+                || result.contains("写入成功") || result.contains("已完成");
+        success = success && !result.contains("失败") && !result.contains("不存在") && !result.contains("错误");
+        data.put("success", success);
         data.put("message", result);
         return ResultUtils.success(data);
     }

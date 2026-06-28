@@ -126,3 +126,98 @@ export function connectChatSSE(
 
   return finalClose
 }
+
+/**
+ * 增量编辑 SSE 回调接口
+ */
+export interface IncrementalEditCallbacks {
+  /** AI 文本响应片段 */
+  onText: (text: string) => void
+  /** 工具调用请求（AI 决定调用工具），带 id 用于去重 */
+  onToolCall: (id: string, toolName: string, args: Record<string, unknown>) => void
+  /** 工具执行完成 */
+  onToolExecuted: (id: string, toolName: string, args: Record<string, unknown>, result: string) => void
+  /** 发生错误 */
+  onError: (message: string) => void
+  /** 流式结束 */
+  onDone: () => void
+}
+
+/**
+ * 连接增量编辑的 SSE 流
+ */
+export function connectIncrementalEditSSE(
+  appId: string,
+  instruction: string,
+  callbacks: IncrementalEditCallbacks,
+): () => void {
+  const url = `${API_BASE_URL}/app/incremental-edit-stream?appId=${appId}&instruction=${encodeURIComponent(instruction)}`
+
+  let closed = false
+  let doneReceived = false
+  let es: EventSource | null = null
+  const seenToolCalls = new Set<string>() // 去重：同一 tool_call_id 只触发一次 onToolCall
+
+  const finalClose = () => { closed = true; if (es) { es.close(); es = null } }
+
+  function bindEvents(source: EventSource) {
+    source.onmessage = (e: MessageEvent) => {
+      if (!e.data) return
+      try {
+        const wrapper = JSON.parse(e.data)
+        if (typeof wrapper.d !== 'string') return
+        const msg = JSON.parse(wrapper.d)
+
+        switch (msg.type) {
+          case 'ai_response':
+            callbacks.onText(msg.data || '')
+            break
+          case 'tool_request': {
+            const id = msg.id || ''
+            if (!seenToolCalls.has(id)) {
+              seenToolCalls.add(id)
+              callbacks.onToolCall(id, msg.name, parseArgs(msg.arguments))
+            }
+            break
+          }
+          case 'tool_executed':
+            callbacks.onToolExecuted(msg.id || '', msg.name, parseArgs(msg.arguments), msg.result || '')
+            break
+          case 'error':
+            callbacks.onError(msg.message || '未知错误')
+            break
+        }
+      } catch {
+        try {
+          const wrapper = JSON.parse(e.data)
+          if (typeof wrapper.d === 'string') callbacks.onText(wrapper.d)
+        } catch { /* ignore */ }
+      }
+    }
+
+    source.addEventListener('done', () => {
+      doneReceived = true
+      callbacks.onDone()
+      finalClose()
+    })
+
+    source.onerror = () => {
+      if (doneReceived || closed) { finalClose(); return }
+      callbacks.onError('连接中断')
+      finalClose()
+    }
+  }
+
+  es = new EventSource(url, { withCredentials: true })
+  bindEvents(es)
+
+  return finalClose
+}
+
+function parseArgs(args: string): Record<string, unknown> {
+  try {
+    return JSON.parse(args)
+  } catch {
+    return {}
+  }
+}
