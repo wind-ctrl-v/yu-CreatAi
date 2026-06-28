@@ -374,12 +374,15 @@ public class AppController {
             log.warn("增量编辑用户消息写入历史失败 appId={}", appId, e);
         }
 
-        // 异步从修改指令中提取用户偏好（颜色/风格/布局标签）
-        try {
-            promptPreferenceExtractor.extractAndRecord(loginUser.getId(), instruction);
-        } catch (Exception e) {
-            log.warn("增量编辑偏好提取失败 appId={}", appId, e);
-        }
+        // 异步从修改指令中提取用户偏好（颜色/风格/布局标签），不阻塞主流程
+        final Long currentUserId = loginUser.getId();
+        Thread.ofVirtual().start(() -> {
+            try {
+                promptPreferenceExtractor.extractAndRecord(currentUserId, instruction);
+            } catch (Exception e) {
+                log.warn("增量编辑偏好提取失败 appId={}", appId, e);
+            }
+        });
 
         // 收集 AI 响应的完整文本，用于流结束后持久化
         StringBuilder aiResponseBuffer = new StringBuilder();

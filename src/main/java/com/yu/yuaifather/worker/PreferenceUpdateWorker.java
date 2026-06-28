@@ -7,9 +7,12 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yu.yuaifather.model.dto.agent.DesignFingerprintDTO;
 import com.yu.yuaifather.mapper.UserDesignEventMapper;
+import com.yu.yuaifather.mapper.UserDesignProfileMapper;
 import com.yu.yuaifather.mapper.UserPreferenceWeightMapper;
 import com.yu.yuaifather.model.entity.UserDesignEvent;
+import com.yu.yuaifather.model.entity.UserDesignProfile;
 import com.yu.yuaifather.model.entity.UserPreferenceWeight;
+import com.mybatisflex.core.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,13 +41,19 @@ public class PreferenceUpdateWorker {
 
     private final UserDesignEventMapper eventMapper;
     private final UserPreferenceWeightMapper weightMapper;
+    private final UserDesignProfileMapper profileMapper;
     private final ObjectMapper objectMapper;
+
+    /** 每 N 次权重更新触发一次 profileSummary 重算 */
+    private static final int SUMMARY_REFRESH_INTERVAL = 10;
 
     public PreferenceUpdateWorker(UserDesignEventMapper eventMapper,
                                    UserPreferenceWeightMapper weightMapper,
+                                   UserDesignProfileMapper profileMapper,
                                    ObjectMapper objectMapper) {
         this.eventMapper = eventMapper;
         this.weightMapper = weightMapper;
+        this.profileMapper = profileMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -53,6 +62,8 @@ public class PreferenceUpdateWorker {
         eventMapper.insert(event);
         try {
             applyPreferenceUpdate(event);
+            // 每 N 次更新触发一次 profileSummary 自动重算
+            maybeRefreshProfileSummary(event.getUserId());
         } catch (Exception e) {
             log.warn("偏好更新失败 eventType={} userId={}", event.getEventType(), event.getUserId(), e);
         }
@@ -243,4 +254,63 @@ public class PreferenceUpdateWorker {
     }
 
     private record WeightChange(String type, String key, double delta) {}
+
+    // ============ profileSummary 自动刷新 ============
+
+    /**
+     * 当 userId 的权重更新次数达到 SUMMARY_REFRESH_INTERVAL 的整数倍时，
+     * 自动从 user_preference_weight 表中取 Top-5 喜欢 + Top-3 反感标签，拼接为自然语言摘要写回 profileSummary。
+     */
+    private void maybeRefreshProfileSummary(Long userId) {
+        if (userId == null) return;
+        try {
+            long totalEvents = eventMapper.selectCountByQuery(
+                    new QueryWrapper().eq("user_id", userId));
+            if (totalEvents % SUMMARY_REFRESH_INTERVAL != 0) return;
+
+            // 查询 Top-5 正权重标签
+            QueryWrapper topQuery = new QueryWrapper()
+                    .eq("user_id", userId)
+                    .orderBy("weight", false) // DESC
+                    .limit(5);
+            java.util.List<UserPreferenceWeight> topLikes = weightMapper.selectListByQuery(topQuery);
+
+            // 查询 Top-3 负权重标签
+            QueryWrapper bottomQuery = new QueryWrapper()
+                    .eq("user_id", userId)
+                    .orderBy("weight", true) // ASC
+                    .limit(3);
+            java.util.List<UserPreferenceWeight> topDislikes = weightMapper.selectListByQuery(bottomQuery);
+
+            StringBuilder sb = new StringBuilder();
+            if (!topLikes.isEmpty()) {
+                sb.append("偏爱: ");
+                sb.append(topLikes.stream()
+                        .map(w -> w.getPreferenceKey())
+                        .reduce((a, b) -> a + "、" + b).orElse(""));
+            }
+            if (!topDislikes.isEmpty() && topDislikes.stream().anyMatch(w -> w.getWeight() < 0)) {
+                if (!sb.isEmpty()) sb.append(" | ");
+                sb.append("反感: ");
+                sb.append(topDislikes.stream()
+                        .filter(w -> w.getWeight() < 0)
+                        .map(w -> w.getPreferenceKey())
+                        .reduce((a, b) -> a + "、" + b).orElse(""));
+            }
+
+            if (!sb.isEmpty()) {
+                UserDesignProfile profile = profileMapper.selectOneByQuery(
+                        new QueryWrapper().eq("user_id", userId));
+                if (profile != null) {
+                    UserDesignProfile update = new UserDesignProfile();
+                    update.setId(profile.getId());
+                    update.setProfileSummary(sb.toString());
+                    profileMapper.update(update);
+                    log.info("profileSummary 已刷新 userId={} summary={}", userId, sb);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("profileSummary 刷新失败 userId={}", userId, e);
+        }
+    }
 }
