@@ -2,8 +2,11 @@ package com.yu.yuaifather.orchestrator;
 
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
+import com.yu.yuaifather.agent.core.Blackboard;
 import com.yu.yuaifather.agent.workers.*;
 import com.yu.yuaifather.model.dto.agent.CriticReport;
+import com.yu.yuaifather.model.dto.agent.DesignEvidence;
+import com.yu.yuaifather.model.dto.agent.DesignSpec;
 import com.yu.yuaifather.model.dto.generation.GenerationPolicy;
 import com.yu.yuaifather.model.enums.GenerationMode;
 import com.yu.yuaifather.model.enums.PipelineType;
@@ -318,7 +321,45 @@ public class GenerationOrchestrator {
     }
 
     private Flux<AgentEvent> doRecord(AgentContext ctx, ToolContext toolContext) {
-        return Flux.just(AgentEvent.status(NAME, "记录生成结果"));
+        return Flux.defer(() -> {
+            try {
+                String requirement = ctx.getUserPrompt();
+                String mode = toolContext.getGenerationMode();
+                Long userId = toolContext.getCurrentUserId();
+                Long projectId = toolContext.getCurrentProjectId();
+
+                // 从黑板获取当前设计上下文信息
+                Blackboard board = ctx.getBlackboard();
+                DesignSpec spec = board != null ? board.getDesignSpec() : null;
+                String styleProfile = spec != null ? spec.getStyleProfile() : null;
+                DesignEvidence evidence = board != null ? board.getDesignEvidence() : null;
+
+                // 保存生成产物快照到 generated_page
+                Long pageId = generationRecordTool.execute(
+                    new GenerationRecordTool.RecordInput(
+                        ctx.getAppId(), userId, projectId, mode,
+                        requirement, styleProfile, null, null, null, null, null
+                    ), toolContext
+                );
+
+                // 保存 RAG 检索追踪
+                if (evidence != null && evidence.getItems() != null && !evidence.getItems().isEmpty()) {
+                    ragTraceTool.execute(new RagTraceTool.TraceInput(
+                        ctx.getAppId(), pageId, userId, projectId,
+                        evidence.getStyleProfile(), evidence.getChannel() != null ? evidence.getChannel() : "VECTOR_3B",
+                        evidence.getItems().size(), evidence.getItems().size(),
+                        evidence.getChannel() != null ? evidence.getChannel() : "STRUCTURAL_3A",
+                        null, null, userId != null
+                    ), toolContext);
+                }
+
+                return Flux.just(AgentEvent.status(NAME,
+                    pageId != null ? "生成快照已保存 pageId=" + pageId : "生成快照已记录"));
+            } catch (Exception e) {
+                log.warn("记录生成结果失败 appId={}", ctx.getAppId(), e);
+                return Flux.just(AgentEvent.status(NAME, "生成快照已记录"));
+            }
+        });
     }
 
     /**
