@@ -17,10 +17,11 @@ import java.time.LocalDateTime;
 
 /**
  * 用户私有指纹入库服务（阶段二：用户私有指纹池）。
- *
- * @deprecated 已重命名为 {@link com.yu.yuaifather.worker.FingerprintIngestWorker}，请使用 FingerprintIngestWorker 替代。
+ * <p>
+ * 用户保存/导出页面后触发，读取 generated_page 的 html/css，
+ * 用表层特征提取构造 DesignFingerprintDTO，以 USER_PRIVATE 身份入库，
+ * 并通过 VectorSyncWorker 异步同步到 PGvector。
  */
-@Deprecated
 @Slf4j
 @Service
 public class UserFingerprintIngestService {

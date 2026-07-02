@@ -15,6 +15,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.*;
 import dev.langchain4j.service.tool.ToolExecution;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -32,6 +33,9 @@ public class IncrementalEditService {
     private final ChatModel chatModel;
     private final StreamingChatModel reasoningStreamingChatModel;
     private final ToolManager toolManager;
+
+    @Value("${agent.memory.max-messages:100}")
+    private int maxMessages;
 
     public IncrementalEditService(ChatModel chatModel,
                                    StreamingChatModel reasoningStreamingChatModel,
@@ -96,7 +100,7 @@ public class IncrementalEditService {
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
-                        .maxMessages(50)
+                        .maxMessages(maxMessages)
                         .build())
                 .tools((Object[]) toolManager.getAllTools())
                 .build();
@@ -126,7 +130,7 @@ public class IncrementalEditService {
                 .streamingChatModel(reasoningStreamingChatModel)
                 .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
                         .id(memoryId)
-                        .maxMessages(50)
+                        .maxMessages(maxMessages)
                         .build())
                 .tools((Object[]) toolManager.getAllTools())
                 .build();
