@@ -38,6 +38,7 @@ public class Blackboard {
     private static final String KEY_DESIGN_EVIDENCE = "designEvidence";
     private static final String KEY_USER_DESIGN_CONTEXT = "userDesignContext";
     private static final String KEY_PROJECT_BRAND_CONTEXT = "projectBrandContext";
+    private static final String KEY_RAG_TRACE_ID = "ragTraceId";
 
     private final Map<String, Object> store = new ConcurrentHashMap<>();
 
@@ -201,6 +202,21 @@ public class Blackboard {
      */
     public ProjectBrandContext getProjectBrandContext() {
         return (ProjectBrandContext) store.get(KEY_PROJECT_BRAND_CONTEXT);
+    }
+
+    // ---------- ragTraceId ----------
+
+    /**
+     * 写入 RAG 检索追踪 ID（由 GenerationOrchestrator 在保存 RagTrace 后写入，供 CriticAgent 回填）。
+     */
+    public void putRagTraceId(Long ragTraceId) {
+        if (ragTraceId != null) {
+            store.put(KEY_RAG_TRACE_ID, ragTraceId);
+        }
+    }
+
+    public Long getRagTraceId() {
+        return (Long) store.get(KEY_RAG_TRACE_ID);
     }
 
     /**

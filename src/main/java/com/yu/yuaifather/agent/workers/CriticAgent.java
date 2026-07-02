@@ -153,30 +153,29 @@ public class CriticAgent implements Agent {
                 ctx.getBlackboard().putCriticReport(report);
 
                 // ★ 阶段三：CriticAgent 反哺指纹质量
-                if (feedbackService != null) {
-                    try {
-                        DesignEvidence evidence = ctx.getBlackboard().getDesignEvidence();
-                        if (evidence != null && !evidence.isEmpty()) {
-                            List<Long> fpIds = evidence.getItems().stream()
-                                    .map(DesignEvidence.Item::getSourceId)
-                                    .filter(id -> id != null && id.matches("\\d+"))
-                                    .map(Long::parseLong)
-                                    .collect(Collectors.toList());
-                            double qualityScore = report.getScore() / 100.0;
-                            // TODO: 阶段三补填 — ragTraceId 当前无法获取，需在 DesignRetrieveAgent 中将 traceId 写入 Blackboard
-                            //       方能在此正确关联 Critic 结果到 generation_rag_trace
-                            feedbackService.feedbackFingerprintQuality(
-                                    fpIds, qualityScore, null,
-                                    JsonExtractor.mapper().writeValueAsString(report));
-                            log.debug("CriticAgent 反哺指纹质量 fpIds={} qualityScore={}",
-                                    fpIds.size(), String.format("%.3f", qualityScore));
+                        if (feedbackService != null) {
+                            try {
+                                DesignEvidence evidence = ctx.getBlackboard().getDesignEvidence();
+                                if (evidence != null && !evidence.isEmpty()) {
+                                    List<Long> fpIds = evidence.getItems().stream()
+                                            .map(DesignEvidence.Item::getSourceId)
+                                            .filter(id -> id != null && id.matches("\\d+"))
+                                            .map(Long::parseLong)
+                                            .collect(Collectors.toList());
+                                    double qualityScore = report.getScore() / 100.0;
+                                    Long ragTraceId = ctx.getBlackboard().getRagTraceId();
+                                    feedbackService.feedbackFingerprintQuality(
+                                            fpIds, qualityScore, ragTraceId,
+                                            JsonExtractor.mapper().writeValueAsString(report));
+                                    log.debug("CriticAgent 反哺指纹质量 fpIds={} qualityScore={} ragTraceId={}",
+                                            fpIds.size(), String.format("%.3f", qualityScore), ragTraceId);
+                                }
+                            } catch (Exception fbEx) {
+                                // 反哺失败不影响质检主流程
+                                log.warn("CriticAgent 指纹反哺失败 appId={} msg={}",
+                                        ctx.getAppId(), fbEx.getMessage());
+                            }
                         }
-                    } catch (Exception fbEx) {
-                        // 反哺失败不影响质检主流程
-                        log.warn("CriticAgent 指纹反哺失败 appId={} msg={}",
-                                ctx.getAppId(), fbEx.getMessage());
-                    }
-                }
 
                 sink.next(AgentEvent.builder()
                         .type(AgentEvent.EventType.STATUS_CHANGE)

@@ -348,13 +348,17 @@ public class GenerationOrchestrator {
 
                 // 保存 RAG 检索追踪（修复计划 03：queryText 位需传入真实查询文本，而非 channel 值）
                 if (evidence != null && evidence.getItems() != null && !evidence.getItems().isEmpty()) {
-                    ragTraceTool.execute(new RagTraceTool.TraceInput(
+                    Long ragTraceId = ragTraceTool.execute(new RagTraceTool.TraceInput(
                         ctx.getAppId(), pageId, userId, projectId,
                         evidence.getStyleProfile(), evidence.getQueryText(),
                         evidence.getItems().size(), evidence.getItems().size(),
                         evidence.getChannel() != null ? evidence.getChannel() : "STRUCTURAL_3A",
                         null, null, userId != null
                     ), toolContext);
+                    // 将 traceId 写入 Blackboard，供 CriticAgent 回填质量评估结果
+                    if (ragTraceId != null && board != null) {
+                        board.putRagTraceId(ragTraceId);
+                    }
                 }
 
                 // Stage 2: 异步提取用户私有设计指纹（不阻塞主流程）

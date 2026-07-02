@@ -152,14 +152,11 @@ public class DesignFingerprintServiceImpl
         if (styleProfile != null && !styleProfile.isBlank()) {
             qw.eq("styleProfile", styleProfile);
         }
-        // ★ 权限过滤（修复计划 02）：GLOBAL/PUBLIC 公共指纹（含历史精选来源未显式设置 visibility 的记录）
-        // 或当前用户自己的私有指纹；currentUserId 为空时仅返回公共指纹，杜绝跨用户越权泄露。
+        // ★ 权限过滤（修复计划 02）：GLOBAL/PUBLIC 公共指纹 或当前用户私有指纹
         if (currentUserId != null) {
-            qw.and(w -> w.isNull("visibility")
-                    .or(sub -> sub.eq("visibility", "PUBLIC"))
-                    .or(sub -> sub.eq("visibility", "PRIVATE").eq("ownerUserId", currentUserId)));
+            qw.and("(visibility IS NULL OR visibility = 'PUBLIC' OR (visibility = 'PRIVATE' AND owner_user_id = " + currentUserId + "))");
         } else {
-            qw.and(w -> w.isNull("visibility").or(sub -> sub.eq("visibility", "PUBLIC")));
+            qw.and("(visibility IS NULL OR visibility = 'PUBLIC')");
         }
         List<DesignFingerprint> list = this.list(qw);
         if (CollUtil.isEmpty(list)) {

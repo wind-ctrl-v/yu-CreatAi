@@ -39,7 +39,7 @@ public class EmbeddingModelConfig {
     @Bean
     public EmbeddingModel embeddingModel() {
         if (useOpenAI) {
-            log.info("使用 OpenAI text-embedding-3-small 语义模型（1536维）");
+            log.info("使用语义Embedding模型 {} ({})", modelName, baseUrl);
             return OpenAiEmbeddingModel.builder()
                     .apiKey(apiKey)
                     .baseUrl(baseUrl)

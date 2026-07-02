@@ -187,7 +187,8 @@ public class DesignFingerprintController {
         }
 
         // 入库 CANDIDATE（以 EXTRACTED_FINGERPRINT 来源，非 SELF_FED_FINGERPRINT）
-        Long id = designFingerprintService.saveCandidate(dto, false);
+        DesignFingerprint saved = designFingerprintService.saveCandidate(dto, false);
+        Long id = saved != null ? saved.getId() : null;
 
         Map<String, Object> result = Map.of(
                 "id", id != null ? id : 0,
