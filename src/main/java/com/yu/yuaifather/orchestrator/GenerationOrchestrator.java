@@ -346,11 +346,11 @@ public class GenerationOrchestrator {
                     ), toolContext
                 );
 
-                // 保存 RAG 检索追踪
+                // 保存 RAG 检索追踪（修复计划 03：queryText 位需传入真实查询文本，而非 channel 值）
                 if (evidence != null && evidence.getItems() != null && !evidence.getItems().isEmpty()) {
                     ragTraceTool.execute(new RagTraceTool.TraceInput(
                         ctx.getAppId(), pageId, userId, projectId,
-                        evidence.getStyleProfile(), evidence.getChannel() != null ? evidence.getChannel() : "VECTOR_3B",
+                        evidence.getStyleProfile(), evidence.getQueryText(),
                         evidence.getItems().size(), evidence.getItems().size(),
                         evidence.getChannel() != null ? evidence.getChannel() : "STRUCTURAL_3A",
                         null, null, userId != null

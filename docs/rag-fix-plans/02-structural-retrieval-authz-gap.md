@@ -1,7 +1,7 @@
 # 修改计划 02：结构化召回通道（STRUCTURAL_3A）权限隔离缺口
 
 > 生成日期：2026-07-02
-> 状态：待评审（未实施）
+> 状态：✅ 已实施（2026-07-02）
 > 优先级：高（安全/AuthZ）
 
 ## 1. 问题描述
@@ -83,3 +83,16 @@ if (currentUserId != null) {
 - **中风险**：涉及接口签名变更，需要排查所有调用点（目前已知仅 `DesignKnowledgeIndex` 两处，需二次确认无其他调用方，如后台管理列表页等）。
 - 需先核实历史数据 `visibility` 字段的默认值分布，避免上线后存量公共指纹因 `visibility` 为空被误判为不可见（可能需要先跑一次数据修复脚本，将存量 `sourceScope!='USER'` 的记录统一补齐 `visibility='PUBLIC'`）。
 - 建议与计划 01 一并上线，形成"向量通道 + 结构化降级通道"两条链路权限口径一致的闭环。
+
+## 7. 实施记录
+
+- **状态**：已实施
+- **完成时间**：2026-07-02
+- **改动内容**：
+  1. `DesignFingerprintService` 接口：新增 `listApproved(String styleProfile, int limit, Long currentUserId)`，原双参签名改为 `default` 方法，内部转调 `listApproved(styleProfile, limit, null)`（即“未传用户上下文时仅返回公共指纹”，避免旧调用点被动越权）。
+  2. `DesignFingerprintServiceImpl.listApproved` 查询条件补充权限过滤：`visibility IS NULL OR visibility='PUBLIC'`（覆盖历史精选指纹未显式设置 visibility 的情况，采纳了方案 4.2 的注意事项）或（`currentUserId` 非空时）`visibility='PRIVATE' AND owner_user_id=currentUserId`。
+  3. `DesignKnowledgeIndex` 两处调用点均已改造：
+     - 无用户上下文重载 `retrieve(styleProfile, queryTags, staticSpec, topK)`：显式传 `null`，仅召回公共指纹（此前完全无权限过滤，为最高风险点，现已彻底关闭越权面）。
+     - 带用户上下文重载 `retrieve(..., userContext, topK)`：改为传入 `userContext.getUserId()`，语义与 `tryVectorRetrieveWithPersonalization` 中获取 `queryUserId` 的方式保持一致。
+- **涉及文件**：`DesignFingerprintService.java`、`DesignFingerprintServiceImpl.java`、`DesignKnowledgeIndex.java`。
+- **验证说明**：因当前环境无可用 JDK/Maven 执行单元测试，本次未新增自动化测试用例，改动已通过人工核对 SQL 拼装逻辑与 mybatis-flex `QueryWrapper.and/or(Consumer)` API 语义（已反编译校验方法签名存在）；建议后续在具备编译环境后按第 5 节验证方式补充单元测试。

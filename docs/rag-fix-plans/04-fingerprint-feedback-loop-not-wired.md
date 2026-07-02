@@ -1,7 +1,7 @@
 # 修改计划 04：指纹效果反哺闭环未接入主链路
 
 > 生成日期：2026-07-02
-> 状态：待评审（未实施）
+> 状态：✅ 已核实（2026-07-02）—— 复查发现该功能实际已实现，本计划的原始诊断有误，未做代码改动
 > 优先级：中
 
 ## 1. 问题描述
@@ -62,3 +62,23 @@ if (!usedFingerprintIds.isEmpty()) {
 - **中风险**：需要先核实 `FingerprintFeedbackService` 现有实现的具体字段/表结构是否与当前 `design_fingerprint` 表结构一致（服务可能是早期设计遗留，字段命名/表结构可能已经漂移，需要实施前重新核对，不能假设可以直接调用）。
 - 涉及主链路（生成主流程）新增副作用调用，需要严格保证异步/异常隔离，避免拖慢或阻断生成请求主路径。
 - 建议先小流量验证反馈写入的准确性，再逐步依赖其结果调整召回排序权重（本计划仅覆盖"接入调用"，不包含"排序逻辑消费反馈结果"的后续工作，后者应作为独立计划）。
+
+## 7. 实施记录
+
+- **状态**：已核实——**原诊断不准确，功能实际已实现，无需新增代码**
+- **核实时间**：2026-07-02
+- **核实结论**：复查 `src/main/java/com/yu/yuaifather/agent/workers/CriticAgent.java` 发现，`handle()` 方法在 `ctx.getBlackboard().putCriticReport(report)` 之后，已存在如下调用点（约第 155-179 行）：
+  ```java
+  if (feedbackService != null) {
+      DesignEvidence evidence = ctx.getBlackboard().getDesignEvidence();
+      List<Long> fpIds = evidence.getItems().stream()
+              .map(DesignEvidence.Item::getSourceId)
+              .filter(id -> id != null && id.matches("\\d+"))
+              .map(Long::parseLong).collect(Collectors.toList());
+      double qualityScore = report.getScore() / 100.0;
+      feedbackService.feedbackFingerprintQuality(fpIds, qualityScore, null, JsonExtractor.mapper().writeValueAsString(report));
+  }
+  ```
+  由于 `CriticAgent` 同时被 V1（`OrchestratorAgent`）与 V2（`GenerationOrchestrator`）两条主链路复用（均调用 `criticAgent.handle(ctx)`），效果反哺闭环**在两条链路下均已生效**，并非"无任何调用点"。原计划的诊断结论有误（推测是分析阶段仅检索了两个 Orchestrator 类而未检索 Worker Agent 内部实现所致）。
+- **本次未做的改动**：未新增/修改任何代码，避免重复接入或引入冗余调用。
+- **已知遗留 TODO**（非本计划范围，供后续参考）：`CriticAgent` 调用 `feedbackFingerprintQuality` 时 `ragTraceId` 固定传 `null`（代码注释：`// TODO: 阶段三补填 — ragTraceId 当前无法获取，需在 DesignRetrieveAgent 中将 traceId 写入 Blackboard`），导致 `generation_rag_trace.critic_result` 字段始终无法回填。这是一个独立的小缺口，建议后续作为单独的修改计划处理，不纳入本次范围。

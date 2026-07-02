@@ -47,10 +47,24 @@ public interface DesignFingerprintService extends IService<DesignFingerprint> {
     boolean archive(Long id, String remark);
 
     /**
-     * 按 profile 查询 APPROVED 指纹（供阶段三结构化检索预备）。
+     * 按 profile 查询 APPROVED 指纹（供阶段三结构化检索 STRUCTURAL_3A 通道使用）。
+     * <p>
+     * 权限口径（见修复计划 02）：仅返回全局公共指纹（{@code visibility=PUBLIC} 或历史遗留未显式设置
+     * {@code visibility} 的精选来源），以及 {@code currentUserId} 本人的私有指纹（{@code visibility=PRIVATE}
+     * 且 {@code ownerUserId=currentUserId}），杜绝跨用户私有指纹越权泄露。
      *
-     * @param styleProfile 风格画像
-     * @param limit        最大条数
+     * @param styleProfile  风格画像
+     * @param limit         最大条数
+     * @param currentUserId 当前请求用户 ID；为 {@code null} 时仅返回公共指纹（不做私有指纹召回），
+     *                       仅限内部系统级调用使用，业务侵入点必须传入真实用户 ID
      */
-    List<DesignFingerprint> listApproved(String styleProfile, int limit);
+    List<DesignFingerprint> listApproved(String styleProfile, int limit, Long currentUserId);
+
+    /**
+     * 向后兼容重载：不传用户上下文，等价于 {@code listApproved(styleProfile, limit, null)}，
+     * 仅返回全局公共指纹，不召回任何私有指纹。
+     */
+    default List<DesignFingerprint> listApproved(String styleProfile, int limit) {
+        return listApproved(styleProfile, limit, null);
+    }
 }

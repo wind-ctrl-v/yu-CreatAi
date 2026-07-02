@@ -34,6 +34,16 @@ public class DesignEvidence {
     /** 召回通道：STRUCTURAL_3A（结构化）/ VECTOR_3B（向量）/ STATIC_FALLBACK（仅静态规范）。 */
     private String channel;
 
+    /**
+     * 本次检索实际使用的查询文本（修复计划 03）。
+     * <p>
+     * 向量通道下为 {@code PersonalizedQueryBuilder.build(...)} 或
+     * {@code EmbeddingService.buildQueryText(...)} 的输出；结构化/静态降级通道下同样携带
+     * 该文本作为"本次检索意图"的可读记录，供 {@code RagTraceTool} 落库到
+     * {@code generation_rag_trace.query_text}，避免与 {@link #channel} 混淆。
+     */
+    private String queryText;
+
     /** 合并排序后的 top-k 证据条目（含先验与后验）。 */
     @Builder.Default
     private List<Item> items = new ArrayList<>();

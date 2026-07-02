@@ -101,7 +101,9 @@ public class DesignKnowledgeIndex {
 
         if (!vectorHit) {
             try {
-                List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9));
+                // 无用户上下文的重载入口，出于权限安全（修复计划 02）仅传 null，
+                // listApproved 在 currentUserId=null 时只返回公共指纹，不会误召回私有指纹。
+                List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9), null);
                 if (CollUtil.isNotEmpty(fps)) {
                     channel = "STRUCTURAL_3A";
                     for (DesignFingerprint fp : fps) {
@@ -134,6 +136,7 @@ public class DesignKnowledgeIndex {
         return DesignEvidence.builder()
                 .styleProfile(styleProfile)
                 .channel(channel)
+                .queryText(embeddingService != null ? embeddingService.buildQueryText(styleProfile, queryTags) : null)
                 .items(items)
                 .build();
     }
@@ -151,11 +154,13 @@ public class DesignKnowledgeIndex {
 
         String channel = "STATIC_FALLBACK";
         boolean vectorHit = false;
+        // 用于回收本次检索实际使用的查询文本（修复计划 03），供 DesignEvidence 携带至 RagTraceTool 落库
+        String[] queryTextHolder = new String[1];
 
         if (vectorEnabled) {
             try {
                 vectorHit = tryVectorRetrieveWithPersonalization(
-                        styleProfile, queryTags, requirement, plan, userContext, k, ranked);
+                        styleProfile, queryTags, requirement, plan, userContext, k, ranked, queryTextHolder);
                 if (vectorHit) {
                     channel = "VECTOR_3B";
                 }
@@ -166,7 +171,9 @@ public class DesignKnowledgeIndex {
 
         if (!vectorHit) {
             try {
-                List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9));
+                // 结构化降级通道仅按当前用户上下文过滤，杜绝跨用户私有指纹越权（修复计划 02）
+                Long currentUserId = (userContext != null) ? userContext.getUserId() : null;
+                List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9), currentUserId);
                 if (CollUtil.isNotEmpty(fps)) {
                     channel = "STRUCTURAL_3A";
                     for (DesignFingerprint fp : fps) {
@@ -202,9 +209,15 @@ public class DesignKnowledgeIndex {
         for (int i = 0; i < diversified.size() && items.size() < k; i++) {
             items.add(diversified.get(i).item);
         }
+        // 若未走向量通道（未开启/未命中），queryText 兜底为与 3A/3B 查询同源的文本，避免为空
+        String queryText = queryTextHolder[0];
+        if ((queryText == null || queryText.isBlank()) && embeddingService != null) {
+            queryText = embeddingService.buildQueryText(styleProfile, queryTags);
+        }
         return DesignEvidence.builder()
                 .styleProfile(styleProfile)
                 .channel(channel)
+                .queryText(queryText)
                 .items(items)
                 .build();
     }
@@ -212,7 +225,8 @@ public class DesignKnowledgeIndex {
     private boolean tryVectorRetrieveWithPersonalization(String styleProfile, List<String> queryTags,
                                                           RequirementDoc requirement, GenerationPlan plan,
                                                           UserDesignContext userContext,
-                                                          int k, List<Ranked> ranked) {
+                                                          int k, List<Ranked> ranked,
+                                                          String[] queryTextOut) {
         if (embeddingService == null) {
             return false;
         }
@@ -225,6 +239,9 @@ public class DesignKnowledgeIndex {
                             : null);
         } else {
             queryText = embeddingService.buildQueryText(styleProfile, queryTags);
+        }
+        if (queryTextOut != null && queryTextOut.length > 0) {
+            queryTextOut[0] = queryText;
         }
         if (queryText == null || queryText.isBlank()) {
             return false;

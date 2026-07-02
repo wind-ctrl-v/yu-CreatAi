@@ -1,7 +1,7 @@
 # 修改计划 05：用户评分事件反馈未实现
 
 > 生成日期：2026-07-02
-> 状态：待评审（未实施）
+> 状态：✅ 已实施（2026-07-02）—— 采纳方案 4.3（修正文档，不新增死代码）
 > 优先级：低-中
 
 ## 1. 问题描述
@@ -62,3 +62,12 @@ case "user_rating_1_2" -> updateFromMetadata(userId, metadata, -0.2);
 ## 6. 风险评估
 
 - **风险低**，且强烈建议**先做 4.1 的产品确认**，避免在没有真实前端埋点的情况下"为不存在的功能补代码"（这类改动本身不产生任何价值，甚至可能引入从未被真实数据触发、无法验证正确性的死代码）。
+
+## 7. 实施记录
+
+- **状态**：已实施
+- **完成时间**：2026-07-02
+- **4.1 产品侧确认结论**：搜索 `frontend/` 全部代码（含 `AppChatPage.vue`、`ProfilePage.vue`、`AdminFingerprintPage.vue` 等页面与 `sse.ts`/`request/index.ts` 等工具模块），未发现任何"星级评分/点赞点踩"类 UI 交互组件，也未发现任何处硬编码上报 `eventType=user_rating_5`/`user_rating_1_2` 的调用。后端 `AppController#recordEditEvent`（`/record-edit-event`）虽然是通用透传接口（接受任意 `eventType` 字符串），但目前没有任何调用方传入评分类事件。结论：**前端当前没有评分入口，产品侧未落地该功能**。
+- **采纳方案**：按计划 4.3 执行——仅修正 `PreferenceUpdateWorker` 类头 Javadoc，删除 `user_rating_5`/`user_rating_1_2` 两条不存在的描述，并补充说明该信号当前未接入的原因与后续接入指引，不新增 `EventTypeEnum` 枚举值与 `switch` 分支，避免死代码。
+- **涉及文件**：`src/main/java/com/yu/yuaifather/worker/PreferenceUpdateWorker.java`（仅类级 Javadoc 变更，无逻辑改动）。
+- **后续建议**：若产品侧后续确认需要接入用户主动评分反馈，可按本计划 4.2 的方案（新增 `EventTypeEnum.USER_RATING_5`/`USER_RATING_LOW` 枚举值 + `applyPreferenceUpdate()` 对应 `case` 分支）实施，工作量很小，可作为后续独立小任务处理。

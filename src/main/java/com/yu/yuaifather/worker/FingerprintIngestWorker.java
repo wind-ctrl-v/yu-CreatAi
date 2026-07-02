@@ -36,12 +36,15 @@ public class FingerprintIngestWorker {
 
     private final GeneratedPageMapper generatedPageMapper;
     private final com.yu.yuaifather.service.DesignFingerprintService designFingerprintService;
+    private final VectorSyncWorker vectorSyncWorker;
 
     @Autowired
     public FingerprintIngestWorker(GeneratedPageMapper generatedPageMapper,
-                                    com.yu.yuaifather.service.DesignFingerprintService designFingerprintService) {
+                                    com.yu.yuaifather.service.DesignFingerprintService designFingerprintService,
+                                    @Autowired(required = false) VectorSyncWorker vectorSyncWorker) {
         this.generatedPageMapper = generatedPageMapper;
         this.designFingerprintService = designFingerprintService;
+        this.vectorSyncWorker = vectorSyncWorker;
     }
 
     public void ingestUserFingerprint(Long pageId, Long userId, Long projectId) {
@@ -79,6 +82,11 @@ public class FingerprintIngestWorker {
             if (saved != null) {
                 log.info("用户私有指纹入库成功 pageId={} fingerprintId={} styleProfile={}",
                         pageId, saved.getId(), dto.getStyleProfile());
+                // 用户私有指纹直接以 APPROVED 落库，绕过 updateStatus() 的向量同步触发路径，
+                // 此处补充调用，确保 VECTOR_3B 通道也能召回到私有指纹（见修复计划 01）。
+                if (vectorSyncWorker != null) {
+                    vectorSyncWorker.syncOnApprove(saved);
+                }
             }
         } catch (Exception e) {
             log.error("用户私有指纹入库异常 pageId={} userId={}", pageId, userId, e);

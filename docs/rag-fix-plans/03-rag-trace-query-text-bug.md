@@ -1,7 +1,7 @@
 # 修改计划 03：RagTraceTool 参数传递错位（queryText 误传 channel）
 
 > 生成日期：2026-07-02
-> 状态：待评审（未实施）
+> 状态：✅ 已实施（2026-07-02）
 > 优先级：中
 
 ## 1. 问题描述
@@ -54,3 +54,16 @@ new RagTraceTool.TraceInput(..., realQueryText, evidence.getChannel(), ...);
 
 - **风险低**：为参数传递修正，不涉及表结构变更，不影响主流程功能，仅修正落库数据字段语义。
 - 需注意历史脏数据：修复后新写入的数据是正确的，但历史 `query_text` 字段仍是错误值，如需要做历史数据分析，应在分析文档中注明"某时间点之前的 query_text 字段不可信"，不建议做历史数据回填（无法逆向还原原始查询文本）。
+
+## 7. 实施记录
+
+- **状态**：已实施
+- **完成时间**：2026-07-02
+- **改动内容**：
+  1. `DesignEvidence` 新增 `queryText` 字段，用于携带"本次检索实际使用的查询文本"，与 `channel`（召回通道标识）语义解耦。
+  2. `DesignKnowledgeIndex.tryVectorRetrieveWithPersonalization()` 新增 `String[] queryTextOut` 出参，将内部构建的查询文本（`PersonalizedQueryBuilder.build(...)` 或 `EmbeddingService.buildQueryText(...)`）回传给调用方。
+  3. `DesignKnowledgeIndex` 两个 `retrieve(...)` 重载在构建返回的 `DesignEvidence` 时填充 `queryText`：向量通道命中时使用回传值；未命中/未开启向量检索（STRUCTURAL_3A / STATIC_FALLBACK）时兜底为 `EmbeddingService.buildQueryText(styleProfile, queryTags)`，保证任何通道下 `queryText` 都是"本次检索意图"的可读文本，而非通道枚举值。
+  4. `GenerationOrchestrator.doRecord()` 中 `RagTraceTool.TraceInput` 的 `queryText` 位改为传入 `evidence.getQueryText()`，`channel` 位保持传入 `evidence.getChannel()`，两者不再混淆。
+- **涉及文件**：`DesignEvidence.java`、`DesignKnowledgeIndex.java`、`GenerationOrchestrator.java`。
+- **排查结论（4.3）**：V1 `OrchestratorAgent` 全流程中未发现任何 `RagTraceTool` 调用（V1 未接入 RAG 追踪落库能力），不存在同样的参数错位问题，无需同步修改。
+- **遗留事项**：历史错误数据不做回填，与方案第 6 节风险评估结论一致。

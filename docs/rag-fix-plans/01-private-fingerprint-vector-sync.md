@@ -1,7 +1,7 @@
 # 修改计划 01：用户私有指纹同步至向量库
 
 > 生成日期：2026-07-02
-> 状态：待评审（未实施）
+> 状态：✅ 已实施（2026-07-02）
 > 优先级：高
 
 ## 1. 问题描述
@@ -76,3 +76,14 @@ if (saved != null) {
 - **风险低**：改动仅新增一处方法调用，复用已有、已在精选指纹链路验证过的 `VectorSyncWorker.syncOnApprove()`，不改变任何现有 SQL/表结构。
 - 向量同步失败不阻塞主流程（`syncOnApprove()` 内部已 try-catch 吞异常，仅记录日志），不会引入新的稳定性风险。
 - 需要注意：`buildSurfaceFingerprint()` 产出的是"简易正则指纹"，语义文本（`buildSemanticText`）信息量可能偏少，embedding 质量可能不如 LLM 提炼的精选指纹，建议实施后观察实际召回效果，必要时调整 `minSimilarity` 阈值。
+
+## 7. 实施记录
+
+- **状态**：已实施
+- **完成时间**：2026-07-02
+- **改动内容**：
+  1. `FingerprintIngestWorker` 构造函数新增 `@Autowired(required = false) VectorSyncWorker vectorSyncWorker` 字段注入，与 `DesignFingerprintServiceImpl` 保持一致的优雅降级写法。
+  2. `doIngest()` 中 `saveAsUserPrivate()` 返回非空实体后，追加 `vectorSyncWorker.syncOnApprove(saved)` 调用（`vectorSyncWorker != null` 判空保护）。
+  3. 未改动 `VectorSyncWorker`/`DesignFingerprintVectorRepository`，方案 4.2 的复用假设成立。
+- **涉及文件**：`src/main/java/com/yu/yuaifather/worker/FingerprintIngestWorker.java`
+- **待办**：本次未实施 4.3（删除链路的向量清理），如后续支持用户删除私有指纹，需要补充调用 `vectorSyncWorker.deactivateOnRejectOrArchive(fingerprintId)`。

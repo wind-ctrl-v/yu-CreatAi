@@ -30,10 +30,14 @@ import java.util.Map;
  * <p>
  * 基于用户行为事件的规则驱动偏好更新：
  * <ul>
- *   <li>正反馈：page_saved(+0.1), page_exported(+0.2), user_rating_5(+0.2)</li>
- *   <li>负反馈：page_deleted(-0.1), page_regenerated(-0.05), user_rating_1_2(-0.2)</li>
- *   <li>显式编辑：color_changed(from→to: -0.2/+0.2), component_removed(-0.2), component_added(+0.1)</li>
+ *   <li>正反馈：page_saved(+0.1), page_exported(+0.2)</li>
+ *   <li>负反馈：page_deleted(-0.1), page_regenerated(-0.05)</li>
+ *   <li>显式编辑：color_changed(from→to: -0.2/+0.2), component_removed(-0.2), component_added(+0.1), layout_changed(from→to: -0.1/+0.1)</li>
  * </ul>
+ * <p>
+ * 注：{@code user_rating_5}/{@code user_rating_1_2}（用户主动评分反馈）当前前端尚无对应埋点入口，
+ * 故未在 {@link #applyPreferenceUpdate} 中实现对应分支（见修复计划 05）；若后续产品侧确认需要接入
+ * 用户评分信号，请同时在 {@link com.yu.yuaifather.model.enums.EventTypeEnum} 补充枚举值。
  */
 @Slf4j
 @Service
