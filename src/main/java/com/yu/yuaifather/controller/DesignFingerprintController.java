@@ -3,6 +3,7 @@ package com.yu.yuaifather.controller;
 import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import com.yu.yuaifather.agent.workers.DesignExtractorAgent;
 import com.yu.yuaifather.annotation.AuthCheck;
 import com.yu.yuaifather.common.BaseResponse;
 import com.yu.yuaifather.common.ResultUtils;
@@ -10,6 +11,7 @@ import com.yu.yuaifather.constant.UserConstant;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.exception.ThrowUtils;
+import com.yu.yuaifather.model.dto.agent.DesignFingerprintDTO;
 import com.yu.yuaifather.model.dto.fingerprint.FingerprintQueryRequest;
 import com.yu.yuaifather.model.dto.fingerprint.FingerprintReviewRequest;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
@@ -17,7 +19,13 @@ import com.yu.yuaifather.model.enums.FingerprintStatus;
 import com.yu.yuaifather.service.DesignFingerprintService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 /**
  * 设计指纹 管理接口（仅管理员可用）。
@@ -33,6 +41,18 @@ public class DesignFingerprintController {
 
     @Autowired
     private DesignFingerprintService designFingerprintService;
+
+    @Autowired(required = false)
+    private DesignExtractorAgent extractorAgent;
+
+    private final RestTemplate restTemplate;
+
+    public DesignFingerprintController() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(15_000);
+        factory.setReadTimeout(30_000);
+        this.restTemplate = new RestTemplate(factory);
+    }
 
     /**
      * 管理员分页查询指纹列表。
@@ -126,5 +146,55 @@ public class DesignFingerprintController {
         DesignFingerprint fp = designFingerprintService.getById(id);
         ThrowUtils.throwIf(fp == null, ErrorCode.NOT_FOUND_ERROR, "指纹不存在");
         return ResultUtils.success(fp);
+    }
+
+    /**
+     * 管理员录入外部经典网页指纹（Awwwards/Dribbble 等）。
+     * <p>
+     * 抓取 URL 对应 HTML → 提炼六层指纹 → 以 EXTRACTED_FINGERPRINT 来源入库 CANDIDATE，
+     * 之后走正常审核→APPROVE→向量同步流程。
+     * </p>
+     */
+    @PostMapping("/admin/ingest-external")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<Map<String, Object>> adminIngestExternalFingerprint(
+            @RequestBody Map<String, String> body) {
+        String url = body.get("url");
+        String styleProfileHint = body.get("styleProfileHint");
+        ThrowUtils.throwIf(StrUtil.isBlank(url), ErrorCode.PARAMS_ERROR, "URL 不能为空");
+
+        String rawHtml;
+        try {
+            rawHtml = restTemplate.execute(url, HttpMethod.GET, null,
+                    response -> new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            log.warn("外部网页抓取失败 url={}", url, e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "网页抓取失败: " + e.getMessage());
+        }
+        ThrowUtils.throwIf(StrUtil.isBlank(rawHtml), ErrorCode.OPERATION_ERROR, "抓取到的 HTML 为空");
+
+        if (extractorAgent == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "DesignExtractorAgent 未初始化（LLM 不可用）");
+        }
+
+        // 提炼六层指纹
+        DesignFingerprintDTO dto;
+        try {
+            dto = extractorAgent.extractFromHtml(rawHtml, styleProfileHint, "external:" + url);
+        } catch (Exception e) {
+            log.warn("外部网页指纹提炼失败 url={}", url, e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "指纹提炼失败: " + e.getMessage());
+        }
+
+        // 入库 CANDIDATE（以 EXTRACTED_FINGERPRINT 来源，非 SELF_FED_FINGERPRINT）
+        Long id = designFingerprintService.saveCandidate(dto, false);
+
+        Map<String, Object> result = Map.of(
+                "id", id != null ? id : 0,
+                "styleProfile", dto.getStyleProfile() != null ? dto.getStyleProfile() : "unknown",
+                "url", url
+        );
+        log.info("外部指纹录入成功 id={} url={}", id, url);
+        return ResultUtils.success(result);
     }
 }
