@@ -1,4 +1,4 @@
-package com.yu.yuaifather.orchestrator;
+package com.yu.yuaifather.service.design;
 
 import com.yu.yuaifather.model.dto.agent.GenerationPlan;
 import com.yu.yuaifather.model.dto.agent.RequirementDoc;
@@ -7,6 +7,9 @@ import lombok.Data;
 
 /**
  * DesignContextAssembler 输入参数。
+ * <p>
+ * ★ 包结构说明：本类原位于 {@code orchestrator} 包，现迁移到 {@code service.design}
+ * （见包结构优化计划问题 3）。
  */
 @Data
 @Builder

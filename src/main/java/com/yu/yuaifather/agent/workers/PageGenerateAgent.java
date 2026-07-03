@@ -9,7 +9,7 @@ import com.yu.yuaifather.model.dto.agent.DesignSpec;
 import com.yu.yuaifather.model.dto.agent.GenerationPlan;
 import com.yu.yuaifather.model.dto.agent.PromptContext;
 import com.yu.yuaifather.model.dto.agent.RequirementDoc;
-import com.yu.yuaifather.orchestrator.DesignContext;
+import com.yu.yuaifather.service.design.DesignContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;

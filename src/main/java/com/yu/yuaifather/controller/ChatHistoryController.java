@@ -2,7 +2,7 @@ package com.yu.yuaifather.controller;
 
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
-import com.yu.yuaifather.annotation.AuthCheck;
+import com.yu.yuaifather.auth.AuthCheck;
 import com.yu.yuaifather.common.BaseResponse;
 import com.yu.yuaifather.common.ResultUtils;
 import com.yu.yuaifather.constant.UserConstant;

@@ -1,17 +1,17 @@
-package com.yu.yuaifather.ratelimiter.enums;
+package com.yu.yuaifather.ratelimiter;
 
 public enum RateLimitType {
-    
+
     /**
      * 接口级别限流
      */
     API,
-    
+
     /**
      * 用户级别限流
      */
     USER,
-    
+
     /**
      * IP级别限流
      */

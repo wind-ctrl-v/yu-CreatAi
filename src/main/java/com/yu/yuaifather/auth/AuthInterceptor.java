@@ -1,6 +1,5 @@
-package com.yu.yuaifather.aop;
+package com.yu.yuaifather.auth;
 
-import com.yu.yuaifather.annotation.AuthCheck;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.model.entity.User;
@@ -16,6 +15,12 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+/**
+ * 鉴权拦截器：对标注 {@link AuthCheck} 的方法做角色校验。
+ * <p>
+ * ★ 包结构说明：见 {@link AuthCheck} 的 Javadoc（本类与其原分别位于 {@code aop}/{@code annotation}
+ * 两个微型包，现合并到 {@code auth} 包）。
+ */
 @Aspect
 @Component
 public class AuthInterceptor {

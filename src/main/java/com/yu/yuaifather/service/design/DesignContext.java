@@ -1,4 +1,4 @@
-package com.yu.yuaifather.orchestrator;
+package com.yu.yuaifather.service.design;
 
 import com.yu.yuaifather.model.dto.agent.*;
 import lombok.Builder;
@@ -13,6 +13,10 @@ import java.util.Map;
  * 包含生成所需的全部上下文信息，供 PageGenerateAgent / CoderAgent / StyleAgent 消费。
  * Agent 只需读取 {@link #promptContext} 即可获得定制化的 Prompt 文本，
  * 不再需要自行查询用户偏好或 RAG 证据。
+ * <p>
+ * ★ 包结构说明（包结构优化计划问题 3）：本类原位于 {@code orchestrator} 包，
+ * 现迁移到 {@code service.design}（与 {@code DesignKnowledgeIndex}/{@code FingerprintProjector}
+ * 等同域数据组装类聚合），编排器包只保留真正的编排逻辑类（{@code OrchestratorAgent}/{@code GenerationOrchestrator}）。
  */
 @Data
 @Builder

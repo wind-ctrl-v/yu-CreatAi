@@ -13,11 +13,11 @@ import java.time.LocalDateTime;
  * 与 MySQL {@code design_fingerprint} 通过 {@link #fingerprintId} 关联，
  * 仅存储向量及其元数据，完整六层指纹仍以 MySQL 为权威来源。
  * <p>
- * 不入 MyBatis-Flex，通过 {@link com.yu.yuaifather.service.DesignFingerprintVectorRepository}
+ * 不入 MyBatis-Flex，通过 {@link com.yu.yuaifather.repository.DesignFingerprintVectorRepository}
  * 的 JdbcTemplate 原生 SQL 操作。
  *
  * @author yu
- * @see com.yu.yuaifather.service.DesignFingerprintVectorRepository
+ * @see com.yu.yuaifather.repository.DesignFingerprintVectorRepository
  */
 @Data
 @Builder

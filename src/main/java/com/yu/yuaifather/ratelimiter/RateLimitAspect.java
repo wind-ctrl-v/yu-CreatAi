@@ -1,9 +1,8 @@
-package com.yu.yuaifather.ratelimiter.aspect;
+package com.yu.yuaifather.ratelimiter;
 
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.model.entity.User;
-import com.yu.yuaifather.ratelimiter.annotation.RateLimit;
 import com.yu.yuaifather.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;

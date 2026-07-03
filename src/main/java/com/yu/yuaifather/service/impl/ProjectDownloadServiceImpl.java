@@ -2,9 +2,11 @@ package com.yu.yuaifather.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.ZipUtil;
+import com.yu.yuaifather.constant.AppConstant;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.exception.ThrowUtils;
+import com.yu.yuaifather.model.entity.App;
 import com.yu.yuaifather.service.ProjectDownloadService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -94,6 +96,17 @@ public class ProjectDownloadServiceImpl implements ProjectDownloadService {
             log.error("项目打包下载异常", e);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "项目打包下载失败");
         }
+    }
+
+    @Override
+    public String resolveAndValidateSourceDir(App app) {
+        String codeGenType = app.getCodeGenType();
+        String sourceDirName = codeGenType + "_" + app.getId();
+        String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName;
+        File sourceDir = new File(sourceDirPath);
+        ThrowUtils.throwIf(!sourceDir.exists() || !sourceDir.isDirectory(),
+                ErrorCode.NOT_FOUND_ERROR, "应用代码不存在，请先生成代码");
+        return sourceDirPath;
     }
 
 }

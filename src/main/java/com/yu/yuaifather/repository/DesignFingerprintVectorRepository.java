@@ -1,4 +1,4 @@
-package com.yu.yuaifather.service;
+package com.yu.yuaifather.repository;
 
 import com.yu.yuaifather.model.dto.agent.DesignFingerprintVector;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +24,10 @@ import java.util.List;
  *       {@code 1 - distance} 得到 cosine similarity；</li>
  *   <li>UPSERT 用 {@code INSERT ... ON CONFLICT ... DO UPDATE} 保证幂等。</li>
  * </ul>
+ * <p>
+ * ★ 包结构说明（包结构优化计划问题 5）：本类原位于 {@code service} 包，与普通业务 Service 混放；
+ * 现独立到 {@code repository} 包，聚合"直连数据源的原生 SQL 访问层"这一类职责，
+ * 与 {@code mapper}（MyBatis-Flex 映射器）、{@code service}（业务逻辑）形成三层清晰划分。
  *
  * @author yu
  */

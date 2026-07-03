@@ -1,4 +1,4 @@
-package com.yu.yuaifather.agent.orchestrator;
+package com.yu.yuaifather.orchestrator.v1;
 
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
@@ -24,6 +24,9 @@ import java.util.List;
 
 /**
  * OrchestratorAgent：多 Agent 流水线的总编排者。
+ * <p>
+ * ★ 包结构说明：本类原位于 {@code agent.orchestrator} 子包，现迁移到 {@code orchestrator.v1}，
+ * 与 {@code orchestrator.v2.GenerationOrchestrator} 统一层级划分（见包结构优化计划问题 3）。
  *
  * <h3>职责</h3>
  * <p>

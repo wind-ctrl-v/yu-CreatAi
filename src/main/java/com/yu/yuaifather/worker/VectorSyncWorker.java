@@ -4,7 +4,7 @@ import com.yu.yuaifather.service.design.EmbeddingService;
 import com.yu.yuaifather.utils.JsonExtractor;
 import com.yu.yuaifather.model.dto.agent.DesignFingerprintDTO;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
-import com.yu.yuaifather.service.DesignFingerprintVectorRepository;
+import com.yu.yuaifather.repository.DesignFingerprintVectorRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Service;

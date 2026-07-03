@@ -1,4 +1,4 @@
-package com.yu.yuaifather.ratelimiter.config;
+package com.yu.yuaifather.ratelimiter;
 
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;

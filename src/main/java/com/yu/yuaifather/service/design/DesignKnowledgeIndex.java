@@ -11,7 +11,7 @@ import com.yu.yuaifather.model.dto.agent.RequirementDoc;
 import com.yu.yuaifather.model.dto.agent.UserDesignContext;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 import com.yu.yuaifather.service.DesignFingerprintService;
-import com.yu.yuaifather.service.DesignFingerprintVectorRepository;
+import com.yu.yuaifather.repository.DesignFingerprintVectorRepository;
 import com.yu.yuaifather.service.PersonalizedQueryBuilder;
 import com.yu.yuaifather.service.UserPreferenceService;
 import com.yu.yuaifather.utils.JsonExtractor;

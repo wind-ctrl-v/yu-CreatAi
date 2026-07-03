@@ -6,7 +6,7 @@ import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
-import com.yu.yuaifather.annotation.AuthCheck;
+import com.yu.yuaifather.auth.AuthCheck;
 import com.yu.yuaifather.common.BaseResponse;
 import com.yu.yuaifather.common.ResultUtils;
 import com.yu.yuaifather.model.dto.DeleteRequest;
@@ -22,16 +22,15 @@ import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.exception.ThrowUtils;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.vo.AppVO;
-import com.yu.yuaifather.ratelimiter.annotation.RateLimit;
-import com.yu.yuaifather.ratelimiter.enums.RateLimitType;
+import com.yu.yuaifather.ratelimiter.RateLimit;
+import com.yu.yuaifather.ratelimiter.RateLimitType;
+import com.yu.yuaifather.service.AppBehaviorService;
 import com.yu.yuaifather.service.ChatHistoryService;
 import com.yu.yuaifather.service.ProjectDownloadService;
 import com.yu.yuaifather.service.UserService;
-import com.yu.yuaifather.model.entity.UserDesignEvent;
 import com.yu.yuaifather.model.enums.ChatHistoryMessageTypeEnum;
 import com.yu.yuaifather.service.PromptPreferenceExtractor;
 import com.yu.yuaifather.service.IncrementalEditService;
-import com.yu.yuaifather.worker.PreferenceUpdateWorker;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -44,7 +43,6 @@ import com.yu.yuaifather.service.AppService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.io.File;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -69,7 +67,7 @@ public class AppController {
     private ProjectDownloadService projectDownloadService;
 
     @Autowired
-    private PreferenceUpdateWorker preferenceUpdateWorker;
+    private AppBehaviorService appBehaviorService;
 
     @Autowired
     private PromptPreferenceExtractor promptPreferenceExtractor;
@@ -474,30 +472,15 @@ public class AppController {
         if (!app.getUserId().equals(loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限下载该应用代码");
         }
-        // 4. 构建应用代码目录路径（生成目录，非部署目录）
-        String codeGenType = app.getCodeGenType();
-        String sourceDirName = codeGenType + "_" + appId;
-        String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName;
-        // 5. 检查代码目录是否存在
-        File sourceDir = new File(sourceDirPath);
-        ThrowUtils.throwIf(!sourceDir.exists() || !sourceDir.isDirectory(),
-                ErrorCode.NOT_FOUND_ERROR, "应用代码不存在，请先生成代码");
-        // 6. 生成下载文件名（不建议添加中文内容）
+        // 4. 解析并校验代码生成目录（生成目录，非部署目录）
+        String sourceDirPath = projectDownloadService.resolveAndValidateSourceDir(app);
+        // 5. 生成下载文件名（不建议添加中文内容）
         String downloadFileName = String.valueOf(appId);
-        // 7. 调用通用下载服务
+        // 6. 调用通用下载服务
         projectDownloadService.downloadProjectAsZip(sourceDirPath, downloadFileName, response);
 
-        // 8. 记录用户下载行为（偏好闭环：page_exported 事件，权重 +0.2）
-        try {
-            UserDesignEvent event = new UserDesignEvent();
-            event.setUserId(loginUser.getId());
-            event.setEventType("page_exported");
-            event.setGenerationId(appId);
-            event.setCreateTime(LocalDateTime.now());
-            preferenceUpdateWorker.recordAndUpdate(event);
-        } catch (Exception e) {
-            log.warn("下载行为记录失败，不影响主流程 appId={}", appId, e);
-        }
+        // 7. 记录用户下载行为（偏好闭环：page_exported 事件，权重 +0.2）
+        appBehaviorService.recordPageExportedEvent(loginUser.getId(), appId);
     }
 
 
@@ -514,10 +497,7 @@ public class AppController {
 
         String result = incrementalEditService.incrementalEdit(appId, instruction);
         Map<String, Object> data = new java.util.HashMap<>();
-        // 通过 AI 响应内容判断是否成功（AI 被指示成功时回复"修改完成"）
-        boolean success = result.contains("修改完成") || result.contains("修改成功")
-                || result.contains("写入成功") || result.contains("已完成");
-        success = success && !result.contains("失败") && !result.contains("不存在") && !result.contains("错误");
+        boolean success = appBehaviorService.judgeIncrementalEditSuccess(result);
         data.put("success", success);
         data.put("message", result);
         return ResultUtils.success(data);
@@ -535,18 +515,7 @@ public class AppController {
         String metaStr = (String) body.get("metadata");
         ThrowUtils.throwIf(appId == null || eventType == null, ErrorCode.PARAMS_ERROR);
 
-        try {
-            UserDesignEvent event = UserDesignEvent.builder()
-                    .userId(loginUser.getId())
-                    .generationId(appId)
-                    .eventType(eventType)
-                    .metadata(metaStr)
-                    .createTime(LocalDateTime.now())
-                    .build();
-            preferenceUpdateWorker.recordAndUpdate(event);
-        } catch (Exception e) {
-            log.warn("修改事件记录失败 appId={} type={}", appId, eventType, e);
-        }
+        appBehaviorService.recordEditEvent(loginUser.getId(), appId, eventType, metaStr);
         return ResultUtils.success(true);
     }
 

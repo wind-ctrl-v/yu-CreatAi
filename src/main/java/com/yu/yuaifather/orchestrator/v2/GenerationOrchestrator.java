@@ -1,4 +1,4 @@
-package com.yu.yuaifather.orchestrator;
+package com.yu.yuaifather.orchestrator.v2;
 
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
@@ -11,6 +11,9 @@ import com.yu.yuaifather.model.dto.generation.GenerationPolicy;
 import com.yu.yuaifather.model.enums.GenerationMode;
 import com.yu.yuaifather.model.enums.PipelineType;
 import com.yu.yuaifather.service.UserFingerprintIngestService;
+import com.yu.yuaifather.service.design.DesignContext;
+import com.yu.yuaifather.service.design.DesignContextAssembler;
+import com.yu.yuaifather.service.design.DesignContextInput;
 import com.yu.yuaifather.tool.core.ToolContext;
 import com.yu.yuaifather.tool.system.*;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +29,11 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * GenerationOrchestrator：新版生成编排器（V2 主链路），按 {@link GenerationPolicy} 编排，
  * 自身不做任何用户身份/套餐/额度判断。
+ * <p>
+ * ★ 包结构说明：本类原位于顶层 {@code orchestrator} 包，现迁移到 {@code orchestrator.v2} 子包，
+ * 与 {@code orchestrator.v1.OrchestratorAgent} 统一层级划分（见包结构优化计划问题 3）。
+ * 数据组装类 {@code DesignContext}/{@code DesignContextAssembler}/{@code DesignContextInput}
+ * 已同步迁移至 {@code service.design} 包。
  *
  * <h3>三种模式（由 policy.generationMode 决定）</h3>
  * <ul>

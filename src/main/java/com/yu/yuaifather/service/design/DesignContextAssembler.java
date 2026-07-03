@@ -1,4 +1,4 @@
-package com.yu.yuaifather.orchestrator;
+package com.yu.yuaifather.service.design;
 
 import cn.hutool.core.util.StrUtil;
 import com.yu.yuaifather.model.dto.agent.*;
@@ -19,6 +19,9 @@ import java.util.Set;
  * <p>
  * 串联 7 个 System Tool，输出统一的 DesignContext，供 PageGenerateAgent / CoderAgent / StyleAgent 消费。
  * Agent 只需消费 PromptContext 中的 fullPrompt，不再独自查询用户偏好或 RAG 证据。
+ * <p>
+ * ★ 包结构说明：本类原位于 {@code orchestrator} 包，现迁移到 {@code service.design}
+ * （见包结构优化计划问题 3），职责上更贴近"设计上下文数据组装服务"而非编排器本身。
  *
  * <h3>编排顺序</h3>
  * <pre>
