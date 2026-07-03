@@ -19,13 +19,12 @@ import java.time.LocalDateTime;
 /**
  * 用户私有指纹入库服务（阶段二：用户私有指纹池）。
  * <p>
+ * <b>当前生产唯一入口</b>：由 {@code GenerationOrchestrator.doRecord()} 调用，
+ * 请勿再创建平行实现。历史平行实现 {@code FingerprintIngestWorker} 已删除。
+ * <p>
  * 用户保存/导出页面后触发，读取 generated_page 的 html/css，
  * 用表层特征提取构造 DesignFingerprintDTO，以 USER_PRIVATE 身份入库，
  * 并通过 VectorSyncWorker 异步同步到 PGvector。
- * <p>
- * ★ 当前生产唯一入口（由 {@code GenerationOrchestrator.doRecord()} 注入调用），
- * 请勿再创建平行实现（历史上曾出现过 {@code worker.FingerprintIngestWorker} 重复实现，
- * 已在修复计划 06 中清理，详见 {@code docs/rag-fix-plans/06-duplicate-user-fingerprint-ingest-service.md}）。
  */
 @Slf4j
 @Service
@@ -116,8 +115,8 @@ public class UserFingerprintIngestService {
             if (saved != null) {
                 log.info("用户私有指纹入库成功 pageId={} fingerprintId={} styleProfile={}",
                         pageId, saved.getId(), dto.getStyleProfile());
-                // 私有指纹直接以 APPROVED 落库，绕过 updateStatus() 的向量同步触发路径，
-                // 此处补充调用，确保 VECTOR_3B 通道也能召回到私有指纹（修复计划 01 / 06）。
+                // 用户私有指纹直接以 APPROVED 落库，绕过 updateStatus() 的向量同步触发路径，
+                // 此处补充调用，确保 VECTOR_3B 通道也能召回到私有指纹（见修复计划 01/06）。
                 if (vectorSyncWorker != null) {
                     vectorSyncWorker.syncOnApprove(saved);
                 }

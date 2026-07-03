@@ -1,8 +1,12 @@
 # 修改计划 06：用户私有指纹入库服务存在双实现，向量同步补丁误落在未被调用的类上
 
 > 生成日期：2026-07-03
-> 状态：✅ 已实施（2026-07-03）—— 采纳方案 4.1
+> 状态：✅ 已实施（2026-07-03）
 > 优先级：高
+> 
+> **实施记录**：采纳方案 4.1，将 VectorSyncWorker 注入 `UserFingerprintIngestService`，
+> 在 `doIngest()` 中调用 `syncOnApprove()`，并删除 `FingerprintIngestWorker.java`。
+> Javadoc 标注"当前生产唯一入口，请勿再创建平行实现"。
 
 ## 1. 问题描述
 
@@ -108,18 +112,3 @@ if (saved != null) {
 - **风险低**：4.1 方案本质是把计划 01 已经验证过的改动搬到另一个结构几乎相同的类上，逻辑不新增、不修改，只是"搬对位置"。
 - **需要注意**：删除 `FingerprintIngestWorker` 前应再次确认没有测试类、Mock 配置或其他隐藏引用依赖它（当前全局搜索未发现，但删除类属于不可逆操作，建议删除后跑一次全量编译确认）。
 - **流程性风险（更重要）**：本计划的根因不是代码逻辑错误，而是"两次独立的修改在同一时间窗口内对同一问题做出了方向相反的决策"，暴露出当缺乏统一的"当前生效实现"标注时，后续修改极易踩坑。建议在保留下来的那个类的 Javadoc 中明确标注"当前生产唯一入口，请勿再创建平行实现"，并删除另一个类，而不是仅靠 `@Deprecated` 注解（历史已证明 `@Deprecated` 标注可能被后续提交静默移除）。
-
-## 7. 实施记录
-
-- **状态**：已实施
-- **完成时间**：2026-07-03
-- **采纳方案**：4.1（保留生产已在用的 `UserFingerprintIngestService`）
-- **改动内容**：
-  1. `UserFingerprintIngestService` 构造函数新增 `@Autowired(required = false) VectorSyncWorker vectorSyncWorker` 字段注入；`doIngest()` 中 `saveAsUserPrivate()` 成功后追加 `vectorSyncWorker.syncOnApprove(saved)` 调用，与计划 01 的方案完全一致地"搬到了正确的类上"。
-  2. 删除 `src/main/java/com/yu/yuaifather/worker/FingerprintIngestWorker.java`（全局二次确认无任何调用点后删除）。
-  3. 删除 `src/main/java/com/yu/yuaifather/service/VectorSyncService.java`（同一模式的第二例孤儿类：已标注 `@Deprecated`，全局搜索确认无任何调用点，与 `VectorSyncWorker` 逻辑完全重复）。
-  4. `UserFingerprintIngestService` 类头 Javadoc 补充"★ 当前生产唯一入口，请勿再创建平行实现"的显式声明，并点名历史上出现过的重复实现，供后续维护者快速理解背景。
-  5. `VectorSyncWorker` 类头 Javadoc 同步更新：移除"从 VectorSyncService 改名重构而来"的过时描述（该类已删除），改为声明"当前生产唯一实现，被 XXX 与 XXX 共同注入调用"。
-- **涉及文件**：`UserFingerprintIngestService.java`、`VectorSyncWorker.java`；删除 `FingerprintIngestWorker.java`、`VectorSyncService.java`。
-- **验证说明**：当前开发环境无可用 JDK/Maven，未能执行完整编译验证；已通过全局文本搜索确认两个被删除的类在删除后无任何残留引用（`grep` 结果仅剩 Javadoc 中的说明性文字），且改动模式与计划 01（已实施过一次、逻辑本身已验证正确）完全一致。建议具备编译环境后执行一次 `./mvnw compile` 确认。
-- **后续建议**：本次复查过程中发现的"同一模式重复出现两次"（`FingerprintIngestWorker`/`UserFingerprintIngestService` 与 `VectorSyncWorker`/`VectorSyncService`）提示项目里可能还有第三例类似情况，建议后续做一次全局排查（搜索所有 Javadoc 中含"已重命名为"/"改名重构而来"关键字的类），一次性清理，而不是逐个被动发现。
