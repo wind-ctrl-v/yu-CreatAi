@@ -36,9 +36,9 @@ FingerprintCrawlScheduler（@Scheduled，默认30分钟/次，agent.fingerprint.
 ### 链路 B：用户私有指纹反哺入库（个人知识，用户行为触发）
 
 ```
-用户 保存/导出 生成页面
-  → FingerprintIngestWorker.ingestUserFingerprint(pageId, userId, projectId)
-      （agent.fingerprint.user-ingest.enabled 默认 false）
+GenerationOrchestrator.doRecord()（V2 编排器生成完成后触发，V1 OrchestratorAgent 不触发此链路）
+  → UserFingerprintIngestService.ingestUserFingerprint(pageId, userId, projectId)
+      （agent.fingerprint.user-ingest.enabled 默认 false；★ 生产唯一入口，详见问题 #6）
   → buildSurfaceFingerprint()：纯正则规则提取（无 LLM），扫描 CSS 关键字判定配色/圆角/阴影，
      扫描 HTML 关键字判定布局骨架，confidence 基础分 0.6 + 加分
   → confidence < 0.65（USER_PRIVATE_CONFIDENCE_GATE）则丢弃
@@ -46,8 +46,10 @@ FingerprintCrawlScheduler（@Scheduled，默认30分钟/次，agent.fingerprint.
       sourceType = USER_PRIVATE_FINGERPRINT
       status = APPROVED（★ 直接落 APPROVED，不经过 saveCandidate/approve 流程）
       sourceScope = USER, ownerUserId = userId, visibility = PRIVATE
-  → ✅ [已修复于 2026-07-02] 补充调用 VectorSyncWorker.syncOnApprove(saved)（详见问题 #1）
+  → ✅ [已修复于 2026-07-03] 补充调用 VectorSyncWorker.syncOnApprove(saved)（问题 #1 修正后真正生效，详见问题 #6）
 ```
+
+> **补充说明**：2026-07-02 首次修复问题 #1 时，补丁被打在了 `worker.FingerprintIngestWorker`（一个未被任何调用点引用的孤儿类）上，`GenerationOrchestrator` 实际注入调用的是 `service.UserFingerprintIngestService`（另一个逻辑几乎完全相同的类）。2026-07-03 复查发现后，已将补丁迁移到 `UserFingerprintIngestService`，并删除了 `FingerprintIngestWorker` 及另一处同类型孤儿类 `service.VectorSyncService`（详见问题 #6）。
 
 ### 治理状态机（两条链路汇合后的统一治理）
 
@@ -70,7 +72,7 @@ REJECTED                 REJECTED
 | 提炼方式 | LLM 六层指纹提炼 | 正则规则表面提取 |
 | 初始状态 | CANDIDATE（需人工审核） | 直接 APPROVED（无审核） |
 | 置信度门槛 | 0.7（approve 时校验） | 0.65（入库前校验，审核环节被跳过） |
-| 向量同步 | 有（approve 触发） | ✅ 有（2026-07-02 起，入库后立即触发 `syncOnApprove`，问题 #1 已修复） |
+| 向量同步 | 有（approve 触发） | ✅ 有（2026-07-03 起真正生效，入库后立即触发 `syncOnApprove`，问题 #1/#6 已修复） |
 | 权限范围 | GLOBAL / PUBLIC | USER / PRIVATE |
 | 多样性配额 | 有（自产占比≤30%） | 无 |
 
@@ -165,27 +167,30 @@ CriticAgent 评分 → FingerprintFeedbackService.feedbackFingerprintQuality()
 
 | # | 问题 | 所在链路 | 严重程度 | 实施状态 | 详细计划 |
 |---|---|---|---|---|---|
-| 1 | 用户私有指纹只落 MySQL，`FingerprintIngestWorker` 绕过 `updateStatus()`，从未触发 `VectorSyncWorker.syncOnApprove()`，导致 VECTOR_3B 通道永远召回不到私有指纹 | 入库 B / 检索核心召回 | 高 | ✅ 已修复（2026-07-02） | [rag-fix-plans/01](./rag-fix-plans/01-private-fingerprint-vector-sync.md) |
+| 1 | 用户私有指纹只落 MySQL，未触发 `VectorSyncWorker.syncOnApprove()`，导致 VECTOR_3B 通道永远召回不到私有指纹 | 入库 B / 检索核心召回 | 高 | ✅ 已修复（2026-07-02 首次实施，2026-07-03 修正生效，详见问题 #6） | [rag-fix-plans/01](./rag-fix-plans/01-private-fingerprint-vector-sync.md) |
 | 2 | `listApproved()`（STRUCTURAL_3A 降级通道）未按 `ownerUserId`/`visibility` 过滤，存在跨用户私有指纹越权泄露风险 | 检索核心召回 | 高（安全） | ✅ 已修复（2026-07-02） | [rag-fix-plans/02](./rag-fix-plans/02-structural-retrieval-authz-gap.md) |
 | 3 | `GenerationOrchestrator.doRecord()` 调用 `RagTraceTool` 时 `queryText` 参数位误传 `channel` 值，追踪表无法还原真实查询文本 | 检索 V2 追踪落库 | 中 | ✅ 已修复（2026-07-02） | [rag-fix-plans/03](./rag-fix-plans/03-rag-trace-query-text-bug.md) |
-| 4 | `FingerprintFeedbackService.feedbackFingerprintQuality` 已实现但无任何调用点，效果反哺闭环未接入主链路 | 效果反哺 | 中 | ✅ 已核实（2026-07-02）：复查发现原诊断有误，`CriticAgent` 内部已实际接入该调用，V1/V2 均生效，未做代码改动 | [rag-fix-plans/04](./rag-fix-plans/04-fingerprint-feedback-loop-not-wired.md) |
+| 4 | `FingerprintFeedbackService.feedbackFingerprintQuality` 已实现但无任何调用点，效果反哺闭环未接入主链路 | 效果反哺 | 中 | ✅ 已核实（2026-07-02）：复查发现原诊断有误，`CriticAgent` 内部已实际接入该调用，V1/V2 均生效，未做代码改动。2026-07-03 另有独立提交打通了 `ragTraceId` 回填链路（详见补充说明） | [rag-fix-plans/04](./rag-fix-plans/04-fingerprint-feedback-loop-not-wired.md) |
 | 5 | `PreferenceUpdateWorker` 文档声称支持 `user_rating_5`/`user_rating_1_2` 评分反馈，但 `switch` 分支与 `EventTypeEnum` 均未实现，评分信号被静默丢弃 | 用户偏好闭环 | 低-中 | ✅ 已处理（2026-07-02）：前端确认无评分入口，已修正 Javadoc 移除失实描述，未新增死代码 | [rag-fix-plans/05](./rag-fix-plans/05-user-rating-feedback-not-implemented.md) |
+| 6 | 用户私有指纹入库存在 `FingerprintIngestWorker`/`UserFingerprintIngestService` 双实现，问题 #1 的补丁误打在未被调用的类上，生产链路实际未修复；同一模式的孤儿类 `VectorSyncService` 亦被发现 | 入库 B | 高 | ✅ 已修复（2026-07-03）：补丁迁移至生产实际调用的 `UserFingerprintIngestService`，删除 `FingerprintIngestWorker`/`VectorSyncService` 两处死代码 | [rag-fix-plans/06](./rag-fix-plans/06-duplicate-user-fingerprint-ingest-service.md) |
 
 补充说明（非缺陷，架构现状）：
 - V1 `OrchestratorAgent` 与 V2 `GenerationOrchestrator` 两套编排器并存，功能有重叠，长期看存在维护双份逻辑的成本，是否收敛为单一编排器建议作为独立架构决策讨论，不纳入本次问题清单（不是 bug，是技术债）。
 - 用户私有指纹入库（链路 B）完全绕开 `CONFIDENCE_GATE`/多样性配额/人工审核，这是**当前设计的有意选择**（个人数据无需审核），但需要注意问题 #1 修复后，私有指纹已首次进入向量召回，其质量把控完全依赖 `USER_PRIVATE_CONFIDENCE_GATE=0.65` 这一道低门槛，建议后续观察实际召回质量。
-- 问题 #4 复查中发现的遗留 TODO：`CriticAgent` 调用 `feedbackFingerprintQuality` 时 `ragTraceId` 固定传 `null`，导致 `generation_rag_trace.critic_result` 无法回填，建议后续作为独立小计划处理。
+- 问题 #4 复查中发现的遗留 TODO（`ragTraceId` 固定传 `null`）已由另一次独立提交（`80e9446`）打通：`Blackboard` 新增 `ragTraceId` 读写，`GenerationOrchestrator` 捕获 `RagTraceTool.execute()` 返回值写入 Blackboard，`CriticAgent` 读取并回填 `critic_result`。同一提交还将 Embedding 模型从本地哈希兜底切换为智谱 AI `embedding-2`（1024维语义模型），解决了此前评估中标注的"默认 embedding 不具备语义能力"这一 P0 风险点。
+- 问题 #6 的根因（同一功能在 `worker`/`service` 两个包下各有一份实现，且历史上出现过两次）提示项目中可能还有第三例类似情况，建议后续做一次全局排查（搜索所有 Javadoc 中含"已重命名为"/"改名重构而来"关键字的类）。
 
 ---
 
 ## 四、修改计划总览
 
-所有问题的详细修改方案（问题描述/影响范围/涉及文件/修改步骤/验证方式/风险评估）已拆分至独立文件，存放于 [`docs/rag-fix-plans/`](./rag-fix-plans/README.md) 文件夹。**5 项问题已于 2026-07-02 全部处理完毕**（4 项完成代码改动并验证，1 项经复查确认原诊断有误、功能已存在），各文件末尾均已追加"实施记录"小节：
+所有问题的详细修改方案（问题描述/影响范围/涉及文件/修改步骤/验证方式/风险评估）已拆分至独立文件，存放于 [`docs/rag-fix-plans/`](./rag-fix-plans/README.md) 文件夹。**6 项问题已全部处理完毕**（5 项完成代码改动并验证，1 项经复查确认原诊断有误、功能已存在），各文件末尾均已追加"实施记录"小节：
 
-1. [私有指纹向量同步补全](./rag-fix-plans/01-private-fingerprint-vector-sync.md) —— ✅ 已实施：`FingerprintIngestWorker` 补充注入 `VectorSyncWorker` 并调用 `syncOnApprove()`
+1. [私有指纹向量同步补全](./rag-fix-plans/01-private-fingerprint-vector-sync.md) —— ✅ 已实施并于 2026-07-03 修正：补丁最终落在 `UserFingerprintIngestService`（生产实际调用）
 2. [结构化召回权限隔离修复](./rag-fix-plans/02-structural-retrieval-authz-gap.md) —— ✅ 已实施：`listApproved` 新增 `currentUserId` 参数与权限过滤，`DesignKnowledgeIndex` 两处调用点同步改造
 3. [RagTraceTool 参数错位修正](./rag-fix-plans/03-rag-trace-query-text-bug.md) —— ✅ 已实施：`DesignEvidence` 新增 `queryText` 字段并贯穿传递至 `RagTraceTool`
 4. [效果反哺闭环接入](./rag-fix-plans/04-fingerprint-feedback-loop-not-wired.md) —— ✅ 已核实：功能已在 `CriticAgent` 中实现，未做代码改动
 5. [用户评分反馈补全或文档修正](./rag-fix-plans/05-user-rating-feedback-not-implemented.md) —— ✅ 已实施：确认前端无评分入口后，采纳文档修正方案
+6. [用户私有指纹入库双实现清理](./rag-fix-plans/06-duplicate-user-fingerprint-ingest-service.md) —— ✅ 已实施：向量同步补丁迁移至生产实际调用类，清理两处孤儿死代码
 
-**验证说明**：当前开发环境无可用 JDK/Maven（`mvn`/`javap` 均不可用），本次改动未能通过完整编译与单元测试验证；已通过人工代码审阅、方法签名反编译核对（mybatis-flex `QueryWrapper.and/or(Consumer)` API）等方式尽力保证正确性，**建议在具备编译环境后执行一次完整构建（`./mvnw compile`）与各计划第 5 节所列验证步骤**，确认无误后再发布上线。
+**验证说明**：当前开发环境无可用 JDK/Maven（`mvn`/`javap` 均不可用），本次改动未能通过完整编译与单元测试验证；已通过人工代码审阅、全局文本搜索确认无残留引用等方式尽力保证正确性，**建议在具备编译环境后执行一次完整构建（`./mvnw compile`）与各计划第 5 节所列验证步骤**，确认无误后再发布上线。

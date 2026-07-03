@@ -12,9 +12,11 @@ import org.springframework.stereotype.Service;
 /**
  * VectorSyncWorker：向量同步异步 Worker。
  * <p>
- * 从 VectorSyncService 改名重构而来。
- * <p>
  * 原则：向量同步失败不阻塞业务流程（MySQL 状态为主，PG 为辅助索引）。
+ * <p>
+ * ★ 当前生产唯一实现，被 {@code DesignFingerprintServiceImpl}（精选/自产指纹审核链路）与
+ * {@code UserFingerprintIngestService}（用户私有指纹链路）共同注入调用。历史上曾存在同名重复实现
+ * {@code service.VectorSyncService}，已在修复计划 06 中确认为死代码并删除，请勿再创建平行实现。
  */
 @Service
 @ConditionalOnBean({EmbeddingService.class, DesignFingerprintVectorRepository.class})

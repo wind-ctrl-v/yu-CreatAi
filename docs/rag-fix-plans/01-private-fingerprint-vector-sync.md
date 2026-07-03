@@ -79,11 +79,13 @@ if (saved != null) {
 
 ## 7. 实施记录
 
-- **状态**：已实施
-- **完成时间**：2026-07-02
-- **改动内容**：
+- **状态**：已实施（2026-07-02），⚠️ **2026-07-03 复查发现补丁落在了未被生产调用的类上，已通过计划 06 迁移修正**
+- **完成时间**：2026-07-02（首次实施）/ 2026-07-03（修正生效）
+- **改动内容（首次，2026-07-02）**：
   1. `FingerprintIngestWorker` 构造函数新增 `@Autowired(required = false) VectorSyncWorker vectorSyncWorker` 字段注入，与 `DesignFingerprintServiceImpl` 保持一致的优雅降级写法。
   2. `doIngest()` 中 `saveAsUserPrivate()` 返回非空实体后，追加 `vectorSyncWorker.syncOnApprove(saved)` 调用（`vectorSyncWorker != null` 判空保护）。
   3. 未改动 `VectorSyncWorker`/`DesignFingerprintVectorRepository`，方案 4.2 的复用假设成立。
-- **涉及文件**：`src/main/java/com/yu/yuaifather/worker/FingerprintIngestWorker.java`
-- **待办**：本次未实施 4.3（删除链路的向量清理），如后续支持用户删除私有指纹，需要补充调用 `vectorSyncWorker.deactivateOnRejectOrArchive(fingerprintId)`。
+- **涉及文件（首次）**：~~`src/main/java/com/yu/yuaifather/worker/FingerprintIngestWorker.java`~~（该文件已在计划 06 中确认为未被调用的死代码并删除）
+- **⚠️ 复查发现（2026-07-03）**：与本次修复同一时间窗口内，另一次独立提交（`d2dfbe7`）将 `GenerationOrchestrator` 的私有指纹入库依赖改为注入 `UserFingerprintIngestService`（而非 `FingerprintIngestWorker`），导致本计划的补丁实质从未在生产链路生效。详见 [计划 06](./06-duplicate-user-fingerprint-ingest-service.md)。
+- **修正结果（2026-07-03）**：已将本计划的改动原样迁移到 `src/main/java/com/yu/yuaifather/service/UserFingerprintIngestService.java`（生产实际调用的类），并删除了 `FingerprintIngestWorker.java`。至此本计划描述的原始缺陷（VECTOR_3B 通道召回不到用户私有指纹）**在生产链路上真正修复**。
+- **待办**：本次未实施 4.3（删除链路的向量清理），如后续支持用户删除私有指纹，需要在 `UserFingerprintIngestService` 补充调用 `vectorSyncWorker.deactivateOnRejectOrArchive(fingerprintId)`。
