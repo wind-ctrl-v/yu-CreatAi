@@ -153,8 +153,11 @@ public class DesignFingerprintServiceImpl
             qw.eq("styleProfile", styleProfile);
         }
         // ★ 权限过滤（修复计划 02）：GLOBAL/PUBLIC 公共指纹 或当前用户私有指纹
+        // 使用 QueryWrapper.and(String, Object...) 的 "?" 占位符参数绑定，避免将 currentUserId
+        // 直接拼接进 SQL 字符串（安全修复，见 docs/rag-fix-plans/07-*.md）。
         if (currentUserId != null) {
-            qw.and("(visibility IS NULL OR visibility = 'PUBLIC' OR (visibility = 'PRIVATE' AND owner_user_id = " + currentUserId + "))");
+            qw.and("(visibility IS NULL OR visibility = 'PUBLIC' OR (visibility = 'PRIVATE' AND owner_user_id = ?))",
+                    currentUserId);
         } else {
             qw.and("(visibility IS NULL OR visibility = 'PUBLIC')");
         }
