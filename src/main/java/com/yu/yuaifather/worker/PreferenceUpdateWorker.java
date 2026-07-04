@@ -28,11 +28,15 @@ import java.util.Map;
  * <p>
  * 从 PreferenceUpdateService 改名重构而来。
  * <p>
- * 基于用户行为事件的规则驱动偏好更新：
+ * ★ 偏好提取统一重构（2026-07-04）：用户修改指令的偏好提取全部走
+ * {@link com.yu.yuaifather.service.PromptPreferenceExtractor}（LLM 提取，支持正负向），
+ * 不再走前端规则上报路径。本类的 {@link #applyPreferenceUpdate} 仅保留以下两类场景：
  * <ul>
- *   <li>正反馈：page_saved(+0.1), page_exported(+0.2)</li>
- *   <li>负反馈：page_deleted(-0.1), page_regenerated(-0.05)</li>
- *   <li>显式编辑：color_changed(from→to: -0.2/+0.2), component_removed(-0.2), component_added(+0.1), layout_changed(from→to: -0.1/+0.1)</li>
+ *   <li>页面生命周期事件（page_saved/page_exported/page_deleted/page_regenerated）：
+ *       作为弱正/负反馈信号，更新 {@code style:page_saved}/{@code style:page_exported} 等标签权重，
+ *       仅作辅助信号，真正的偏好信号由 LLM 从修改指令中提取。</li>
+ *   <li>结构化事件（color_changed/component_added/component_removed/layout_changed）：
+ *       保留以兼容可能的历史调用，但当前前端已不再上报这些事件（已统一走 LLM 提取）。</li>
  * </ul>
  * <p>
  * 注：{@code user_rating_5}/{@code user_rating_1_2}（用户主动评分反馈）当前前端尚无对应埋点入口，
@@ -155,28 +159,29 @@ public class PreferenceUpdateWorker {
             return;
         }
         Map<String, Object> metadata = parseMetadata(event.getMetadata());
-        if (metadata == null) {
-            return;
-        }
         switch (eventType) {
-            case "page_saved" -> updateFromMetadata(userId, metadata, 0.1);
-            case "page_exported" -> updateFromMetadata(userId, metadata, 0.2);
-            case "page_deleted" -> updateFromMetadata(userId, metadata, -0.1);
-            case "page_regenerated" -> updateFromMetadata(userId, metadata, -0.05);
+            case "page_saved" -> updatePageLifecycleWeight(userId, metadata, "page_saved", 0.1);
+            case "page_exported" -> updatePageLifecycleWeight(userId, metadata, "page_exported", 0.2);
+            case "page_deleted" -> updatePageLifecycleWeight(userId, metadata, "page_deleted", -0.1);
+            case "page_regenerated" -> updatePageLifecycleWeight(userId, metadata, "page_regenerated", -0.05);
             case "color_changed" -> {
+                if (metadata == null) break;
                 String from = (String) metadata.get("fromTag");
                 String to = (String) metadata.get("toTag");
                 handleColorChanged(userId, from, to);
             }
             case "component_removed" -> {
+                if (metadata == null) break;
                 String comp = (String) metadata.get("componentName");
                 handleComponentRemoved(userId, comp);
             }
             case "component_added" -> {
+                if (metadata == null) break;
                 String comp = (String) metadata.get("componentName");
                 handleComponentAdded(userId, comp);
             }
             case "layout_changed" -> {
+                if (metadata == null) break;
                 String from = (String) metadata.get("from");
                 String to = (String) metadata.get("to");
                 handleLayoutChanged(userId, from, to);
@@ -185,16 +190,20 @@ public class PreferenceUpdateWorker {
         }
     }
 
+    /**
+     * 页面生命周期事件偏好更新：当 metadata 含 tags 时按 tags 更新（兼容历史格式），
+     * 否则使用合成标签 {@code style:<eventType>} 作为弱信号兜底，避免空操作。
+     */
     @SuppressWarnings("unchecked")
-    private void updateFromMetadata(Long userId, Map<String, Object> metadata, double delta) {
-        List<String> tags = (List<String>) metadata.getOrDefault("tags", Collections.emptyList());
+    private void updatePageLifecycleWeight(Long userId, Map<String, Object> metadata,
+                                             String eventType, double delta) {
+        List<String> tags = metadata != null
+                ? (List<String>) metadata.getOrDefault("tags", Collections.emptyList())
+                : Collections.emptyList();
         if (tags.isEmpty()) {
-            tags = new ArrayList<>();
-            addAllTags(tags, (List<String>) metadata.get("styleTags"), "style");
-            addAllTags(tags, (List<String>) metadata.get("colorTags"), "color");
-            addAllTags(tags, (List<String>) metadata.get("componentTags"), "component");
+            upsertWeight(userId, "style", eventType, delta);
+            return;
         }
-        if (tags.isEmpty()) return;
         for (String tag : tags) {
             String[] parts = tag.split(":", 2);
             if (parts.length == 2) {

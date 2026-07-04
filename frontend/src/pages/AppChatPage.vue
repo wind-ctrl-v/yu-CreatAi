@@ -7,7 +7,6 @@ import {
   buildPreviewUrl,
   deployApp,
   getAppVOById,
-  recordEditEvent,
 } from '../api/app'
 import { listAppChatHistory } from '../api/chatHistory'
 import { getPlanCapabilities } from '../api/user'
@@ -293,21 +292,6 @@ function sendMessage(content: string, displayText?: string) {
   )
 }
 
-/** 判断用户输入是否为"修改现有项目"意图（而非"创建新项目"） */
-function isModifyIntent(text: string): boolean {
-  const modifyPatterns = [
-    /改(成|为|一下|一改)/, /修改/, /更换/, /换(成|一个|一下)/,
-    /调整/, /优化/, /美化/, /重构/, /重新设计/,
-    /颜色/, /配色/, /样式/, /字体/, /布局/, /排版/,
-    /颜色/, /背景/, /边框/, /圆角/, /阴影/, /间距/,
-    /大一点/, /小一点/, /缩小/, /放大/, /加粗/, /变细/,
-    /不.*好.*看/, /难看/, /丑/, /换.*风格/,
-    /把.*改/, /让.*更/, /加(上|一个|入)/, /去掉/, /删除/,
-    /换.*色/, /变.*色/, /改.*色/,
-  ]
-  return modifyPatterns.some((p) => p.test(text))
-}
-
 /** 执行增量编辑（SSE 流式），抽取公共逻辑 */
 function doIncrementalEdit(instruction: string, userDisplay?: string) {
   const display = userDisplay || instruction
@@ -371,6 +355,8 @@ async function handleSend() {
   const userText = input.value.trim()
   input.value = ''
   if (picked.value) {
+    // 选中元素场景：拼装元素上下文，走增量编辑
+    // 偏好提取由后端 PromptPreferenceExtractor 统一处理（2026-07-04 重构）
     const target = picked.value
     const instruction = userText || '请优化这个元素的样式与交互体验'
     const display = `🎯 已选中 <${target.tagName}>${
@@ -378,11 +364,9 @@ async function handleSend() {
     }\n${instruction}`
     clearPicked()
     exitSelecting()
-    recordElementEditEvent(target, instruction)
     doIncrementalEdit(buildEditContext(target) + instruction, display)
-  } else if (isModifyIntent(userText) && app.value?.codeGenType === 'vue_project') {
-    // 未选中元素但用户表达了修改意图（如"改成蓝色配色"），走增量编辑 + 记录偏好
-    recordTextEditEvent(userText)
+  } else if (app.value?.codeGenType === 'vue_project' && userText) {
+    // 未选中元素：默认走增量编辑（偏好提取由后端 LLM 统一处理）
     doIncrementalEdit(userText)
   } else {
     sendMessage(userText)
@@ -392,35 +376,6 @@ async function handleSend() {
 /** 走原有完整生成流水线 */
 async function sendFullGeneration(userText: string) {
   sendMessage(userText)
-}
-
-/** 根据选中元素和修改文本，检测类型并发事件给后端 */
-function recordElementEditEvent(el: PickedElement, instruction: string) {
-  const cls = (el.className || '').toLowerCase() + ' ' + instruction.toLowerCase()
-  if (/color|bg-|background|gradient|#([0-9a-f]{3,6})|rgb/.test(cls)) {
-    const toTag = (instruction.match(/(?:改为|换成|改成)(.+)/)?.[1] || '自定义').slice(0, 30)
-    recordEditEvent({ appId: appId.value, eventType: 'color_changed', metadata: `toTag=${toTag}` })
-  } else if (/nav|header|footer|sidebar|section|layout|grid|flex|排列|布局/.test(el.tagName + ' ' + cls)) {
-    recordEditEvent({ appId: appId.value, eventType: 'layout_changed', metadata: `from=${el.tagName}` })
-  } else {
-    recordEditEvent({ appId: appId.value, eventType: 'component_added', metadata: `component=${el.tagName}` })
-  }
-}
-
-/** 从纯文本中推断修改事件类型并记录偏好 */
-function recordTextEditEvent(text: string) {
-  const lower = text.toLowerCase()
-  if (/颜色|配色|color|色系|色调|背景色|主题色|渐变色|蓝色|红色|绿色|黄色|紫色|粉色|白色|黑色|灰色/.test(lower)) {
-    recordEditEvent({ appId: appId.value, eventType: 'color_changed', metadata: `text=${text.slice(0, 50)}` })
-  } else if (/布局|排列|排版|结构|导航|侧边栏|顶栏|底栏|grid|flex|layout/.test(lower)) {
-    recordEditEvent({ appId: appId.value, eventType: 'layout_changed', metadata: `text=${text.slice(0, 50)}` })
-  } else if (/字体|字号|文字|标题|段落|加粗|斜体|typography|font/.test(lower)) {
-    recordEditEvent({ appId: appId.value, eventType: 'style_changed', metadata: `text=${text.slice(0, 50)}` })
-  } else if (/动画|过渡|交互|hover|动画|transition|animation/.test(lower)) {
-    recordEditEvent({ appId: appId.value, eventType: 'interaction_changed', metadata: `text=${text.slice(0, 50)}` })
-  } else {
-    recordEditEvent({ appId: appId.value, eventType: 'component_added', metadata: `text=${text.slice(0, 50)}` })
-  }
 }
 
 async function handleDeploy() {

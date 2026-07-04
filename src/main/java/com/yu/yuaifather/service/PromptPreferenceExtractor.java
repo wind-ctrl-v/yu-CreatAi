@@ -14,12 +14,21 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
- * 从用户提示词中通过 LLM 提取偏好标签。
- * <p>异步执行，不阻塞创建应用主流程。</p>
+ * 从用户提示词/修改指令中通过 LLM 提取偏好标签（统一偏好提取入口）。
+ * <p>
+ * ★ 统一偏好提取方案（2026-07-04 重构）：取代原先的"前端规则 + 后端 LLM"双路径，
+ * 全部走 LLM 提取，成本极低（每次约 200 token），粒度更细，且支持正负向偏好。
+ * <p>
+ * 异步执行，不阻塞主流程。
  */
 @Slf4j
 @Component
 public class PromptPreferenceExtractor {
+
+    /** 正向偏好权重 delta */
+    private static final double POSITIVE_DELTA = 0.15;
+    /** 负向偏好权重 delta（绝对值） */
+    private static final double NEGATIVE_DELTA = -0.15;
 
     @Resource
     private ChatModel chatModel;
@@ -30,17 +39,33 @@ public class PromptPreferenceExtractor {
     /** AiServices 代理接口 */
     interface PromptPreferenceAi {
         @SystemMessage("""
-                你是一个设计偏好提取器。从用户创建应用的提示词中提取设计偏好标签。
-                只提取明确表达的偏好，不要推断。标签必须简洁（1-8个汉字）。
+                你是一个设计偏好提取器。从用户的设计修改指令或创建应用的需求文本中提取偏好标签。
 
-                输出严格 JSON（无 markdown围栏）：
+                提取规则：
+                1. 区分「想要的」（正向偏好）和「不想要的/要替换掉的」（负向偏好）
+                   - "改成蓝色" → 正向 colors: ["蓝色"]
+                   - "去掉渐变" → 负向 styles: ["渐变"]
+                   - "把蓝色改成绿色" → 正向 colors: ["绿色"], 负向 colors: ["蓝色"]
+                2. 标签简洁（1-8个汉字或英文单词），统一用中文
+                3. 只提取明确表达的偏好，不要推断
+                4. 多意图指令（如"风格改清爽，同时按钮改蓝色"）要全部提取
+
+                输出严格 JSON（无 markdown 围栏）：
                 {
-                  "colors": ["浅绿色"],
-                  "styles": ["简约", "科技感"],
-                  "layouts": ["居中布局"],
-                  "components": ["轮播"],
-                  "interactions": ["动态"],
-                  "applicationType": "博客"
+                  "positive": {
+                    "colors": ["蓝色"],
+                    "styles": ["清爽", "极简"],
+                    "layouts": [],
+                    "components": [],
+                    "interactions": []
+                  },
+                  "negative": {
+                    "colors": [],
+                    "styles": [],
+                    "layouts": [],
+                    "components": [],
+                    "interactions": []
+                  }
                 }
                 如果没有对应类别的内容，数组为空 []。只输出 JSON，不要任何解释。
                 """)
@@ -54,7 +79,12 @@ public class PromptPreferenceExtractor {
     }
 
     /**
-     * 从提示词中异步提取偏好标签并更新权重表。
+     * 从提示词/修改指令中异步提取偏好标签并更新权重表（统一入口）。
+     * <p>
+     * 正向偏好 +0.15，负向偏好 -0.15，同一标签在一次提取中去重。
+     *
+     * @param userId    用户ID
+     * @param prompt    用户输入的提示词或修改指令文本
      */
     public void extractAndRecord(Long userId, String prompt) {
         if (userId == null || prompt == null || prompt.isBlank()) return;
@@ -63,27 +93,57 @@ public class PromptPreferenceExtractor {
             String response = ai.extract("用户提示词：" + prompt);
             JSONObject json = JSONUtil.parseObj(cleanJson(response));
 
-            int count = 0;
-            count += recordGroup(userId, "color", json.getJSONArray("colors"));
-            count += recordGroup(userId, "style", json.getJSONArray("styles"));
-            count += recordGroup(userId, "layout", json.getJSONArray("layouts"));
-            count += recordGroup(userId, "component", json.getJSONArray("components"));
-            count += recordGroup(userId, "interaction", json.getJSONArray("interactions"));
+            Set<String> updatedKeys = new LinkedHashSet<>();
+            int positiveCount = 0;
+            int negativeCount = 0;
 
-            log.info("提示词偏好提取完成 userId={} tags={}", userId, count);
+            JSONObject positive = json.getJSONObject("positive");
+            JSONObject negative = json.getJSONObject("negative");
+
+            if (positive != null) {
+                positiveCount += recordGroup(userId, "color", positive.getJSONArray("colors"), POSITIVE_DELTA, updatedKeys);
+                positiveCount += recordGroup(userId, "style", positive.getJSONArray("styles"), POSITIVE_DELTA, updatedKeys);
+                positiveCount += recordGroup(userId, "layout", positive.getJSONArray("layouts"), POSITIVE_DELTA, updatedKeys);
+                positiveCount += recordGroup(userId, "component", positive.getJSONArray("components"), POSITIVE_DELTA, updatedKeys);
+                positiveCount += recordGroup(userId, "interaction", positive.getJSONArray("interactions"), POSITIVE_DELTA, updatedKeys);
+            }
+
+            if (negative != null) {
+                negativeCount += recordGroup(userId, "color", negative.getJSONArray("colors"), NEGATIVE_DELTA, updatedKeys);
+                negativeCount += recordGroup(userId, "style", negative.getJSONArray("styles"), NEGATIVE_DELTA, updatedKeys);
+                negativeCount += recordGroup(userId, "layout", negative.getJSONArray("layouts"), NEGATIVE_DELTA, updatedKeys);
+                negativeCount += recordGroup(userId, "component", negative.getJSONArray("components"), NEGATIVE_DELTA, updatedKeys);
+                negativeCount += recordGroup(userId, "interaction", negative.getJSONArray("interactions"), NEGATIVE_DELTA, updatedKeys);
+            }
+
+            log.info("偏好提取完成 userId={} positive={} negative={}", userId, positiveCount, negativeCount);
         } catch (Exception e) {
-            log.warn("提示词偏好提取失败 userId={}", userId, e);
+            log.warn("偏好提取失败 userId={}", userId, e);
         }
     }
 
-    private int recordGroup(Long userId, String type, JSONArray jsonArray) {
+    /**
+     * 提取一组标签并更新权重，同一 type:key 在本次提取中只更新一次。
+     *
+     * @param userId       用户ID
+     * @param type         偏好类型（color/style/layout/component/interaction）
+     * @param jsonArray    LLM 输出的标签数组
+     * @param delta        权重增量（正向 +0.15，负向 -0.15）
+     * @param updatedKeys  本次提取已更新的 type:key 集合（避免正负向重复更新同一标签）
+     * @return 本次实际更新的标签数
+     */
+    private int recordGroup(Long userId, String type, JSONArray jsonArray, double delta, Set<String> updatedKeys) {
         if (jsonArray == null || jsonArray.isEmpty()) return 0;
         Set<String> seen = new LinkedHashSet<>();
         int count = 0;
         for (int i = 0; i < jsonArray.size(); i++) {
             String tag = jsonArray.getStr(i);
-            if (tag == null || tag.isBlank() || !seen.add(tag)) continue;
-            preferenceUpdateWorker.updateSingleWeight(userId, type, tag.trim(), 0.15);
+            if (tag == null || tag.isBlank()) continue;
+            String normalizedTag = tag.trim().toLowerCase();
+            String dedupKey = type + ":" + normalizedTag;
+            if (!seen.add(normalizedTag)) continue;
+            if (!updatedKeys.add(dedupKey)) continue;
+            preferenceUpdateWorker.updateSingleWeight(userId, type, normalizedTag, delta);
             count++;
         }
         return count;

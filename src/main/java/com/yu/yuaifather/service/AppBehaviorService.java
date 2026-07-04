@@ -57,31 +57,6 @@ public class AppBehaviorService {
     }
 
     /**
-     * 记录一次用户可视化修改事件（偏好闭环，通用透传入口，如颜色/布局/组件调整）。
-     * <p>
-     * 记录失败仅打日志，不影响调用方主流程。
-     *
-     * @param userId    当前登录用户 ID
-     * @param appId     应用 ID（作为 generationId 记录）
-     * @param eventType 事件类型字符串（如 color_changed/component_added 等，见 {@code EventTypeEnum}）
-     * @param metadata  事件元数据 JSON 字符串（可空）
-     */
-    public void recordEditEvent(Long userId, Long appId, String eventType, String metadata) {
-        try {
-            UserDesignEvent event = UserDesignEvent.builder()
-                    .userId(userId)
-                    .generationId(appId)
-                    .eventType(eventType)
-                    .metadata(metadata)
-                    .createTime(LocalDateTime.now())
-                    .build();
-            preferenceUpdateWorker.recordAndUpdate(event);
-        } catch (Exception e) {
-            log.warn("修改事件记录失败 appId={} type={}", appId, eventType, e);
-        }
-    }
-
-    /**
      * 根据 AI 增量编辑响应文本，判定本次修改是否成功。
      * <p>
      * 当前实现为关键字启发式匹配（AI 被 Prompt 指示成功时会回复固定措辞），

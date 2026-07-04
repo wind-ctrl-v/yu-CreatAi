@@ -503,21 +503,5 @@ public class AppController {
         return ResultUtils.success(data);
     }
 
-    /**
-     * 记录用户可视化修改事件（用于偏好闭环）
-     */
-    @PostMapping("/record-edit-event")
-    public BaseResponse<Boolean> recordEditEvent(@RequestBody Map<String, Object> body,
-                                                  HttpServletRequest request) {
-        User loginUser = userService.getLoginUser(request);
-        Long appId = body.get("appId") != null ? Long.valueOf(body.get("appId").toString()) : null;
-        String eventType = (String) body.get("eventType");
-        String metaStr = (String) body.get("metadata");
-        ThrowUtils.throwIf(appId == null || eventType == null, ErrorCode.PARAMS_ERROR);
-
-        appBehaviorService.recordEditEvent(loginUser.getId(), appId, eventType, metaStr);
-        return ResultUtils.success(true);
-    }
-
 
 }
