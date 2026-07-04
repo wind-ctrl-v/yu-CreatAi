@@ -11,8 +11,11 @@ import com.yu.yuaifather.mapper.UserPreferenceWeightMapper;
 import com.yu.yuaifather.model.entity.UserDesignProfile;
 import com.yu.yuaifather.model.entity.UserPreferenceWeight;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +26,10 @@ import java.util.Map;
  * <p>
  * 提供用户设计画像和偏好权重的加载、组装功能。
  * <p>
+ * ★ 时间衰减（P0-1 修复，2026-07-04）：读取权重时按 {@code lastEvidenceAt} 计算指数衰减，
+ * 半衰期可配置（{@code agent.preference.half-life-days}，默认 30 天）。
+ * 旧偏好的有效权重随时间递减，避免一年前的高权重压制当前新偏好。
+ * <p>
  * 性能目标：加载耗时 < 50ms（2 次主键查询，无 JOIN）。
  *
  * @author yu
@@ -30,6 +37,13 @@ import java.util.Map;
 @Slf4j
 @Service
 public class UserPreferenceService {
+
+    /** 半衰期（天），超过此时间权衰减为原来的一半。 */
+    @Value("${agent.preference.half-life-days:30}")
+    private double halfLifeDays;
+
+    /** 衰减下限：有效权重低于原始权重的此比例时，视为可忽略（避免极小浮点数干扰）。 */
+    private static final double DECAY_FLOOR_RATIO = 0.05;
 
     private final UserDesignProfileMapper profileMapper;
     private final UserPreferenceWeightMapper weightMapper;
@@ -59,6 +73,9 @@ public class UserPreferenceService {
         // 1. 加载用户设计画像（按 userId 查询，非主键 id）
         UserDesignProfile profile = profileMapper.selectOneByMap(
                 Collections.singletonMap("userId", userId));
+        boolean hasProfile = profile != null
+                && (StrUtil.isNotBlank(profile.getPreferredStyles())
+                    || StrUtil.isNotBlank(profile.getPreferredColors()));
         if (profile != null) {
             builder.profileSummary(profile.getProfileSummary());
             builder.preferredStyles(parseJsonList(profile.getPreferredStyles()));
@@ -73,16 +90,30 @@ public class UserPreferenceService {
             builder.dislikedInteractions(parseJsonList(profile.getDislikedInteractions()));
         }
 
-        // 2. 加载偏好权重
+        // 2. 加载偏好权重（应用时间衰减）
         List<UserPreferenceWeight> weights = weightMapper.selectListByMap(
                 Collections.singletonMap("userId", userId));
         if (CollUtil.isNotEmpty(weights)) {
             Map<String, Double> weightMap = new HashMap<>();
             for (UserPreferenceWeight w : weights) {
                 String key = w.getPreferenceType() + ":" + w.getPreferenceKey();
-                weightMap.put(key, w.getWeight());
+                weightMap.put(key, effectiveWeight(w));
             }
             builder.preferenceWeights(weightMap);
+        }
+
+        // ★ 冷启动（P0-6 修复，2026-07-04）：新用户无画像无权重时，注入默认偏好，
+        // 使个性化检索不会退化为完全无信号的通用检索。默认偏好为"干净/极简"风格倾向。
+        // 首次生成后 PromptPreferenceExtractor 会开始记录真实偏好，逐渐覆盖默认值。
+        boolean hasWeights = CollUtil.isNotEmpty(weights);
+        if (!hasProfile && !hasWeights) {
+            builder.profileSummary("新用户默认偏好：偏爱极简/干净/蓝色系，反感浮夸/渐变");
+            builder.preferredStyles(List.of("minimal", "clean", "modern"));
+            builder.preferredColors(List.of("blue", "white", "light-gray"));
+            builder.preferredLayouts(List.of("centered-hero", "card-grid"));
+            builder.preferredComponents(List.of("nav-bar", "card"));
+            builder.dislikedStyles(List.of("maximalist", "neon"));
+            builder.dislikedColors(List.of("hot-pink", "bright-yellow"));
         }
 
         return builder.build();
@@ -101,7 +132,7 @@ public class UserPreferenceService {
     /**
      * 计算给定标签列表的用户偏好得分。
      * <p>
-     * 得分 = 命中标签的正向权重之和。用于个性化 rerank。
+     * 得分 = 命中标签的<b>有效</b>权重之和（应用时间衰减）。用于个性化 rerank。
      *
      * @param userId  用户ID
      * @param type    偏好类型（style/color/layout/component/interaction）
@@ -122,7 +153,7 @@ public class UserPreferenceService {
             for (UserPreferenceWeight w : weights) {
                 if (type.equals(w.getPreferenceType())
                         && key.equalsIgnoreCase(w.getPreferenceKey())) {
-                    score += w.getWeight();
+                    score += effectiveWeight(w);
                 }
             }
         }
@@ -132,7 +163,7 @@ public class UserPreferenceService {
     /**
      * 计算用户反感惩罚分。
      * <p>
-     * 惩罚 = 命中的负向权重绝对值之和。用于个性化 rerank 降权。
+     * 惩罚 = 命中的<b>有效</b>负向权重绝对值之和。用于个性化 rerank 降权。
      */
     public double calculateDislikePenalty(Long userId, String type, List<String> keys) {
         if (userId == null || keys == null || keys.isEmpty()) {
@@ -149,11 +180,35 @@ public class UserPreferenceService {
                 if (type.equals(w.getPreferenceType())
                         && key.equalsIgnoreCase(w.getPreferenceKey())
                         && w.getWeight() < 0) {
-                    penalty += Math.abs(w.getWeight());
+                    penalty += Math.abs(effectiveWeight(w));
                 }
             }
         }
         return penalty;
+    }
+
+    /**
+     * 计算权重的有效值：应用指数时间衰减。
+     * <p>
+     * 公式：{@code effective = raw * exp(-Δday / halfLife * ln2)}
+     * <ul>
+     *   <li>半衰期内（Δ < halfLife）权重保持较高</li>
+     *   <li>超过半衰期权重减半，两个半衰期减为 1/4，以此类推</li>
+     *   <li>衰减低于 {@link #DECAY_FLOOR_RATIO} 时返回 0（视为可忽略）</li>
+     *   <li>{@code lastEvidenceAt} 为 null 时不衰减（历史数据兼容）</li>
+     * </ul>
+     */
+    private double effectiveWeight(UserPreferenceWeight w) {
+        double raw = w.getWeight() == null ? 0d : w.getWeight();
+        if (raw == 0d) return 0d;
+        if (w.getLastEvidenceAt() == null) return raw;  // 无时间记录，不衰减
+
+        long daysSince = Duration.between(w.getLastEvidenceAt(), LocalDateTime.now()).toDays();
+        if (daysSince <= 0) return raw;  // 当天证据，不衰减
+
+        double decayFactor = Math.exp(-daysSince / halfLifeDays * Math.log(2));
+        if (decayFactor < DECAY_FLOOR_RATIO) return 0d;
+        return raw * decayFactor;
     }
 
     @SuppressWarnings("unchecked")

@@ -87,6 +87,29 @@ public class PromptPreferenceExtractor {
      * @param prompt    用户输入的提示词或修改指令文本
      */
     public void extractAndRecord(Long userId, String prompt) {
+        extractAndRecordInternal(userId, prompt, false);
+    }
+
+    /**
+     * 从提示词中提取偏好标签，全部以负向权重更新（用于"用户删除应用"等负反馈场景）。
+     * <p>
+     * 删除应用 = 用户对该设计方向不满意 → 从原始需求文本中提取的所有标签全部以 -0.15 更新。
+     *
+     * @param userId    用户ID
+     * @param prompt    应用创建时的原始需求文本
+     */
+    public void extractAndRecordNegative(Long userId, String prompt) {
+        extractAndRecordInternal(userId, prompt, true);
+    }
+
+    /**
+     * 偏好提取内部实现。
+     *
+     * @param userId         用户ID
+     * @param prompt         输入文本
+     * @param forceNegative  是否强制全部以负向权重更新（删除场景）
+     */
+    private void extractAndRecordInternal(Long userId, String prompt, boolean forceNegative) {
         if (userId == null || prompt == null || prompt.isBlank()) return;
 
         try {
@@ -101,14 +124,16 @@ public class PromptPreferenceExtractor {
             JSONObject negative = json.getJSONObject("negative");
 
             if (positive != null) {
-                positiveCount += recordGroup(userId, "color", positive.getJSONArray("colors"), POSITIVE_DELTA, updatedKeys);
-                positiveCount += recordGroup(userId, "style", positive.getJSONArray("styles"), POSITIVE_DELTA, updatedKeys);
-                positiveCount += recordGroup(userId, "layout", positive.getJSONArray("layouts"), POSITIVE_DELTA, updatedKeys);
-                positiveCount += recordGroup(userId, "component", positive.getJSONArray("components"), POSITIVE_DELTA, updatedKeys);
-                positiveCount += recordGroup(userId, "interaction", positive.getJSONArray("interactions"), POSITIVE_DELTA, updatedKeys);
+                double posDelta = forceNegative ? NEGATIVE_DELTA : POSITIVE_DELTA;
+                positiveCount += recordGroup(userId, "color", positive.getJSONArray("colors"), posDelta, updatedKeys);
+                positiveCount += recordGroup(userId, "style", positive.getJSONArray("styles"), posDelta, updatedKeys);
+                positiveCount += recordGroup(userId, "layout", positive.getJSONArray("layouts"), posDelta, updatedKeys);
+                positiveCount += recordGroup(userId, "component", positive.getJSONArray("components"), posDelta, updatedKeys);
+                positiveCount += recordGroup(userId, "interaction", positive.getJSONArray("interactions"), posDelta, updatedKeys);
             }
 
             if (negative != null) {
+                // 负向标签始终以负向 delta 更新（无论 forceNegative）
                 negativeCount += recordGroup(userId, "color", negative.getJSONArray("colors"), NEGATIVE_DELTA, updatedKeys);
                 negativeCount += recordGroup(userId, "style", negative.getJSONArray("styles"), NEGATIVE_DELTA, updatedKeys);
                 negativeCount += recordGroup(userId, "layout", negative.getJSONArray("layouts"), NEGATIVE_DELTA, updatedKeys);
@@ -116,7 +141,8 @@ public class PromptPreferenceExtractor {
                 negativeCount += recordGroup(userId, "interaction", negative.getJSONArray("interactions"), NEGATIVE_DELTA, updatedKeys);
             }
 
-            log.info("偏好提取完成 userId={} positive={} negative={}", userId, positiveCount, negativeCount);
+            String mode = forceNegative ? "（负反馈模式）" : "";
+            log.info("偏好提取完成{} userId={} positive={} negative={}", mode, userId, positiveCount, negativeCount);
         } catch (Exception e) {
             log.warn("偏好提取失败 userId={}", userId, e);
         }

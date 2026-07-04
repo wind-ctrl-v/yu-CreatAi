@@ -148,6 +148,11 @@ public class AppController {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean result = appService.removeById(id);
+
+        // 删除 = 用户对该应用设计不满意 → 记录 page_deleted 负反馈事件（P0-2）
+        if (result) {
+            appBehaviorService.recordPageDeletedEvent(loginUser.getId(), id, oldApp.getInitPrompt());
+        }
         return ResultUtils.success(result);
     }
 

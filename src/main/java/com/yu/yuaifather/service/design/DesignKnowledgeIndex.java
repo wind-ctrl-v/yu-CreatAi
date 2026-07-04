@@ -401,6 +401,12 @@ public class DesignKnowledgeIndex {
     private double calculatePersonalizedScore(Ranked r, List<String> queryTags,
                                                UserDesignContext userContext) {
         DesignEvidence.Item item = r.item;
+        // ★ 统一排序权重（P0-5 修复，2026-07-04）：与 DesignRerankService 的 10 项公式保持一致，
+        // 避免双轨权重不一致导致"开 rerank 和不开 rerank 效果完全不同"的问题。
+        // 两套开关（personalization.enabled / rerank.enabled）的联动：
+        //   - personalization=true, rerank=false → 用本方法（10项简化版，无 brandContext/duplicate）
+        //   - personalization=true, rerank=true  → 本方法先排序，再由 DesignRerankService 做完整 10 项重排
+        //   - personalization=false              → 用默认 priority/confidence/updatedAt 排序
         double semanticScore = (queryTags != null && !queryTags.isEmpty())
                 ? Math.min(1.0, (double) r.matchScore / Math.max(1, queryTags.size()))
                 : 0.5;
@@ -410,6 +416,10 @@ public class DesignKnowledgeIndex {
         double componentScore = (item.getPreferredPatterns() != null && userContext.getPreferredComponents() != null)
                 ? overlapRatio(item.getPreferredPatterns(), userContext.getPreferredComponents())
                 : 0.5;
+        double layoutScore = (item.getLayoutPatterns() != null && userContext.getPreferredLayouts() != null)
+                ? overlapRatio(item.getLayoutPatterns(), userContext.getPreferredLayouts())
+                : 0.5;
+        double qualityScore = nzd(item.getConfidence());
         double userPrefScore = 0;
         double dislikePenalty = 0;
         if (userContext.getUserId() != null && userPreferenceService != null) {
@@ -427,12 +437,14 @@ public class DesignKnowledgeIndex {
                 dislikePenalty += userPreferenceService.calculateDislikePenalty(uid, "component", item.getPreferredPatterns());
             }
         }
-        double conf = nzd(item.getConfidence());
-        return 0.40 * semanticScore
-                + 0.20 * styleScore
+        double conf = qualityScore;
+        // 与 DesignRerankService 保持一致的权重（无 projectBrand / forbidden / duplicate，因为此处无 brandContext）
+        return 0.25 * semanticScore
+                + 0.15 * styleScore
                 + 0.15 * componentScore
-                + 0.15 * Math.max(0, Math.min(1, userPrefScore + 0.5))
+                + 0.10 * layoutScore
                 + 0.10 * conf
+                + 0.15 * Math.max(0, Math.min(1, userPrefScore + 0.5))
                 - 0.20 * Math.min(1, dislikePenalty);
     }
 

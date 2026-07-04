@@ -1,5 +1,6 @@
 package com.yu.yuaifather.service;
 
+import cn.hutool.core.util.StrUtil;
 import com.yu.yuaifather.model.entity.UserDesignEvent;
 import com.yu.yuaifather.worker.PreferenceUpdateWorker;
 import lombok.extern.slf4j.Slf4j;
@@ -29,10 +30,13 @@ public class AppBehaviorService {
     private static final String[] FAILURE_KEYWORDS = {"失败", "不存在", "错误"};
 
     private final PreferenceUpdateWorker preferenceUpdateWorker;
+    private final PromptPreferenceExtractor promptPreferenceExtractor;
 
     @Autowired
-    public AppBehaviorService(PreferenceUpdateWorker preferenceUpdateWorker) {
+    public AppBehaviorService(PreferenceUpdateWorker preferenceUpdateWorker,
+                               PromptPreferenceExtractor promptPreferenceExtractor) {
         this.preferenceUpdateWorker = preferenceUpdateWorker;
+        this.promptPreferenceExtractor = promptPreferenceExtractor;
     }
 
     /**
@@ -53,6 +57,41 @@ public class AppBehaviorService {
             preferenceUpdateWorker.recordAndUpdate(event);
         } catch (Exception e) {
             log.warn("下载行为记录失败，不影响主流程 appId={}", appId, e);
+        }
+    }
+
+    /**
+     * 记录一次"页面删除"用户行为事件（偏好闭环：page_deleted，负反馈信号）。
+     * <p>
+     * 删除 = 用户对该应用的设计不满意。
+     * 除记录事件外，还异步从应用的原始需求文本中提取偏好标签，
+     * 以负向权重更新（-0.15），表达"用户不喜欢这类设计方向"。
+     *
+     * @param userId    当前登录用户 ID
+     * @param appId     应用 ID
+     * @param initPrompt 应用创建时的原始需求文本（用于 LLM 提取负向偏好标签）
+     */
+    public void recordPageDeletedEvent(Long userId, Long appId, String initPrompt) {
+        try {
+            UserDesignEvent event = new UserDesignEvent();
+            event.setUserId(userId);
+            event.setEventType("page_deleted");
+            event.setGenerationId(appId);
+            event.setCreateTime(LocalDateTime.now());
+            preferenceUpdateWorker.recordAndUpdate(event);
+        } catch (Exception e) {
+            log.warn("删除行为记录失败，不影响主流程 appId={}", appId, e);
+        }
+        // 异步从原始需求文本中提取负向偏好标签（用户删除 = 不喜欢这类设计方向）
+        if (StrUtil.isNotBlank(initPrompt)) {
+            final Long uid = userId;
+            Thread.ofVirtual().start(() -> {
+                try {
+                    promptPreferenceExtractor.extractAndRecordNegative(uid, initPrompt);
+                } catch (Exception e) {
+                    log.warn("删除应用偏好提取失败 appId={}", appId, e);
+                }
+            });
         }
     }
 

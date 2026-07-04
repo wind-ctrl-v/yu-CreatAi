@@ -271,49 +271,71 @@ public class PreferenceUpdateWorker {
     // ============ profileSummary 自动刷新 ============
 
     /**
-     * 当 userId 的权重更新次数达到 SUMMARY_REFRESH_INTERVAL 的整数倍时，
+     * 当 userId 的事件累积达到 SUMMARY_REFRESH_INTERVAL 的整数倍时，
      * 自动从 user_preference_weight 表中取 Top-5 喜欢 + Top-3 反感标签，拼接为自然语言摘要写回 profileSummary。
+     * <p>
+     * ★ 并发保护（P0-4 修复，2026-07-04）：
+     * 刷新动作已异步化（虚拟线程），不阻塞偏好更新主链路。
+     * 并发下可能重复触发刷新，但 profileSummary 是幂等覆盖写（取最新权重 Top-N 拼接），
+     * 重复刷新最多导致多一次查询和写入，不会造成数据损坏。
      */
     private void maybeRefreshProfileSummary(Long userId) {
         if (userId == null) return;
         try {
             long totalEvents = eventMapper.selectCountByQuery(
                     new QueryWrapper().eq("user_id", userId));
-            if (totalEvents % SUMMARY_REFRESH_INTERVAL != 0) return;
+            if (totalEvents == 0 || totalEvents % SUMMARY_REFRESH_INTERVAL != 0) return;
 
-            // 查询 Top-5 正权重标签
-            QueryWrapper topQuery = new QueryWrapper()
-                    .eq("user_id", userId)
-                    .orderBy("weight", false) // DESC
-                    .limit(5);
-            java.util.List<UserPreferenceWeight> topLikes = weightMapper.selectListByQuery(topQuery);
+            // 异步刷新，不阻塞偏好更新主链路
+            Thread.ofVirtual().start(() -> {
+                try {
+                    doRefreshProfileSummary(userId);
+                } catch (Exception e) {
+                    log.warn("profileSummary 异步刷新失败 userId={}", userId, e);
+                }
+            });
+        } catch (Exception e) {
+            log.warn("profileSummary 触发检查失败 userId={}", userId, e);
+        }
+    }
 
-            // 查询 Top-3 负权重标签
-            QueryWrapper bottomQuery = new QueryWrapper()
-                    .eq("user_id", userId)
-                    .orderBy("weight", true) // ASC
-                    .limit(3);
-            java.util.List<UserPreferenceWeight> topDislikes = weightMapper.selectListByQuery(bottomQuery);
+    /**
+     * 执行 profileSummary 刷新（内部方法，已异步化）。
+     */
+    private void doRefreshProfileSummary(Long userId) {
+        // 查询 Top-5 正权重标签
+        QueryWrapper topQuery = new QueryWrapper()
+                .eq("user_id", userId)
+                .orderBy("weight", false)
+                .limit(5);
+        java.util.List<UserPreferenceWeight> topLikes = weightMapper.selectListByQuery(topQuery);
 
-            StringBuilder sb = new StringBuilder();
-            if (!topLikes.isEmpty()) {
-                sb.append("偏爱: ");
-                sb.append(topLikes.stream()
-                        .map(w -> w.getPreferenceKey())
-                        .reduce((a, b) -> a + "、" + b).orElse(""));
-            }
-            if (!topDislikes.isEmpty() && topDislikes.stream().anyMatch(w -> w.getWeight() < 0)) {
-                if (!sb.isEmpty()) sb.append(" | ");
-                sb.append("反感: ");
-                sb.append(topDislikes.stream()
-                        .filter(w -> w.getWeight() < 0)
-                        .map(w -> w.getPreferenceKey())
-                        .reduce((a, b) -> a + "、" + b).orElse(""));
-            }
+        // 查询 Top-3 负权重标签
+        QueryWrapper bottomQuery = new QueryWrapper()
+                .eq("user_id", userId)
+                .orderBy("weight", true)
+                .limit(3);
+        java.util.List<UserPreferenceWeight> topDislikes = weightMapper.selectListByQuery(bottomQuery);
 
-            if (!sb.isEmpty()) {
-                UserDesignProfile profile = profileMapper.selectOneByQuery(
-                        new QueryWrapper().eq("user_id", userId));
+        StringBuilder sb = new StringBuilder();
+        if (!topLikes.isEmpty()) {
+            sb.append("偏爱: ");
+            sb.append(topLikes.stream()
+                    .map(UserPreferenceWeight::getPreferenceKey)
+                    .reduce((a, b) -> a + "、" + b).orElse(""));
+        }
+        if (!topDislikes.isEmpty() && topDislikes.stream().anyMatch(w -> w.getWeight() < 0)) {
+            if (!sb.isEmpty()) sb.append(" | ");
+            sb.append("反感: ");
+            sb.append(topDislikes.stream()
+                    .filter(w -> w.getWeight() < 0)
+                    .map(UserPreferenceWeight::getPreferenceKey)
+                    .reduce((a, b) -> a + "、" + b).orElse(""));
+        }
+
+        if (!sb.isEmpty()) {
+            UserDesignProfile profile = profileMapper.selectOneByQuery(
+                    new QueryWrapper().eq("user_id", userId));
                 if (profile != null) {
                     UserDesignProfile update = new UserDesignProfile();
                     update.setId(profile.getId());
