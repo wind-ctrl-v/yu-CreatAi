@@ -3,7 +3,7 @@ import { onMounted, ref, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { listMyAppByPage, updateApp, deleteApp } from '../api/app'
-import type { AppVO } from '../types'
+import type { AppVO, DeleteReason } from '../types'
 import AppCard from '../components/AppCard.vue'
 
 const router = useRouter()
@@ -62,21 +62,24 @@ async function handleRename(app: AppVO) {
   })
 }
 
+const deleteModalOpen = ref(false)
+const deletingApp = ref<AppVO | null>(null)
+const deleteReason = ref<DeleteReason>('unknown')
+
 async function handleDelete(app: AppVO) {
-  Modal.confirm({
-    title: '删除应用',
-    content: `确定要删除「${app.appName}」吗？此操作不可撤销。`,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    onOk: async () => {
-      const res = await deleteApp(String(app.id))
-      if (res?.code === 0) {
-        message.success('已删除')
-        loadApps()
-      }
-    },
-  })
+  deletingApp.value = app
+  deleteReason.value = 'unknown'
+  deleteModalOpen.value = true
+}
+
+async function confirmDelete() {
+  if (!deletingApp.value) return
+  const res = await deleteApp(String(deletingApp.value.id), deleteReason.value).catch(() => null)
+  if (res?.code === 0) {
+    message.success('已删除')
+    deleteModalOpen.value = false
+    loadApps()
+  }
 }
 
 function onPageChange(p: number) {
@@ -149,6 +152,29 @@ onMounted(() => { loadApps() })
         @change="onPageChange"
       />
     </div>
+
+    <!-- 删除应用弹窗（带原因选择，用于 N-3 负反馈边界控制） -->
+    <a-modal
+      v-model:open="deleteModalOpen"
+      title="删除应用"
+      ok-text="删除"
+      cancel-text="取消"
+      :ok-button-props="{ danger: true }"
+      @ok="confirmDelete"
+    >
+      <p class="delete-confirm-text">
+        确定要删除「{{ deletingApp?.appName }}」吗？此操作不可撤销。
+      </p>
+      <div class="delete-reason">
+        <p class="delete-reason-label">删除原因（帮助 AI 更好地理解你的喜好）</p>
+        <a-radio-group v-model:value="deleteReason" class="reason-group">
+          <a-radio value="dislike">不喜欢这个结果</a-radio>
+          <a-radio value="correction">方向不对，重新做</a-radio>
+          <a-radio value="test">只是测试</a-radio>
+          <a-radio value="unknown">其他原因</a-radio>
+        </a-radio-group>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -213,4 +239,25 @@ onMounted(() => { loadApps() })
 }
 @media (max-width: 960px) { .grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 580px) { .grid { grid-template-columns: 1fr; } }
+
+/* 删除弹窗 */
+.delete-confirm-text {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--gray-700);
+}
+.delete-reason {
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--gray-100);
+}
+.delete-reason-label {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.reason-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 </style>

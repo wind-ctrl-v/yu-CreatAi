@@ -120,6 +120,17 @@ export interface DeleteRequest {
   id: string
 }
 
+/** 删除原因（N-3：删除触发负反馈的边界控制） */
+export type DeleteReason = 'test' | 'correction' | 'expire' | 'dislike' | 'unknown'
+
+/** 点踩原因预设 */
+export const DISLIKE_REASONS = [
+  { value: 'style', label: '风格不喜欢' },
+  { value: 'layout', label: '布局不好' },
+  { value: 'color', label: '配色不好' },
+  { value: 'other', label: '其他' },
+] as const
+
 /** 对话历史查询请求（管理员） */
 export interface ChatHistoryQueryRequest extends PageRequest {
   appId?: string

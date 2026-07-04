@@ -17,7 +17,8 @@ import {
   type PickedElement,
 } from '../utils/visualEditor'
 import type { AppVO } from '../types'
-import { PLAN_LABELS, type PlanCapabilities } from '../types'
+import { PLAN_LABELS, DISLIKE_REASONS, type PlanCapabilities } from '../types'
+import { dislike, recordNegativeEvent } from '../api/preference'
 
 interface ChatMessage {
   id: number
@@ -111,6 +112,45 @@ let closeSSE: (() => void) | null = null
 const selecting = ref(false) // 是否处于元素选择模式
 const picked = ref<PickedElement | null>(null) // 当前选中的元素
 let pickerDetach: (() => void) | null = null
+
+// —— 负反馈埋点 ——
+const hasEdited = ref(false) // 是否做过增量编辑（控制"还原"按钮显示）
+const dislikeModalOpen = ref(false)
+const dislikeReason = ref<string>('other')
+
+// —— 负反馈埋点处理 ——
+
+/** 点踩：打开原因选择弹窗 */
+function handleDislike() {
+  dislikeReason.value = 'other'
+  dislikeModalOpen.value = true
+}
+
+/** 确认点踩 */
+async function confirmDislike() {
+  await dislike({ appId: appId.value, reason: dislikeReason.value }).catch(() => null)
+  dislikeModalOpen.value = false
+  message.success('已记录你的反馈')
+}
+
+/** 换一批：拒绝当前 AI 推荐 */
+function handleReject() {
+  recordNegativeEvent({
+    appId: appId.value,
+    eventType: 'REJECT_SUGGESTION',
+  }).catch(() => null)
+  message.info('已记录，将尝试其他方向')
+}
+
+/** 还原到 AI 原始版本 */
+function handleRevert() {
+  recordNegativeEvent({
+    appId: appId.value,
+    eventType: 'REVERT_TO_GENERATED',
+  }).catch(() => null)
+  message.info('已记录反馈')
+  // TODO: 调用后端还原接口
+}
 
 function attachPicker() {
   if (!selecting.value) return
@@ -301,6 +341,16 @@ function doIncrementalEdit(instruction: string, userDisplay?: string) {
   const toolLines: string[] = []
   let hasError = false
 
+  // UNDO 埋点：识别撤销类指令
+  if (/撤销|undo|回退|撤回/i.test(instruction)) {
+    recordNegativeEvent({
+      appId: appId.value,
+      eventType: 'UNDO',
+      metadata: { instruction: instruction.slice(0, 100) },
+    }).catch(() => null)
+  }
+  hasEdited.value = true
+
   generating.value = true
   closeSSE = connectIncrementalEditSSE(
     appId.value,
@@ -431,6 +481,7 @@ async function init() {
   runInfo.value = null
   reconnecting.value = false
   reconnectHint.value = ''
+  hasEdited.value = false
   // 拉取套餐能力（应用切换不重复拉，只在进入时首次获取）
   if (!planCaps.value) {
     const res = await getPlanCapabilities().catch(() => null)
@@ -469,6 +520,13 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  // 如果还在生成中，记录 ABANDON 事件（用户中途离开）
+  if (generating.value) {
+    recordNegativeEvent({
+      appId: appId.value,
+      eventType: 'ABANDON',
+    }).catch(() => null)
+  }
   closeSSE?.()
   pickerDetach?.()
 })
@@ -486,6 +544,7 @@ onBeforeUnmount(() => {
         </a-tag>
       </div>
       <div class="right">
+        <a-button v-if="hasEdited" @click="handleRevert">↩ 还原</a-button>
         <a-button @click="handleDownload">下载代码</a-button>
         <a-button type="primary" :loading="deploying" @click="handleDeploy">
           部署
@@ -523,6 +582,17 @@ onBeforeUnmount(() => {
               <span v-else-if="m.type === 'ai' && generating" class="typing"
                 >正在生成<i></i><i></i><i></i></span
               >
+            </div>
+            <div
+              v-if="m.type === 'ai' && m.content && !generating"
+              class="msg-actions"
+            >
+              <a-button size="small" type="text" @click="handleDislike">
+                👎 点踩
+              </a-button>
+              <a-button size="small" type="text" @click="handleReject">
+                🔄 换一批
+              </a-button>
             </div>
           </div>
           <a-empty
@@ -614,6 +684,24 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </div>
+
+    <!-- 点踩反馈弹窗 -->
+    <a-modal
+      v-model:open="dislikeModalOpen"
+      title="点踩反馈"
+      ok-text="提交"
+      cancel-text="取消"
+      @ok="confirmDislike"
+    >
+      <p class="dislike-hint">告诉 AI 你不喜欢哪里，帮助后续生成更符合你的喜好</p>
+      <a-radio-group v-model:value="dislikeReason" class="dislike-reason-group">
+        <a-radio
+          v-for="r in DISLIKE_REASONS"
+          :key="r.value"
+          :value="r.value"
+        >{{ r.label }}</a-radio>
+      </a-radio-group>
+    </a-modal>
   </div>
 </template>
 
@@ -721,6 +809,34 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+.msg-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  padding-left: 42px;
+}
+.msg-actions :deep(.ant-btn) {
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+  padding: 2px 8px;
+  height: auto;
+  line-height: 1.5;
+}
+.msg-actions :deep(.ant-btn:hover) {
+  color: var(--text-primary, #333);
+}
+
+.dislike-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+}
+.dislike-reason-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .typing i {

@@ -73,9 +73,6 @@ public class UserPreferenceService {
         // 1. 加载用户设计画像（按 userId 查询，非主键 id）
         UserDesignProfile profile = profileMapper.selectOneByMap(
                 Collections.singletonMap("userId", userId));
-        boolean hasProfile = profile != null
-                && (StrUtil.isNotBlank(profile.getPreferredStyles())
-                    || StrUtil.isNotBlank(profile.getPreferredColors()));
         if (profile != null) {
             builder.profileSummary(profile.getProfileSummary());
             builder.preferredStyles(parseJsonList(profile.getPreferredStyles()));
@@ -100,20 +97,6 @@ public class UserPreferenceService {
                 weightMap.put(key, effectiveWeight(w));
             }
             builder.preferenceWeights(weightMap);
-        }
-
-        // ★ 冷启动（P0-6 修复，2026-07-04）：新用户无画像无权重时，注入默认偏好，
-        // 使个性化检索不会退化为完全无信号的通用检索。默认偏好为"干净/极简"风格倾向。
-        // 首次生成后 PromptPreferenceExtractor 会开始记录真实偏好，逐渐覆盖默认值。
-        boolean hasWeights = CollUtil.isNotEmpty(weights);
-        if (!hasProfile && !hasWeights) {
-            builder.profileSummary("新用户默认偏好：偏爱极简/干净/蓝色系，反感浮夸/渐变");
-            builder.preferredStyles(List.of("minimal", "clean", "modern"));
-            builder.preferredColors(List.of("blue", "white", "light-gray"));
-            builder.preferredLayouts(List.of("centered-hero", "card-grid"));
-            builder.preferredComponents(List.of("nav-bar", "card"));
-            builder.dislikedStyles(List.of("maximalist", "neon"));
-            builder.dislikedColors(List.of("hot-pink", "bright-yellow"));
         }
 
         return builder.build();

@@ -1,5 +1,5 @@
 import request, { API_BASE_URL } from '../request'
-import type { AppQueryRequest, AppVO, BaseResponse, Page } from '../types'
+import type { AppQueryRequest, AppVO, BaseResponse, DeleteReason, Page } from '../types'
 
 /** 创建应用（返回 appId） */
 export function addApp(params: { initPrompt: string }) {
@@ -27,8 +27,8 @@ export function updateApp(params: { id: string; appName: string }) {
 }
 
 /** 删除应用 */
-export function deleteApp(id: string) {
-  return request.post<any, BaseResponse<boolean>>('/app/delete', { id })
+export function deleteApp(id: string, reason: DeleteReason = 'unknown') {
+  return request.post<any, BaseResponse<boolean>>('/app/delete', { id, deleteReason: reason })
 }
 
 /** 部署应用，返回访问 URL */
