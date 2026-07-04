@@ -10,7 +10,6 @@ import com.yu.yuaifather.model.dto.agent.DesignSpec;
 import com.yu.yuaifather.model.dto.generation.GenerationPolicy;
 import com.yu.yuaifather.model.enums.GenerationMode;
 import com.yu.yuaifather.model.enums.PipelineType;
-import com.yu.yuaifather.service.UserFingerprintIngestService;
 import com.yu.yuaifather.service.design.DesignContext;
 import com.yu.yuaifather.service.design.DesignContextAssembler;
 import com.yu.yuaifather.service.design.DesignContextInput;
@@ -72,7 +71,6 @@ public class GenerationOrchestrator {
     private final DeployTool deployTool;
     private final GenerationRecordTool generationRecordTool;
     private final RagTraceTool ragTraceTool;
-    private final UserFingerprintIngestService fingerprintIngestService;
 
     @Autowired
     public GenerationOrchestrator(PlanningAgent planningAgent,
@@ -84,8 +82,7 @@ public class GenerationOrchestrator {
                                    RuleCriticTool ruleCriticTool,
                                    DeployTool deployTool,
                                    GenerationRecordTool generationRecordTool,
-                                   RagTraceTool ragTraceTool,
-                                   UserFingerprintIngestService fingerprintIngestService) {
+                                   RagTraceTool ragTraceTool) {
         this.planningAgent = planningAgent;
         this.pageGenerateAgent = pageGenerateAgent;
         this.coderAgent = coderAgent;
@@ -96,7 +93,6 @@ public class GenerationOrchestrator {
         this.deployTool = deployTool;
         this.generationRecordTool = generationRecordTool;
         this.ragTraceTool = ragTraceTool;
-        this.fingerprintIngestService = fingerprintIngestService;
     }
 
     /**
@@ -367,11 +363,6 @@ public class GenerationOrchestrator {
                     if (ragTraceId != null && board != null) {
                         board.putRagTraceId(ragTraceId);
                     }
-                }
-
-                // Stage 2: 异步提取用户私有设计指纹（不阻塞主流程）
-                if (pageId != null && userId != null) {
-                    fingerprintIngestService.ingestUserFingerprint(pageId, userId, projectId);
                 }
 
                 return Flux.just(AgentEvent.status(NAME,

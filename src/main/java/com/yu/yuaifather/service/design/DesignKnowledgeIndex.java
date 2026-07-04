@@ -56,9 +56,6 @@ public class DesignKnowledgeIndex {
     @Value("${agent.personalization.enabled:false}")
     private boolean personalizationEnabled;
 
-    @Value("${agent.retrieve.private-max-ratio:0.4}")
-    private double privateMaxRatio;
-
     @Value("${agent.retrieve.curated-min-ratio:0.3}")
     private double curatedMinRatio;
 
@@ -366,21 +363,13 @@ public class DesignKnowledgeIndex {
             return ranked;
         }
         List<Ranked> filtered = new ArrayList<>();
-        int userPrivateCount = 0;
         int globalCuratedCount = 0;
         int poolSize = Math.max(ranked.size(), k);
-        int maxPrivate = (int) Math.ceil(poolSize * privateMaxRatio);
         int minCurated = (int) Math.ceil(poolSize * curatedMinRatio);
 
         for (Ranked r : ranked) {
             String sourceType = r.item.getSourceType();
-            boolean isPrivate = "USER_PRIVATE_FINGERPRINT".equals(sourceType);
             boolean isGlobalCurated = "EXTRACTED_FINGERPRINT".equals(sourceType);
-
-            if (isPrivate && userPrivateCount >= maxPrivate) {
-                continue;
-            }
-            if (isPrivate) userPrivateCount++;
             if (isGlobalCurated) globalCuratedCount++;
             filtered.add(r);
         }
@@ -395,8 +384,8 @@ public class DesignKnowledgeIndex {
             }
         }
 
-        log.debug("多样性过滤 k={} original={} filtered={} userPrivate={} globalCurated={}",
-                k, ranked.size(), filtered.size(), userPrivateCount, globalCuratedCount);
+        log.debug("多样性过滤 k={} original={} filtered={} globalCurated={}",
+                k, ranked.size(), filtered.size(), globalCuratedCount);
         return filtered;
     }
 
