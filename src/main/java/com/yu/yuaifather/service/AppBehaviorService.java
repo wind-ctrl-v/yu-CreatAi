@@ -63,27 +63,44 @@ public class AppBehaviorService {
     /**
      * 记录一次"页面删除"用户行为事件（偏好闭环：page_deleted，负反馈信号）。
      * <p>
-     * 删除 = 用户对该应用的设计不满意。
-     * 除记录事件外，还异步从应用的原始需求文本中提取偏好标签，
-     * 以负向权重更新（-0.15），表达"用户不喜欢这类设计方向"。
+     * ★ N-3 修复（删除触发负反馈的边界控制）：
+     * 根据删除原因判断是否计入负反馈：
+     * <ul>
+     *   <li>{@code test} — 测试性删除，不计入负反馈</li>
+     *   <li>{@code correction} — 方向调整后删除，不计入负反馈</li>
+     *   <li>{@code expire} — 草稿过期清理，不计入负反馈</li>
+     *   <li>{@code dislike} — 真正不喜欢，计入负反馈 ✅</li>
+     *   <li>{@code unknown} — 未知，保守策略：计入（避免漏掉真不喜欢）</li>
+     * </ul>
+     * 事件始终记录到 user_design_event，仅负反馈权重更新受原因控制。
      *
-     * @param userId    当前登录用户 ID
-     * @param appId     应用 ID
-     * @param initPrompt 应用创建时的原始需求文本（用于 LLM 提取负向偏好标签）
+     * @param userId        当前登录用户 ID
+     * @param appId         应用 ID
+     * @param initPrompt    应用创建时的原始需求文本
+     * @param deleteReason  删除原因（test/correction/expire/dislike/unknown）
      */
-    public void recordPageDeletedEvent(Long userId, Long appId, String initPrompt) {
+    public void recordPageDeletedEvent(Long userId, Long appId, String initPrompt, String deleteReason) {
+        String reason = StrUtil.isBlank(deleteReason) ? "unknown" : deleteReason.toLowerCase();
+        boolean shouldCountAsNegative = shouldCountAsNegativeFeedback(reason);
+
         try {
             UserDesignEvent event = new UserDesignEvent();
             event.setUserId(userId);
             event.setEventType("page_deleted");
             event.setGenerationId(appId);
             event.setCreateTime(LocalDateTime.now());
+            // 记录删除原因和是否计入负反馈（始终落库，不遗漏）
+            event.setMetadata(cn.hutool.json.JSONUtil.toJsonStr(java.util.Map.of(
+                    "reason", reason,
+                    "countAsNegative", shouldCountAsNegative
+            )));
             preferenceUpdateWorker.recordAndUpdate(event);
         } catch (Exception e) {
             log.warn("删除行为记录失败，不影响主流程 appId={}", appId, e);
         }
-        // 异步从原始需求文本中提取负向偏好标签（用户删除 = 不喜欢这类设计方向）
-        if (StrUtil.isNotBlank(initPrompt)) {
+
+        // 仅在应该计入负反馈时，异步提取负向偏好标签
+        if (shouldCountAsNegative && StrUtil.isNotBlank(initPrompt)) {
             final Long uid = userId;
             Thread.ofVirtual().start(() -> {
                 try {
@@ -92,7 +109,22 @@ public class AppBehaviorService {
                     log.warn("删除应用偏好提取失败 appId={}", appId, e);
                 }
             });
+        } else {
+            log.info("[删除判定] 不计入负反馈 userId={}, appId={}, reason={}", userId, appId, reason);
         }
+    }
+
+    /**
+     * 判断删除是否应该计入负反馈（N-3 边界控制）。
+     * <p>
+     * 保守策略：test/correction/expire 不计入，dislike/unknown 计入。
+     */
+    private boolean shouldCountAsNegativeFeedback(String reason) {
+        return switch (reason) {
+            case "test", "correction", "expire" -> false;
+            // dislike 和 unknown 都计入（unknown 保守策略：宁可多记也不漏）
+            default -> true;
+        };
     }
 
     /**

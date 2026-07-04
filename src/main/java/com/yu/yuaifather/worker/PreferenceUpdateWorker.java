@@ -164,6 +164,29 @@ public class PreferenceUpdateWorker {
             case "page_exported" -> updatePageLifecycleWeight(userId, metadata, "page_exported", 0.2);
             case "page_deleted" -> updatePageLifecycleWeight(userId, metadata, "page_deleted", -0.1);
             case "page_regenerated" -> updatePageLifecycleWeight(userId, metadata, "page_regenerated", -0.05);
+            // ===== 负反馈事件（P0-残留-1 补全） =====
+            // 弱负信号：用户撤销修改，仅记录弱惩罚
+            case "undo" -> upsertWeight(userId, "style", "undo", -0.05);
+            // 强负信号：回退到 AI 原始版本 = 用户否定了自己的所有修改
+            case "revert_to_generated" -> upsertWeight(userId, "style", "revert_to_generated", -0.20);
+            // 中负信号：中途放弃生成
+            case "abandon" -> upsertWeight(userId, "style", "abandon", -0.10);
+            // 中负信号：拒绝 AI 推荐
+            case "reject_suggestion" -> upsertWeight(userId, "style", "reject_suggestion", -0.10);
+            // 强负信号：显式点踩，按 metadata 中 tags 更新（若有）
+            case "explicit_dislike" -> {
+                if (metadata != null && metadata.containsKey("tags")) {
+                    @SuppressWarnings("unchecked")
+                    List<String> tags = (List<String>) metadata.getOrDefault("tags", Collections.emptyList());
+                    for (String tag : tags) {
+                        if (StrUtil.isNotBlank(tag)) {
+                            upsertWeight(userId, "style", tag.toLowerCase(), -0.20);
+                        }
+                    }
+                } else {
+                    upsertWeight(userId, "style", "explicit_dislike", -0.20);
+                }
+            }
             case "color_changed" -> {
                 if (metadata == null) break;
                 String from = (String) metadata.get("fromTag");

@@ -1,5 +1,6 @@
 package com.yu.yuaifather.service;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -100,6 +101,45 @@ public class PromptPreferenceExtractor {
      */
     public void extractAndRecordNegative(Long userId, String prompt) {
         extractAndRecordInternal(userId, prompt, true);
+    }
+
+    /**
+     * 异步负反馈提取（P0-残留-1 补全）：对 UNDO/REVERT/EXPLICIT_DISLIKE 等强负信号生效。
+     * <p>
+     * 与 {@link #extractAndRecordNegative} 的区别：
+     * - 异步执行（虚拟线程），不阻塞调用方
+     * - 支持前端传入 tags，若未传则用 LLM 从应用原始需求反推
+     * - 失败仅记日志，不抛异常
+     *
+     * @param userId        用户ID
+     * @param appId         应用ID（用于日志）
+     * @param initPrompt    应用原始需求文本（当 tags 为空时用于 LLM 提取）
+     * @param providedTags  前端传入的负反馈标签（可为 null）
+     */
+    public void extractAndRecordNegativeAsync(Long userId, Long appId,
+                                               String initPrompt, java.util.List<String> providedTags) {
+        if (userId == null) return;
+        Thread.ofVirtual().start(() -> {
+            try {
+                if (providedTags != null && !providedTags.isEmpty()) {
+                    // 前端传了 tags，直接按负权重更新
+                    Set<String> updatedKeys = new LinkedHashSet<>();
+                    for (String tag : providedTags) {
+                        if (tag == null || tag.isBlank()) continue;
+                        String normalizedTag = tag.trim().toLowerCase();
+                        String dedupKey = "style:" + normalizedTag;
+                        if (!updatedKeys.add(dedupKey)) continue;
+                        preferenceUpdateWorker.updateSingleWeight(userId, "style", normalizedTag, -0.20);
+                    }
+                    log.info("[负反馈标签更新] userId={}, appId={}, tags={}", userId, appId, providedTags);
+                } else if (StrUtil.isNotBlank(initPrompt)) {
+                    // 没传 tags，用 LLM 从原始需求文本提取
+                    extractAndRecordNegative(userId, initPrompt);
+                }
+            } catch (Exception e) {
+                log.warn("[负反馈提取失败] userId={}, appId={}", userId, appId, e);
+            }
+        });
     }
 
     /**

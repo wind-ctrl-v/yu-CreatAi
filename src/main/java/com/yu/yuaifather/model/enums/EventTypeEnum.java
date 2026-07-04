@@ -20,7 +20,19 @@ public enum EventTypeEnum {
     LAYOUT_CHANGED("layout_changed", "布局修改"),
     COMPONENT_ADDED("component_added", "组件添加"),
     COMPONENT_REMOVED("component_removed", "组件移除"),
-    FEEDBACK_SUBMITTED("feedback_submitted", "反馈提交");
+    FEEDBACK_SUBMITTED("feedback_submitted", "反馈提交"),
+
+    // ===== 负反馈事件（P0-残留-1 补全） =====
+    /** 用户在编辑器内撤销修改（弱负信号 -0.05） */
+    UNDO("undo", "撤销修改"),
+    /** 用户回退到 AI 原始版本（强负信号 -0.20） */
+    REVERT_TO_GENERATED("revert_to_generated", "回退到AI版本"),
+    /** 生成未完成时用户主动关闭（中负信号 -0.10） */
+    ABANDON("abandon", "中途放弃生成"),
+    /** 用户拒绝 AI 推荐（中负信号 -0.10） */
+    REJECT_SUGGESTION("reject_suggestion", "拒绝AI推荐"),
+    /** 用户显式点踩（强负信号 -0.20） */
+    EXPLICIT_DISLIKE("explicit_dislike", "显式点踩");
 
     private final String value;
     private final String text;

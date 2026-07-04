@@ -149,9 +149,10 @@ public class AppController {
         }
         boolean result = appService.removeById(id);
 
-        // 删除 = 用户对该应用设计不满意 → 记录 page_deleted 负反馈事件（P0-2）
+        // 删除 = 用户对该应用设计不满意 → 记录 page_deleted 负反馈事件（P0-2 + N-3 边界控制）
         if (result) {
-            appBehaviorService.recordPageDeletedEvent(loginUser.getId(), id, oldApp.getInitPrompt());
+            appBehaviorService.recordPageDeletedEvent(loginUser.getId(), id, oldApp.getInitPrompt(),
+                    deleteRequest.getDeleteReason());
         }
         return ResultUtils.success(result);
     }

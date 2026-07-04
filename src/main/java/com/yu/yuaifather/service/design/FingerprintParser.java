@@ -25,6 +25,22 @@ public class FingerprintParser {
     private static final double W_ANTIPATTERN = 0.2;
     private static final double W_SOURCE_TRUST = 0.2;
 
+    /**
+     * 系统禁用模式关键词清单（来自 {@link DesignLintChecker} 的 P_* 常量）。
+     * <p>
+     * 用于反模式质量判定：如果指纹的 antiPatterns 命中这些禁用模式，
+     * 说明指纹本身就在描述系统禁止的写法，应严重扣分。
+     */
+    private static final List<String> SYSTEM_FORBIDDEN_PATTERNS = List.of(
+            "backdrop-filter",
+            "decorative-gradient",
+            "hardcoded-px",
+            "overscale-hover",
+            "hardcoded-color",
+            "dangling-var",
+            "missing-global-style-import"
+    );
+
     public DesignFingerprintDTO parse(String raw) {
         DesignFingerprintDTO dto = JsonExtractor.parse(raw, DesignFingerprintDTO.class);
         if (StrUtil.isBlank(dto.getSchemaVersion())) {
@@ -83,14 +99,39 @@ public class FingerprintParser {
         if (dto.getTone() != null && !dto.getTone().isEmpty()) filled++;
         double nonEmptyRate = (double) filled / total;
 
-        double antiPatternSignal = (dto.getAntiPatterns() != null && !dto.getAntiPatterns().isEmpty()) ? 1.0 : 0.3;
+        // ★ P0-残留-4 修复：antiPatternSignal → antiPatternQuality
+        // 旧公式：有反模式=1.0，无=0.3（问题：鼓励 LLM 编造反模式刷分，且"无=粗糙"语义过强）
+        // 新公式：区分"未填写/合法填写/命中禁用"三态
+        double antiPatternQuality = calculateAntiPatternQuality(dto);
         double sourceTrust = trusted ? 1.0 : 0.6;
 
         double score = W_SCHEMA_COMPLETE * schemaComplete
                 + W_FIELD_NONEMPTY * nonEmptyRate
-                + W_ANTIPATTERN * antiPatternSignal
+                + W_ANTIPATTERN * antiPatternQuality
                 + W_SOURCE_TRUST * sourceTrust;
         return Math.max(0, Math.min(1, Math.round(score * 100) / 100.0));
+    }
+
+    /**
+     * 计算反模式质量分（P0-残留-4 修复）。
+     * <p>
+     * 三态判定：
+     * <ul>
+     *   <li>antiPatterns 为空/null → 0.7（提炼简单但合法，不惩罚也不奖励）</li>
+     *   <li>antiPatterns 非空且不命中系统禁用模式 → 1.0（提炼细致，奖励）</li>
+     *   <li>antiPatterns 命中系统禁用模式 → 0.2（指纹自身就有问题，严重扣分）</li>
+     * </ul>
+     */
+    private double calculateAntiPatternQuality(DesignFingerprintDTO dto) {
+        List<String> antiPatterns = dto.getAntiPatterns();
+        if (antiPatterns == null || antiPatterns.isEmpty()) {
+            return 0.7;  // 未填写反模式：视为提炼简单但合法
+        }
+        // 检查是否命中系统禁用模式
+        boolean hitForbidden = antiPatterns.stream()
+                .anyMatch(p -> p != null && SYSTEM_FORBIDDEN_PATTERNS.stream()
+                        .anyMatch(f -> p.toLowerCase().contains(f.toLowerCase())));
+        return hitForbidden ? 0.2 : 1.0;
     }
 
     public String signature(DesignFingerprintDTO dto) {
