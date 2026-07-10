@@ -14,10 +14,20 @@ import org.springframework.context.annotation.Configuration;
 @Data
 public class ImageProperties {
 
+    private Pixabay pixabay = new Pixabay();
     private Unsplash unsplash = new Unsplash();
     private Pexels pexels = new Pexels();
     private Fallback fallback = new Fallback();
     private Replace replace = new Replace();
+
+    @Data
+    public static class Pixabay {
+        /** API key（通过环境变量 PIXABAY_API_KEY 注入）。 */
+        private String apiKey;
+        private String baseUrl = "https://pixabay.com/api";
+        /** 请求超时（毫秒）。 */
+        private int timeoutMs = 5000;
+    }
 
     @Data
     public static class Unsplash {

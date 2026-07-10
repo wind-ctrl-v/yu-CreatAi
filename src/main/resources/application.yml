@@ -59,6 +59,11 @@ knife4j:
 
 # 图片服务配置：所有 API Key 通过环境变量注入，禁止在此明文写入
 image:
+  # 首选搜图源：Pixabay（国内访问友好，key 作为 URL 查询参数）
+  pixabay:
+    api-key: ${PIXABAY_API_KEY:}
+    base-url: https://pixabay.com/api
+    timeout-ms: 5000
   unsplash:
     access-key: ${UNSPLASH_ACCESS_KEY:}
     base-url: https://api.unsplash.com
