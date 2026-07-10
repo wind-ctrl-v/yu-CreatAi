@@ -82,11 +82,23 @@ public class StyleAgent implements Agent {
                     }
                 }
                 String raw = agentAiService.generateStyleSheets(input.toString());
-                JsonNode node = JsonExtractor.mapper().readTree(JsonExtractor.extract(raw));
-                String variables = node.path("variables_css").asText("");
-                String global = node.path("global_css").asText("");
+                String variables = "";
+                String global = "";
+                try {
+                    String jsonText = JsonExtractor.extract(raw);
+                    if (jsonText != null) {
+                        JsonNode node = JsonExtractor.mapper().readTree(jsonText);
+                        variables = node.path("variables_css").asText("");
+                        global = node.path("global_css").asText("");
+                    }
+                } catch (Exception parseEx) {
+                    log.warn("StyleAgent JSON 解析失败，使用空样式降级: appId={} err={}", ctx.getAppId(), parseEx.getMessage());
+                }
                 if (StrUtil.isBlank(variables) || StrUtil.isBlank(global)) {
-                    throw new IllegalStateException("StyleAgent 输出缺少 variables_css 或 global_css");
+                    log.warn("StyleAgent 输出缺少 variables_css 或 global_css，使用空样式降级: appId={}", ctx.getAppId());
+                    sink.next(AgentEvent.status(AGENT_NAME, "样式生成降级（空样式）"));
+                    sink.complete();
+                    return;
                 }
                 Path projectRoot = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR,
                         "vue_project_" + ctx.getAppId()).toAbsolutePath().normalize();

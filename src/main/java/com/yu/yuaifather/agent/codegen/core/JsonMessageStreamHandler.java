@@ -75,8 +75,14 @@ public class JsonMessageStreamHandler {
      * @return 返回处理后的消息内容，用于显示或进一步处理
      */
     private String handleJsonMessageChunk(String chunk, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
-        // 解析 JSON 消息块为 StreamMessage 对象
-        StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
+        // 解析 JSON 消息块为 StreamMessage 对象（容错：解析失败时静默返回空）
+        StreamMessage streamMessage;
+        try {
+            streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
+        } catch (Exception e) {
+            log.warn("StreamMessage 解析失败，丢弃本块: chunk_head={} err={}", StrUtil.subPre(chunk, 200), e.getMessage());
+            return "";
+        }
         // 根据消息类型获取对应的枚举值
         StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
         // 根据不同的消息类型进行相应的处理
@@ -110,7 +116,15 @@ public class JsonMessageStreamHandler {
             case TOOL_EXECUTED -> {
                 ToolExecutedMessage toolExecutedMessage = JSONUtil.toBean(chunk, ToolExecutedMessage.class);
                 String toolName = toolExecutedMessage.getName();
-                JSONObject jsonObject = JSONUtil.parseObj(toolExecutedMessage.getArguments());
+                JSONObject jsonObject = null;
+                try {
+                    jsonObject = JSONUtil.parseObj(toolExecutedMessage.getArguments());
+                } catch (Exception e) {
+                    log.warn("工具参数 JSON 解析失败，使用空对象降级: err={}", e.getMessage());
+                }
+                if (jsonObject == null) {
+                    jsonObject = new JSONObject();
+                }
                 //根据工具名称获取工具实例并生成相应的结果格式
                 BaseTool tool = toolManager.getTool(toolName);
                 String result = tool.generateToolExecutedResult(jsonObject);

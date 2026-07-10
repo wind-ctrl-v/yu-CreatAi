@@ -1,6 +1,9 @@
 ### CUSTOM ###
 application-local.yml
 tmp/
+stdout.log
+compile_out.txt
+cookies.txt
 
 HELP.md
 target/

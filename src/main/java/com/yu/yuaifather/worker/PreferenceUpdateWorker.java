@@ -356,9 +356,10 @@ public class PreferenceUpdateWorker {
                     .reduce((a, b) -> a + "、" + b).orElse(""));
         }
 
-        if (!sb.isEmpty()) {
-            UserDesignProfile profile = profileMapper.selectOneByQuery(
-                    new QueryWrapper().eq("user_id", userId));
+        try {
+            if (!sb.isEmpty()) {
+                UserDesignProfile profile = profileMapper.selectOneByQuery(
+                        new QueryWrapper().eq("user_id", userId));
                 if (profile != null) {
                     UserDesignProfile update = new UserDesignProfile();
                     update.setId(profile.getId());
