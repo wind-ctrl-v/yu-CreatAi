@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 图片搜索引擎：Unsplash → Pexels → picsum 兜底。
+ * 图片搜索引擎：Pixabay → Unsplash → Pexels → picsum 兜底。
  * <p>
  * 原名 ImageSearchTool，重命名为 ImageSearchEngine 以区别于 tool/system/ImageSearchTool（System Tool 包装层）。
  * <p>
@@ -37,6 +37,8 @@ import java.util.concurrent.TimeUnit;
 public class ImageSearchEngine {
 
     private static final Set<String> HOST_WHITELIST = Set.of(
+            "pixabay.com",
+            "cdn.pixabay.com",
             "images.unsplash.com",
             "images.pexels.com",
             "source.unsplash.com",
@@ -77,6 +79,10 @@ public class ImageSearchEngine {
 
     private String doSearch(String keyword) {
         String url;
+        url = searchPixabay(keyword);
+        if (isSafe(url)) {
+            return url;
+        }
         url = searchUnsplash(keyword);
         if (isSafe(url)) {
             return url;
@@ -86,6 +92,43 @@ public class ImageSearchEngine {
             return url;
         }
         return picsumFallback(keyword);
+    }
+
+    /**
+     * Pixabay 搜图（首选源）。
+     * <p>
+     * 注意：key 作为 URL 查询参数传递；per_page 最小值为 3，取首条结果。
+     */
+    private String searchPixabay(String keyword) {
+        String apiKey = properties.getPixabay().getApiKey();
+        if (StrUtil.isBlank(apiKey)) {
+            log.debug("Pixabay api key 未配置，跳过");
+            return null;
+        }
+        String api = properties.getPixabay().getBaseUrl()
+                + "/?key=" + cn.hutool.core.net.URLEncodeUtil.encodeQuery(apiKey)
+                + "&image_type=photo&safesearch=true&per_page=3&q="
+                + cn.hutool.core.net.URLEncodeUtil.encodeQuery(keyword);
+        try (HttpResponse resp = HttpRequest.get(api)
+                .timeout(properties.getPixabay().getTimeoutMs())
+                .execute()) {
+            if (!resp.isOk()) {
+                log.warn("Pixabay 搜图失败 status={} keyword={}", resp.getStatus(), keyword);
+                return null;
+            }
+            JSONObject json = JSONUtil.parseObj(resp.body());
+            JSONArray hits = json.getJSONArray("hits");
+            if (hits == null || hits.isEmpty()) {
+                return null;
+            }
+            JSONObject hit = hits.getJSONObject(0);
+            // 优先大图，回退到 webformat
+            String url = hit.getStr("largeImageURL");
+            return StrUtil.isBlank(url) ? hit.getStr("webformatURL") : url;
+        } catch (Exception e) {
+            log.warn("Pixabay 搜图异常 keyword={} msg={}", keyword, e.getMessage());
+            return null;
+        }
     }
 
     private String searchUnsplash(String keyword) {
