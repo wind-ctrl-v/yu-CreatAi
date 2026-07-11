@@ -103,7 +103,10 @@ const router = createRouter({
 - 文本内容：使用真实、有意义的中文内容
 - 图片资源：所有图片 src 必须使用语义化占位标记，格式为 `@@IMG:英文搜索关键词@@`
   例如：`<img src="@@IMG:coffee shop interior warm light@@" alt="咖啡厅内景">`
-  关键词要求：3-6 个英文单词，准确描述图片内容与风格（如 photo / illustration / minimal）。
+  关键词要求：3-6 个英文单词，遵循「具体主体 + 场景/细节 + 风格」结构，只能使用英文，禁止中文和标点。
+  - 正例：`fresh strawberry cake closeup`、`developer coding laptop office`、`minimal blue dashboard ui`
+  - 反例（过泛，会导致图文不符，禁止）：`business`、`technology`、`food`、`nice image`
+  关键词必须与该图片所在区块的真实语义一致（hero/产品/团队/背景各不相同），不要多处复用同一泛化关键词。
   禁止使用 picsum / placeholder 等任意随机或固定 URL，
   运行时系统会自动将占位符替换为语义匹配的真实图片。
 - 示例数据：提供真实场景的模拟数据，便于演示

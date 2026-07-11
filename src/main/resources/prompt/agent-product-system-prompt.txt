@@ -39,7 +39,7 @@
 - `coreFeatures`：3-6 项，按用户价值排序，避免技术名词。
 - `colorTheme`：必须给出有视觉和谐感的颜色组合（HEX），符合项目调性。
 - `imageNeeds[].slotId`：命名规范 `img_{位置}_{序号}`，例如 `img_hero_1` / `img_feature_2`。
-- `imageNeeds[].keyword`：3-6 个英文单词，准确描述图片内容与风格，禁止中文。
+- `imageNeeds[].keyword`：3-6 个英文单词，遵循「具体主体 + 场景/细节 + 风格」结构，禁止中文与标点；禁止 `business`/`technology`/`food` 这类过泛词（会导致图文不符）。正例：`fresh strawberry cake closeup`、`minimal blue dashboard ui`。
 - 不要编造用户未提到的复杂业务功能。
 
 ## 约束强化

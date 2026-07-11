@@ -76,6 +76,13 @@ image:
     # 搜图无结果时是否启用文生图兜底（默认关闭，避免额外费用）
     enabled: ${IMAGE_FALLBACK_ENABLED:false}
     picsum-url: https://picsum.photos/seed/{seed}/1200/800
+    # 文生图兜底（OpenAI 兼容 /images/generations），仅 enabled=true 且配置 api-key 时生效
+    base-url: ${IMAGE_TEXT2IMG_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
+    api-key: ${IMAGE_TEXT2IMG_API_KEY:}
+    model: ${IMAGE_TEXT2IMG_MODEL:cogview-3-flash}
+    size: 1024x1024
+    timeout-ms: 30000
+    max-bytes: 20971520
   replace:
     concurrency: 4
     cache-ttl-seconds: 3600
@@ -84,6 +91,11 @@ image:
 app:
   deploy:
     base-url: ${APP_DEPLOY_BASE_URL:http://localhost:8123/api/static}
+
+# 代码生成 / 静态资源根目录（StaticResourceController 与文生图本地存储共用；
+# 默认与 AppConstant.CODE_OUTPUT_ROOT_DIR 一致）
+code:
+  output-root-dir: ${CODE_OUTPUT_ROOT_DIR:${user.dir}/tmp/code_output}
 
 # 多 Agent 编排开关
 agent:

@@ -326,6 +326,7 @@ public class PreferenceUpdateWorker {
      * 执行 profileSummary 刷新（内部方法，已异步化）。
      */
     private void doRefreshProfileSummary(Long userId) {
+        try {
         // 查询 Top-5 正权重标签
         QueryWrapper topQuery = new QueryWrapper()
                 .eq("user_id", userId)

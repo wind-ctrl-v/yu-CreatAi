@@ -223,11 +223,15 @@ Vite 已配置代理，`/api` 请求自动转发到后端 `localhost:8123`，无
 | `REDIS_PASSWORD` | Redis 密码 | 空 |
 | `UNSPLASH_ACCESS_KEY` | Unsplash 搜图 API Key | 空（跳过该提供商） |
 | `PEXELS_API_KEY` | Pexels 搜图 API Key | 空（跳过该提供商） |
+| `PIXABAY_API_KEY` | Pixabay 搜图 API Key（首选搜图源） | 空（跳过该提供商） |
 | `APP_DEPLOY_BASE_URL` | 部署访问基础 URL | `http://localhost:8123/api/static` |
 | `CORS_ALLOWED_ORIGINS` | 跨域允许来源（逗号分隔）| `http://localhost:5173,...` |
 | `AGENT_ORCHESTRATOR_ENABLED` | 启用多 Agent 流水线 | `false` |
 | `AGENT_DEPLOY_ENABLED` | 启用 DeployAgent 自动构建上传 | `false` |
 | `IMAGE_FALLBACK_ENABLED` | 搜图无结果时启用文生图兜底 | `false` |
+| `IMAGE_TEXT2IMG_BASE_URL` | 文生图端点（OpenAI 兼容 /images/generations） | `https://open.bigmodel.cn/api/paas/v4` |
+| `IMAGE_TEXT2IMG_API_KEY` | 文生图服务 API Key（启用兜底时必填） | 空（禁用文生图） |
+| `IMAGE_TEXT2IMG_MODEL` | 文生图模型名 | `cogview-3-flash` |
 
 ---
 
