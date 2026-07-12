@@ -169,7 +169,26 @@ public class TextToImageEngine {
      * 把英文关键词扩展为更完整的文生图提示词，提高画面质量与语义贴合度。
      */
     private String buildPrompt(String keyword) {
-        return keyword + ", high quality, professional, clean composition, realistic lighting";
+        String k = keyword.toLowerCase();
+        if (k.contains("dashboard") || k.contains("ui ") || k.contains("interface") || k.contains("admin") || k.contains("panel")) {
+            return keyword + ", modern UI design, clean interface, professional dashboard, high quality, screenshot, 4k";
+        }
+        if (k.contains("product") || k.contains("device") || k.contains("phone") || k.contains("laptop") || k.contains("bottle") || k.contains("package") || k.contains("shoe")) {
+            return keyword + ", product photography, studio lighting, clean white background, high detail, professional, 4k";
+        }
+        if (k.contains("person") || k.contains("team") || k.contains("people") || k.contains("portrait") || k.contains("avatar") || k.contains("user")) {
+            return keyword + ", professional portrait, natural lighting, high quality, realistic, sharp focus";
+        }
+        if (k.contains("landscape") || k.contains("nature") || k.contains("city") || k.contains("building") || k.contains("mountain") || k.contains("sky")) {
+            return keyword + ", landscape photography, golden hour, high resolution, scenic, professional, 4k";
+        }
+        if (k.contains("food") || k.contains("cake") || k.contains("coffee") || k.contains("dish") || k.contains("restaurant") || k.contains("fruit")) {
+            return keyword + ", food photography, appetizing, warm lighting, shallow depth of field, professional, top-down";
+        }
+        if (k.contains("office") || k.contains("workspace") || k.contains("room") || k.contains("interior")) {
+            return keyword + ", interior photography, wide angle, natural light, professional, architectural, 4k";
+        }
+        return keyword + ", high quality, professional, clean composition, realistic lighting, 4k";
     }
 
     /**

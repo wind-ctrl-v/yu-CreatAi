@@ -54,6 +54,12 @@ public class ImageSearchEngine {
 
     private Cache<String, String> cache;
 
+    // Pixabay 熔断：连续失败后短时间内跳过，避免网络不可达时每次搜图都等超时
+    private static final int PIXABAY_FAILURE_THRESHOLD = 3;
+    private static final long PIXABAY_CIRCUIT_OPEN_MS = 60_000;
+    private final java.util.concurrent.atomic.AtomicInteger pixabayFailures = new java.util.concurrent.atomic.AtomicInteger(0);
+    private volatile long pixabayCircuitOpenUntil = 0;
+
     @Autowired
     public ImageSearchEngine(ImageProperties properties, TextToImageEngine textToImageEngine) {
         this.properties = properties;
@@ -159,6 +165,11 @@ public class ImageSearchEngine {
      * 注意：key 作为 URL 查询参数传递；per_page 最小值为 3，取首条结果。
      */
     private String searchPixabay(String keyword) {
+        // 熔断检查：连续失败后短时间内跳过，避免每次都等超时
+        if (System.currentTimeMillis() < pixabayCircuitOpenUntil) {
+            log.debug("Pixabay 熔断中，跳过");
+            return null;
+        }
         String apiKey = properties.getPixabay().getApiKey();
         if (StrUtil.isBlank(apiKey)) {
             log.debug("Pixabay api key 未配置，跳过");
@@ -166,13 +177,14 @@ public class ImageSearchEngine {
         }
         String api = properties.getPixabay().getBaseUrl()
                 + "/?key=" + cn.hutool.core.net.URLEncodeUtil.encodeQuery(apiKey)
-                + "&image_type=photo&safesearch=true&per_page=3&q="
+                + "&image_type=photo&safesearch=true&per_page=5&order=popular&orientation=horizontal&q="
                 + cn.hutool.core.net.URLEncodeUtil.encodeQuery(keyword);
         try (HttpResponse resp = HttpRequest.get(api)
                 .timeout(properties.getPixabay().getTimeoutMs())
                 .execute()) {
             if (!resp.isOk()) {
                 log.warn("Pixabay 搜图失败 status={} keyword={}", resp.getStatus(), keyword);
+                onPixabayFailure();
                 return null;
             }
             JSONObject json = JSONUtil.parseObj(resp.body());
@@ -181,12 +193,25 @@ public class ImageSearchEngine {
                 return null;
             }
             JSONObject hit = hits.getJSONObject(0);
-            // 优先大图，回退到 webformat
             String url = hit.getStr("largeImageURL");
-            return StrUtil.isBlank(url) ? hit.getStr("webformatURL") : url;
+            url = StrUtil.isBlank(url) ? hit.getStr("webformatURL") : url;
+            if (StrUtil.isNotBlank(url)) {
+                pixabayFailures.set(0);
+            }
+            return url;
         } catch (Exception e) {
             log.warn("Pixabay 搜图异常 keyword={} msg={}", keyword, e.getMessage());
+            onPixabayFailure();
             return null;
+        }
+    }
+
+    /** Pixabay 失败计数 + 熔断判定 */
+    private void onPixabayFailure() {
+        if (pixabayFailures.incrementAndGet() >= PIXABAY_FAILURE_THRESHOLD) {
+            pixabayCircuitOpenUntil = System.currentTimeMillis() + PIXABAY_CIRCUIT_OPEN_MS;
+            pixabayFailures.set(0);
+            log.warn("Pixabay 连续失败达 {} 次，熔断 {} 秒", PIXABAY_FAILURE_THRESHOLD, PIXABAY_CIRCUIT_OPEN_MS / 1000);
         }
     }
 
