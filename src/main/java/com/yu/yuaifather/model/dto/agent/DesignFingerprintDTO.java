@@ -36,7 +36,7 @@ public class DesignFingerprintDTO {
     /** schema 版本，例如 v1。读时按版本路由（见计划 2.2.1）。 */
     private String schemaVersion;
 
-    /** 风格画像：startup / enterprise / ecommerce / portfolio / dashboard / landing / default。 */
+    /** 风格画像：startup / enterprise / ecommerce / portfolio / dashboard / landing / marketing / education / blog / default。 */
     private String styleProfile;
 
     /** 来源类型：固定 EXTRACTED_FINGERPRINT。 */

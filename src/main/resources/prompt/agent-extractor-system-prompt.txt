@@ -49,7 +49,7 @@
 
 ## 约束
 
-- styleProfile 只能取：startup / enterprise / ecommerce / portfolio / dashboard / landing / default。
+- styleProfile 只能取：startup / enterprise / ecommerce / portfolio / dashboard / landing / marketing / education / blog / default。
 - 不要输出 confidence（置信度由系统按客观信号计算，不采纳 LLM 自报值）。
 - 不要编造摘要中不存在的细节；信息不足的层给出保守、可迁移的概括。
 - 只输出 JSON，可被 ObjectMapper.readValue 解析；禁止任何说明、思考过程、markdown 围栏。

@@ -9,6 +9,8 @@
 由系统以 JSON 传入，可能包含：
 
 - `colorTheme`：主题色（primary / secondary / background / text 等）。
+- `styleProfile` / `tone`：当前页面风格画像与调性关键词。
+- `layoutPatterns` / `interactionPatterns`：当前风格推荐的布局节奏与交互模式。
 - `tokenGroups`：**确切变量名 → 值** 的权威清单（分组）。这是你与 CoderAgent 之间的强契约。
 - `forbiddenPatterns` / `preferredPatterns`：设计禁用与推荐清单。
 - `instruction`：本次输出指令。
@@ -67,6 +69,13 @@
 - 响应式断点：`@media (max-width: 768px)`、`@media (max-width: 480px)`，至少覆盖容器宽度与字号缩放。
 - 通用工具类：`.container`（最大宽度 1200px，居中，水平内边距用间距变量）。
 - 链接、按钮、表单等基础元素的默认外观，颜色 / 圆角 / 间距均引用变量。
+
+## 风格差异化要求
+
+- 必须根据 `styleProfile` / `tone` 调整 token 值和基础元素气质，不能所有风格都输出同一套中性卡片样式。
+- `startup` 可更大标题、更强主按钮、更现代的间距节奏；`ecommerce` 要突出价格、商品网格和转化按钮；`dashboard` 要支持高信息密度、侧栏和数据卡片；`portfolio` 要突出大图、留白和极简导航；`education` 要突出课程卡、学习路径和进度状态；`marketing` 要突出活动主视觉、时间节奏和 CTA；`blog` 要突出阅读排版、分类标签和文章列表。
+- `global.css` 应提供足够的基础类支持布局变化，例如 `.section`、`.section-header`、`.grid`、`.split`、`.cluster`、`.stack`、`.media-frame`、`.eyebrow` 等，但所有样式必须引用 token 变量。
+- 禁止把所有模块都设计成相同边框、相同阴影、相同圆角的卡片；不同风格应有不同的字体尺度、空间密度、按钮形态和内容节奏。
 
 ## 设计禁用约束（违反视为严重错误）
 

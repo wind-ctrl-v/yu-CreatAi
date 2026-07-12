@@ -21,10 +21,11 @@ import java.util.regex.Pattern;
  * DesignProfileResolver：阶段一「先验规则」的零 LLM 解析器。
  * <p>
  * 职责：
- * <ol>
- *   <li>把 ArchitectAgent 识别出的 {@code styleProfile} + 置信度，按白名单与阈值归一化为合法 profile
- *       （未知 / 低置信 → {@code default}，见计划 1.2.1）；</li>
- *   <li>从 classpath 固定白名单文件 {@code skill/designs/{profile}.md} 读取并解析为结构化 {@link DesignSpec}；</li>
+     * <ol>
+     *   <li>把 ArchitectAgent 识别出的 {@code styleProfile} + 置信度，按白名单归一化为合法 profile
+     *       （未知 → {@code default}；低置信白名单风格保留并记录日志）；</li>
+     *   <li>从 classpath 固定白名单文件 {@code skill/designs/{profile}.md} 读取并解析为结构化 {@link DesignSpec}；</li>
+
  *   <li>读取失败时回退到内置默认规范，保证 tokenGroups 强契约始终存在。</li>
  * </ol>
  *
@@ -38,9 +39,10 @@ public class DesignProfileResolver {
     public static final String DEFAULT_PROFILE = "default";
 
     private static final Set<String> PROFILE_WHITELIST = Set.of(
-            "startup", "enterprise", "ecommerce", "portfolio", "dashboard", "landing", DEFAULT_PROFILE);
+            "startup", "enterprise", "ecommerce", "portfolio", "dashboard", "landing",
+            "marketing", "education", "blog", DEFAULT_PROFILE);
 
-    private static final double CONFIDENCE_THRESHOLD = 0.6;
+    private static final double CONFIDENCE_THRESHOLD = 0.45;
 
     private static final int DEFAULT_PRIORITY = 50;
 
@@ -57,9 +59,9 @@ public class DesignProfileResolver {
             log.info("styleProfile 不在白名单，归 default：raw={}", rawProfile);
             return DEFAULT_PROFILE;
         }
-        if (confidence == null || confidence < CONFIDENCE_THRESHOLD) {
-            log.info("styleProfile 置信度过低（{}<{}），归 default：raw={}", confidence, CONFIDENCE_THRESHOLD, rawProfile);
-            return DEFAULT_PROFILE;
+        if (confidence != null && confidence < CONFIDENCE_THRESHOLD) {
+            log.info("styleProfile 置信度偏低（{}<{}），但保留白名单风格以增强视觉差异：raw={} normalized={}",
+                    confidence, CONFIDENCE_THRESHOLD, rawProfile, p);
         }
         return p;
     }

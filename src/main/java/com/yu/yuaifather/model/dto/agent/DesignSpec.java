@@ -36,7 +36,7 @@ public class DesignSpec {
     /** schema 版本，例如 v1。 */
     private String schemaVersion;
 
-    /** 风格画像：startup / enterprise / ecommerce / portfolio / dashboard / landing / default。 */
+    /** 风格画像：startup / enterprise / ecommerce / portfolio / dashboard / landing / marketing / education / blog / default。 */
     private String styleProfile;
 
     /** 来源类型：STATIC_MD / EXTRACTED_FINGERPRINT / RETRIEVED / DEFAULT。 */

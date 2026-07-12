@@ -60,11 +60,15 @@ public class StyleAgent implements Agent {
                 // 强契约：把 DesignSpec.tokenGroups 作为「确切变量名 → 值」清单注入，
                 //         要求 StyleAgent 逐一原样输出这些 --xxx 变量名（见计划 1.5.1 #1）
                 if (designSpec != null && designSpec.getTokenGroups() != null && !designSpec.getTokenGroups().isEmpty()) {
+                    input.put("styleProfile", designSpec.getStyleProfile());
+                    input.set("tone", JsonExtractor.mapper().valueToTree(designSpec.getTone()));
+                    input.set("layoutPatterns", JsonExtractor.mapper().valueToTree(designSpec.getLayoutPatterns()));
+                    input.set("interactionPatterns", JsonExtractor.mapper().valueToTree(designSpec.getInteractionPatterns()));
                     input.set("tokenGroups", JsonExtractor.mapper().valueToTree(designSpec.getTokenGroups()));
                     input.set("forbiddenPatterns", JsonExtractor.mapper().valueToTree(designSpec.getForbiddenPatterns()));
                     input.set("preferredPatterns", JsonExtractor.mapper().valueToTree(designSpec.getPreferredPatterns()));
                     input.put("instruction", "请严格按 tokenGroups 给出的【确切变量名】在 variables.css 的 :root 中逐一定义（变量名必须与清单完全一致，不得改名/增删），"
-                            + "值可结合 colorTheme 微调；global.css 只能引用这些变量。输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
+                            + "值需结合 styleProfile/tone/colorTheme 做风格化微调；global.css 只能引用这些变量，并体现布局节奏差异。输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
                 } else {
                     input.put("instruction", "请输出 JSON：{\"variables_css\":\"...\", \"global_css\":\"...\"}");
                 }

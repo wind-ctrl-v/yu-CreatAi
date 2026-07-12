@@ -223,25 +223,36 @@ public class CoderAgent implements Agent {
         if (designSpec == null) {
             return;
         }
-        List<String> forbidden = designSpec.getForbiddenPatterns();
+        List<String> tone = designSpec.getTone();
+        List<String> layout = designSpec.getLayoutPatterns();
         List<String> preferred = designSpec.getPreferredPatterns();
-        if ((forbidden == null || forbidden.isEmpty()) && (preferred == null || preferred.isEmpty())) {
+        List<String> interaction = designSpec.getInteractionPatterns();
+        List<String> forbidden = designSpec.getForbiddenPatterns();
+        if ((tone == null || tone.isEmpty())
+                && (layout == null || layout.isEmpty())
+                && (preferred == null || preferred.isEmpty())
+                && (interaction == null || interaction.isEmpty())
+                && (forbidden == null || forbidden.isEmpty())) {
             return;
         }
         sb.append("## 强制设计规范（以下为设计约束，不是用户需求，违反视为严重错误）\n");
         sb.append("说明：以下禁用规则优先级【高于】一般用户需求；仅当用户在需求中明确点名某一禁用项时，才放行该一项，其余禁用项仍然生效。\n");
+        sb.append("当前风格画像：").append(nullToEmpty(designSpec.getStyleProfile())).append("\n");
+        appendBullets(sb, "视觉调性", tone);
+        appendBullets(sb, "布局骨架", layout);
+        appendBullets(sb, "组件/推荐", preferred);
+        appendBullets(sb, "交互动效", interaction);
         if (forbidden != null && !forbidden.isEmpty()) {
             sb.append("【禁用】\n");
             for (String item : forbidden) {
                 sb.append("- ").append(item).append("\n");
             }
         }
-        if (preferred != null && !preferred.isEmpty()) {
-            sb.append("【推荐】\n");
-            for (String item : preferred) {
-                sb.append("- ").append(item).append("\n");
-            }
-        }
+        sb.append("【多样性硬约束】\n");
+        sb.append("- 禁止所有页面都套用固定的“顶部导航 + 居中 Hero + 三栏卡片 + Footer”模板，除非布局骨架明确要求。\n");
+        sb.append("- 首页至少使用 2 种不同的信息组织方式，例如左右分屏、非对称网格、步骤时间线、横向统计带、榜单/列表、沉浸式展示区等。\n");
+        sb.append("- 页面区块之间必须体现层级节奏变化：至少包含 1 个强视觉焦点区、1 个信息密度较高区、1 个轻量说明区。\n");
+        sb.append("- 组件样式不能只依赖相同圆角卡片；应根据当前风格画像选择差异化的导航、卡片、CTA、列表、表单和媒体布局。\n");
         sb.append("\n");
     }
 

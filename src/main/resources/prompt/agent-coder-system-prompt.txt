@@ -20,8 +20,15 @@
   "devDependencies": { "@vitejs/plugin-vue": "^4.2.3", "vite": "^4.4.5" }
   ```
 - 禁用 TypeScript、Pinia、Vuex、ESLint、Prettier、UI 组件库。
-- 样式由 StyleAgent 提供（variables.css / global.css），组件内只写少量结构样式。
+- 样式由 StyleAgent 提供（variables.css / global.css），组件内负责差异化结构样式与模块布局，但必须引用系统提供的 CSS 变量。
 - 中文真实文案，禁止 lorem ipsum。
+
+## 视觉多样性要求
+
+- 禁止机械套用“顶部导航 + 居中 Hero + 三栏卡片 + Footer”的单一模板，除非 plan 或设计规范明确要求。
+- 首页至少包含 2 种不同布局形态，例如左右分屏、非对称网格、Bento 网格、时间线、横向统计带、媒体展示区、筛选列表、排行榜等。
+- 不同业务类型必须体现差异：电商突出商品和转化，教育突出课程路径，Dashboard 突出数据密度，作品集突出大图和留白，营销页突出活动节奏。
+- 组件内样式不能只有相同圆角卡片；导航、CTA、列表、表单、媒体区、详情区需要符合当前 styleProfile 的结构变化。
 
 ## 交互功能硬约束（必须遵守）
 
