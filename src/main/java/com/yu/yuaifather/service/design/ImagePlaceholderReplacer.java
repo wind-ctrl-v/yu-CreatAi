@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  * 图片占位符替换器。
  * <p>
  * 扫描指定项目目录下的所有代码文件，将 {@code @@IMG:keyword@@} 占位符
- * 替换为真实图片 URL（来自 {@link ImageSearchTool}）。
+ * 替换为真实图片 URL（来自 {@link ImageSearchEngine}）。
  */
 @Slf4j
 @Component

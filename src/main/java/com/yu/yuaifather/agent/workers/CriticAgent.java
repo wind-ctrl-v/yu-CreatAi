@@ -70,7 +70,7 @@ public class CriticAgent implements Agent {
             "src/styles/global.css"
     };
 
-    private static final Pattern IMG_PLACEHOLDER = Pattern.compile("\\{\\{IMG:[^{}]+}}");
+    private static final Pattern IMG_PLACEHOLDER = Pattern.compile("@@IMG:[^@]+?@@|\\{\\{IMG:[^{}]+}}");
 
     private final AgentAiService agentAiService;
     private final DesignLintChecker designLintChecker;
@@ -221,7 +221,7 @@ public class CriticAgent implements Agent {
             }
         }
 
-        // 占位符残留检查：扫描文本代码文件中未替换的 {{IMG:...}}
+        // 占位符残留检查：扫描文本代码文件中未替换的 @@IMG:...@@（兼容旧 {{IMG:...}}）
         Collection<File> files = FileUtil.loopFiles(root.toFile(), f -> {
             String ext = FileUtil.extName(f);
             return ext != null && (ext.equalsIgnoreCase("vue") || ext.equalsIgnoreCase("html")
@@ -259,9 +259,9 @@ public class CriticAgent implements Agent {
     /**
      * 把 DesignLintChecker 的确定性命中合并为结构化 issues 并回填到 report。
      * <p>
-     * 全部归类为 {@code category="style"}，便于 OrchestratorAgent 路由到 StyleAgent/CoderAgent 修复：
+     * 按可修复归属归类为 {@code category="code"} / {@code category="style"}，便于 OrchestratorAgent 路由修复：
      * <ul>
-     *   <li>缺少全局样式 import / 悬空变量 → P0，且强制 {@code passed=false}；</li>
+     *   <li>缺少全局样式 import / 组件悬空变量 → P0，且强制 {@code passed=false}；</li>
      *   <li>毛玻璃 / 装饰渐变 / 硬编码 px / 硬编码颜色 / 浮夸 scale → P1，记录但不单独强制失败
      *       （由 LLM 评分与累计决定，避免轻微命中即反复重试）。</li>
      * </ul>
@@ -284,9 +284,10 @@ public class CriticAgent implements Agent {
                     .filter(h -> h.getPattern().equals(pattern))
                     .map(DesignLintChecker.Hit::getFile)
                     .findFirst().orElse(null);
+            String category = categoryOf(pattern, sampleFile);
             merged.add(CriticReport.Issue.builder()
                     .severity(isP0 ? "P0" : "P1")
-                    .category("style")
+                    .category(category)
                     .file(sampleFile)
                     .description("设计反模式命中 [" + pattern + "] x" + count)
                     .suggestion(suggestionOf(pattern))
@@ -302,6 +303,20 @@ public class CriticAgent implements Agent {
             log.warn("CriticAgent 设计 P0 命中强制失败 appId={} danglingVars={} importsVars={} importsGlobal={}",
                     appId, lint.getDanglingVars(), lint.isEntryImportsVariables(), lint.isEntryImportsGlobal());
         }
+    }
+
+    /**
+     * 按可修复归属分类，供 Orchestrator 正确选择 CoderAgent / StyleAgent。
+     */
+    private String categoryOf(String pattern, String sampleFile) {
+        if (DesignLintChecker.P_MISSING_IMPORT.equals(pattern)) {
+            return "code";
+        }
+        if (DesignLintChecker.P_DANGLING_VAR.equals(pattern)) {
+            return sampleFile != null && sampleFile.replace('\\', '/').startsWith("src/styles/")
+                    ? "style" : "code";
+        }
+        return "style";
     }
 
     /** 针对各反模式给出固定修复方向。 */
@@ -339,7 +354,7 @@ public class CriticAgent implements Agent {
         final List<String> missingP0 = new ArrayList<>();
         /** P1 推荐文件缺失（记录日志，不阻塞流水线）。 */
         final List<String> missingP1 = new ArrayList<>();
-        /** 存在未替换的 {{IMG:...}} 占位符的文件路径列表。 */
+        /** 存在未替换的 @@IMG:...@@ 占位符的文件路径列表。 */
         final List<String> placeholderResidual = new ArrayList<>();
     }
 }

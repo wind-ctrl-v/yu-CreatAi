@@ -105,7 +105,7 @@ public class AiCodeGeneratorFacade {
     /**
      * 将 TokenStream 转换为 Flux<String>，并传递工具调用信息。
      * <p>
-     * 在流完成后，对 Vue 项目目录中的 {@code {{IMG:keyword}}} 占位符进行真实图片替换。
+     * 在流完成后，对 Vue 项目目录中的 {@code @@IMG:keyword@@} 占位符进行真实图片替换。
      *
      * @param tokenStream TokenStream 对象
      * @param appId       应用 ID（用于定位项目目录与替换图片占位符）

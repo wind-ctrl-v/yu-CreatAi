@@ -36,7 +36,7 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
 
     public static final String TOOL_NAME = "RuleCriticTool";
 
-    private static final Pattern IMG_PLACEHOLDER = Pattern.compile("\\{\\{IMG:[^{}]+}}");
+    private static final Pattern IMG_PLACEHOLDER = Pattern.compile("@@IMG:[^@]+?@@|\\{\\{IMG:[^{}]+}}");
 
     private static final String[] REQUIRED_FILES_P0 = {
             "package.json", "index.html", "src/main.js", "src/App.vue"
@@ -72,37 +72,46 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
         }
         java.util.List<String> issues = new java.util.ArrayList<>();
         int score = 100;
-        boolean htmlEmpty = StrUtil.isBlank(input.html());
-        boolean cssEmpty = StrUtil.isBlank(input.css());
-        boolean jsEmpty = StrUtil.isBlank(input.js());
+        boolean hasInlineContent = input.html() != null || input.css() != null || input.js() != null;
+        boolean htmlEmpty = hasInlineContent && StrUtil.isBlank(input.html());
+        boolean cssEmpty = hasInlineContent && StrUtil.isBlank(input.css());
+        boolean jsEmpty = hasInlineContent && StrUtil.isBlank(input.js());
         boolean hasPlaceholders = false;
         boolean missingRequired = false;
         java.util.List<String> missingFiles = new java.util.ArrayList<>();
 
-        // 1. 空内容检查
-        if (htmlEmpty) {
-            issues.add("HTML 内容为空");
-            score -= 40;
-        }
-        if (cssEmpty && input.js() != null) {
-            // CSS 为空但 JS 非空，视为异常（Vue 项目中 CSS 可能可选）
-            issues.add("CSS 内容为空");
-            score -= 10;
+        // 1. 空内容检查：仅适用于传入 html/css/js 的单文件生成链路。
+        // Vue 项目链路只传 appId，不能把 null html 误判为 HTML 为空。
+        if (hasInlineContent) {
+            if (htmlEmpty) {
+                issues.add("HTML 内容为空");
+                score -= 40;
+            }
+            if (cssEmpty && input.js() != null) {
+                // CSS 为空但 JS 非空，视为异常（Vue 项目中 CSS 可能可选）
+                issues.add("CSS 内容为空");
+                score -= 10;
+            }
         }
 
         // 2. 占位符残留检查
         if (input.html() != null && IMG_PLACEHOLDER.matcher(input.html()).find()) {
-            issues.add("HTML 中存在未替换的图片占位符 {{IMG:...}}");
+            issues.add("HTML 中存在未替换的图片占位符 @@IMG:...@@");
             score -= 30;
             hasPlaceholders = true;
         }
         if (input.css() != null && IMG_PLACEHOLDER.matcher(input.css()).find()) {
-            issues.add("CSS 中存在未替换的图片占位符 {{IMG:...}}");
+            issues.add("CSS 中存在未替换的图片占位符 @@IMG:...@@");
+            score -= 30;
+            hasPlaceholders = true;
+        }
+        if (input.js() != null && IMG_PLACEHOLDER.matcher(input.js()).find()) {
+            issues.add("JS 中存在未替换的图片占位符 @@IMG:...@@");
             score -= 30;
             hasPlaceholders = true;
         }
 
-        // 3. P0 文件检查
+        // 3. Vue 项目 P0 文件与占位符检查
         if (input.appId() != null) {
             Path root = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR,
                     "vue_project_" + input.appId()).toAbsolutePath().normalize();
@@ -115,6 +124,14 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
             if (missingRequired) {
                 issues.add("缺少必要文件: " + String.join(", ", missingFiles));
                 score -= 30;
+            }
+            java.util.List<String> placeholderFiles = scanPlaceholderFiles(root);
+            if (!placeholderFiles.isEmpty()) {
+                issues.add("项目文件中存在未替换的图片占位符: " + String.join(", ", placeholderFiles));
+                if (!hasPlaceholders) {
+                    score -= 30;
+                }
+                hasPlaceholders = true;
             }
         }
 
@@ -138,5 +155,33 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
         boolean passed = score >= 70 && !htmlEmpty && !hasPlaceholders && !missingRequired;
         return new RuleCriticResult(passed, Math.max(0, score), issues,
                 htmlEmpty, cssEmpty, jsEmpty, hasPlaceholders, missingRequired, missingFiles);
+    }
+
+    private java.util.List<String> scanPlaceholderFiles(Path root) {
+        java.util.List<String> filesWithPlaceholders = new java.util.ArrayList<>();
+        if (!FileUtil.exist(root.toFile())) {
+            return filesWithPlaceholders;
+        }
+        Collection<File> files = FileUtil.loopFiles(root.toFile(), this::isTextCodeFile);
+        for (File file : files) {
+            try {
+                String content = FileUtil.readString(file, StandardCharsets.UTF_8);
+                if (IMG_PLACEHOLDER.matcher(content).find()) {
+                    filesWithPlaceholders.add(root.relativize(file.toPath()).toString().replace('\\', '/'));
+                }
+            } catch (Exception e) {
+                log.debug("规则检查读取文件失败，跳过: {}", file.getAbsolutePath(), e);
+            }
+        }
+        return filesWithPlaceholders;
+    }
+
+    private boolean isTextCodeFile(File file) {
+        if (file == null || !file.isFile()) {
+            return false;
+        }
+        String ext = FileUtil.extName(file);
+        return ext != null && (ext.equalsIgnoreCase("vue") || ext.equalsIgnoreCase("html")
+                || ext.equalsIgnoreCase("js") || ext.equalsIgnoreCase("css"));
     }
 }
