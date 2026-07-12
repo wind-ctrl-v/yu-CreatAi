@@ -372,5 +372,8 @@ public class PreferenceUpdateWorker {
         } catch (Exception e) {
             log.warn("profileSummary 刷新失败 userId={}", userId, e);
         }
+    } catch (Exception e) {
+        log.warn("doRefreshProfileSummary 执行失败 userId={}", userId, e);
+    }
     }
 }

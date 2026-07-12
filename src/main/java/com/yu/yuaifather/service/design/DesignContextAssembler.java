@@ -37,7 +37,6 @@ public class DesignContextAssembler {
     private final UserPreferenceTool userPreferenceTool;
     private final ProjectProfileTool projectProfileTool;
     private final DesignRetrieveTool designRetrieveTool;
-    private final ImageSearchTool imageSearchTool;
     private final ContextCompressTool contextCompressTool;
 
     @Autowired
@@ -45,13 +44,11 @@ public class DesignContextAssembler {
                                    UserPreferenceTool userPreferenceTool,
                                    ProjectProfileTool projectProfileTool,
                                    @Autowired(required = false) DesignRetrieveTool designRetrieveTool,
-                                   ImageSearchTool imageSearchTool,
                                    ContextCompressTool contextCompressTool) {
         this.designTokenTool = designTokenTool;
         this.userPreferenceTool = userPreferenceTool;
         this.projectProfileTool = projectProfileTool;
         this.designRetrieveTool = designRetrieveTool;
-        this.imageSearchTool = imageSearchTool;
         this.contextCompressTool = contextCompressTool;
     }
 

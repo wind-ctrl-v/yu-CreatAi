@@ -11,7 +11,6 @@ import com.yu.yuaifather.model.dto.agent.CriticReport;
 import com.yu.yuaifather.tool.system.DesignTokenTool;
 import com.yu.yuaifather.tool.system.DesignRetrieveTool;
 import com.yu.yuaifather.tool.system.DeployTool;
-import com.yu.yuaifather.tool.system.ImageSearchTool;
 import com.yu.yuaifather.tool.system.ProjectProfileTool;
 import com.yu.yuaifather.tool.system.UserPreferenceTool;
 import lombok.extern.slf4j.Slf4j;
@@ -106,7 +105,6 @@ public class OrchestratorAgent implements Agent {
     private final UserPreferenceTool userPreferenceTool;
     private final ProjectProfileTool projectProfileTool;
     private final DesignRetrieveTool designRetrieveTool;
-    private final ImageSearchTool imageSearchTool;
     private final CoderAgent coderAgent;
     private final StyleAgent styleAgent;
     private final CriticAgent criticAgent;
@@ -128,7 +126,6 @@ public class OrchestratorAgent implements Agent {
                              @Autowired(required = false) UserPreferenceTool userPreferenceTool,
                              @Autowired(required = false) ProjectProfileTool projectProfileTool,
                              @Autowired(required = false) DesignRetrieveTool designRetrieveTool,
-                             ImageSearchTool imageSearchTool,
                              CoderAgent coderAgent,
                              StyleAgent styleAgent,
                              CriticAgent criticAgent,
@@ -138,7 +135,6 @@ public class OrchestratorAgent implements Agent {
         this.userPreferenceTool = userPreferenceTool;
         this.projectProfileTool = projectProfileTool;
         this.designRetrieveTool = designRetrieveTool;
-        this.imageSearchTool = imageSearchTool;
         this.coderAgent = coderAgent;
         this.styleAgent = styleAgent;
         this.criticAgent = criticAgent;
@@ -193,8 +189,7 @@ public class OrchestratorAgent implements Agent {
                 .concatWith(designRetrieveTool != null
                         ? designRetrieveTool.handle(ctx)
                         : Flux.just(AgentEvent.status(AGENT_NAME, "DesignRetrieveTool 未加载，跳过召回（缺少 EmbeddingModel）")))
-                // Step3: 搜图 → imageMap 写入 Blackboard
-                .concatWith(imageSearchTool.handle(ctx))
+                // Step3: 搜图已改为生成后占位符回填（ImagePlaceholderReplacer → ImageSearchEngine），不再预搜图
                 // Step4: Coder 和 Style 并发执行
                 .concatWith(Flux.merge(coderAgent.handle(ctx), styleAgent.handle(ctx)))
                 // Step5: Critic 质检 + 反馈循环
