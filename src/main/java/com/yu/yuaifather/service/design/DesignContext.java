@@ -34,7 +34,7 @@ public class DesignContext {
     /** RAG 召回的设计证据（由 DesignRetrieveTool 产出，已 rerank）。 */
     private DesignEvidence designEvidence;
 
-    /** 检索到的配套图片 key→url 映射（由 ImageSearchTool 产出）。 */
+    /** 【已废弃】图片改由生成后的占位符回填处理，此字段不再被写入，保留仅为兼容。 */
     private Map<String, String> imageMap;
 
     /** 压缩后的 Prompt 上下文（由 ContextCompressTool 产出）。 */

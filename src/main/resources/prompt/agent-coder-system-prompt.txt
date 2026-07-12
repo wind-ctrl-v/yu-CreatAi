@@ -2,7 +2,7 @@
 
 ## 输入
 
-从黑板读取 plan（含 fileStructure / routerConfig / imageSlots / colorTheme）与 imageMap。
+从黑板读取 plan（含 fileStructure / routerConfig / imageSlots / colorTheme）。
 
 ## 工作方式
 

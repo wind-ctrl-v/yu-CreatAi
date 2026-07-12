@@ -21,9 +21,9 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 图片搜索引擎：Pixabay → Unsplash → Pexels → picsum 兜底。
+ * 图片搜索引擎：Pixabay → Unsplash → Pexels → 文生图(可选) → loremflickr → picsum 兜底。
  * <p>
- * 原名 ImageSearchTool，重命名为 ImageSearchEngine 以区别于 tool/system/ImageSearchTool（System Tool 包装层）。
+ * 由代码生成后的占位符回填器 ImagePlaceholderReplacer 调用，按关键词搜图。
  * <p>
  * 安全要点：
  * <ul>
@@ -50,12 +50,14 @@ public class ImageSearchEngine {
     );
 
     private final ImageProperties properties;
+    private final TextToImageEngine textToImageEngine;
 
     private Cache<String, String> cache;
 
     @Autowired
-    public ImageSearchEngine(ImageProperties properties) {
+    public ImageSearchEngine(ImageProperties properties, TextToImageEngine textToImageEngine) {
         this.properties = properties;
+        this.textToImageEngine = textToImageEngine;
     }
 
     @PostConstruct
@@ -73,8 +75,40 @@ public class ImageSearchEngine {
      * @return 图片 URL（必定非空，最终兜底 picsum）
      */
     public String search(String keyword) {
-        String key = StrUtil.isBlank(keyword) ? "default" : keyword.trim().toLowerCase();
-        return cache.get(key, this::doSearch);
+        String key = cleanKeyword(keyword);
+        String cached = cache.getIfPresent(key);
+        if (cached != null) {
+            return cached;
+        }
+        String url = doSearch(key);
+        // 仅缓存"高质"结果（真实搜图命中 / 文生图落地图）；
+        // loremflickr、picsum 属降级兜底，不缓存，以便后续请求重试真实图源，避免图文不符被长期锁定。
+        if (StrUtil.isNotBlank(url) && !isLowQualityFallback(url)) {
+            cache.put(key, url);
+        }
+        return url;
+    }
+
+    /**
+     * 判断是否为低质降级兜底（loremflickr / picsum）——这类结果不进缓存。
+     */
+    private boolean isLowQualityFallback(String url) {
+        return url.contains("loremflickr.com") || url.contains("picsum.photos");
+    }
+
+    /**
+     * 关键词清洗：仅保留英文字母、数字与空格，去除中文/标点/多余空白并转小写。
+     * <p>防止中文或非法字符混入导致搜图 API 无结果、进而掉入随机兜底（图文不符主因之一）。
+     */
+    String cleanKeyword(String keyword) {
+        if (StrUtil.isBlank(keyword)) {
+            return "default";
+        }
+        String cleaned = keyword.trim().toLowerCase()
+                .replaceAll("[^a-z0-9\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return StrUtil.isBlank(cleaned) ? "default" : cleaned;
     }
 
     private String doSearch(String keyword) {
@@ -91,7 +125,32 @@ public class ImageSearchEngine {
         if (isSafe(url)) {
             return url;
         }
+        // 文生图兜底（可选，需 image.fallback.enabled=true 且配置 api-key）：转存 COS 后返回自有域名 URL，可信直接使用
+        url = textToImageEngine.generate(keyword);
+        if (StrUtil.isNotBlank(url)) {
+            log.info("文生图兜底命中 keyword={}", keyword);
+            return url;
+        }
+        // 语义兜底：loremflickr 按关键词 tag 返回相关图片，避免 picsum 完全随机导致图文不符
+        url = loremflickrFallback(keyword);
+        if (isSafe(url)) {
+            return url;
+        }
         return picsumFallback(keyword);
+    }
+
+    /**
+     * loremflickr 语义兜底：按关键词 tag 返回主题相关图片。
+     * <p>使用 lock 参数固定 seed，保证同一关键词稳定复用同一张图。
+     */
+    private String loremflickrFallback(String keyword) {
+        if (StrUtil.isBlank(keyword) || "default".equals(keyword)) {
+            return null;
+        }
+        String tags = keyword.replace(" ", ",");
+        int lock = Math.abs(keyword.hashCode()) % 1000 + 1;
+        return "https://loremflickr.com/1200/800/"
+                + cn.hutool.core.net.URLEncodeUtil.encodeQuery(tags) + "?lock=" + lock;
     }
 
     /**

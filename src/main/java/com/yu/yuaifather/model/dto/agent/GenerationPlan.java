@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * ArchitectAgent 输出的生成计划，供 CoderAgent / StyleAgent / ImageSearchTool 消费。
+ * ArchitectAgent 输出的生成计划，供 CoderAgent / StyleAgent 消费。
  */
 @Data
 @Builder
