@@ -23,7 +23,7 @@
       "category": "placeholder",
       "file": "src/pages/Home.vue",
       "description": "存在未替换的 @@IMG:xxx@@ 占位符",
-      "suggestion": "确认 imageMap 已包含该 keyword，或重新调用 ImageAgent"
+      "suggestion": "检查该关键词能否被搜图引擎命中，或改用更通用的英文关键词后重新回填"
     }
   ]
 }

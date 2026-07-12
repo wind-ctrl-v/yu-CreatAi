@@ -114,23 +114,12 @@ public class DesignContextAssembler {
         builder.designEvidence(evidence);
         builder.fingerprintHitCount(evidence.getItems() != null ? evidence.getItems().size() : 0);
 
-        // 5. 检索图片
-        Map<String, String> imageMap = Map.of();
-        if (plan != null && plan.getImageSlots() != null && !plan.getImageSlots().isEmpty()) {
-            try {
-                imageMap = imageSearchTool.execute(plan.getImageSlots(), toolContext);
-            } catch (Exception e) {
-                log.warn("ImageSearchTool 失败，降级为空映射", e);
-            }
-        }
-        builder.imageMap(imageMap);
-
-        // 6. 压缩上下文生成 PromptContext
+        // 5. 压缩上下文生成 PromptContext（图片改由生成后占位符回填处理，不再预搜图）
         PromptContext promptContext = contextCompressTool.execute(
                 new ContextCompressTool.CompressInput(
                         designSpec, userContext,
                         projectContext,
-                        evidence, imageMap, targetAgent),
+                        evidence, Map.of(), targetAgent),
                 toolContext);
         builder.promptContext(promptContext);
 

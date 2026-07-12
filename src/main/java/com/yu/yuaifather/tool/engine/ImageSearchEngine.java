@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * 图片搜索引擎：Pixabay → Unsplash → Pexels → 文生图(可选) → loremflickr → picsum 兜底。
  * <p>
- * 原名 ImageSearchTool，重命名为 ImageSearchEngine 以区别于 tool/system/ImageSearchTool（System Tool 包装层）。
+ * 由代码生成后的占位符回填器 ImagePlaceholderReplacer 调用，按关键词搜图。
  * <p>
  * 安全要点：
  * <ul>
