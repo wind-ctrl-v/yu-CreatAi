@@ -1,321 +1,220 @@
-# 记忆系统审查与优化建议
+# CreatAi 记忆系统现状审查与优化建议
 
-> 最后更新：2026-06-29
-> 本文档审查 CreatAi 项目中所有跨对话/跨生成持久化的知识与状态（统称"记忆系统"），评估每个组件的实现完成度，并给出优化建议。
+> 审查日期：2026-07-19
+> 定位：组件级现状审查，补齐 `memory-system-architecture-evolution.md`（2026-07-10）第 5 行引用的缺失文档。
+> 与架构演进文档的关系：架构演进文档回答"应该怎么分层"，本文回答"现在跑得怎么样、哪里有病"。
+> 审查方式：全量实读代码 + 文档交叉核对，关键结论均已复核源码。
 
 ---
 
 ## 目录
 
 1. [记忆系统全景](#1-记忆系统全景)
-2. [各层审查结论](#2-各层审查结论)
-3. [核心问题诊断](#3-核心问题诊断)
-4. [优化建议](#4-优化建议)
+2. [各层现状与数据流](#2-各层现状与数据流)
+3. [问题清单（按严重程度）](#3-问题清单按严重程度)
+4. [优化建议（分优先级）](#4-优化建议分优先级)
+5. [与架构演进文档的对齐关系](#5-与架构演进文档的对齐关系)
+6. [关键类索引](#6-关键类索引)
 
 ---
 
 ## 1. 记忆系统全景
 
-项目的记忆系统分为 **6 层**，按持久化时间从短到长排列：
+代码中实际存在 **5 类记忆载体**，与架构演进文档 §2 的盘点一致，按功能归为 3 层：
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         记忆系统全景                              │
-├──────────────┬──────────┬───────────────────────────────────────┤
-│ 层级          │ 生命周期  │ 功能                                  │
-├──────────────┼──────────┼───────────────────────────────────────┤
-│ ① Blackboard │ 单次生成  │ Agent 间共享中间产物（需求/计划/设计/代码）│
-│              │          │ ConcurrentHashMap，生成完即丢弃         │
-├──────────────┼──────────┼───────────────────────────────────────┤
-│ ② 对话历史    │ 单个应用  │ 用户与 AI 的对话记录                    │
-│ ChatHistory  │          │ 用于多轮对话上下文                      │
-├──────────────┼──────────┼───────────────────────────────────────┤
-│ ③ 生成运行记录 │ 永久     │ 每次生成的链路/模式/降级/耗时/状态        │
-│ GenerationRun│          │ 可观测与统计                           │
-├──────────────┼──────────┼───────────────────────────────────────┤
-│ ④ 用户画像    │ 永久     │ 用户设计偏好（风格/颜色/布局/组件权重）    │
-│ Profile+Weight│         │ 个性化检索增强                         │
-├──────────────┼──────────┼───────────────────────────────────────┤
-│ ⑤ 项目品牌    │ 永久     │ 项目级品牌约束（品牌色/字体/标志/调性）    │
-│ BrandProfile │          │ 跨对话保持品牌一致性                    │
-├──────────────┼──────────┼───────────────────────────────────────┤
-│ ⑥ 设计知识库  │ 永久     │ 精选应用的六层设计指纹                   │
-│ Fingerprint  │          │ RAG 检索的知识源                       │
-└──────────────┴──────────┴───────────────────────────────────────┘
-```
+| 载体 | 记忆层 | 存储 | 关键类 | 生命周期 |
+|---|---|---|---|---|
+| `Blackboard` | 工作记忆 | JVM 内存 | `agent/core/Blackboard.java` | 单次生成，用完即弃 |
+| 对话历史 | 情景记忆 | Redis + MySQL `chat_history` + Caffeine | `AiCodeGeneratorServiceFactory`、`ChatHistoryServiceImpl` | Redis TTL 1h；窗口 100 条；Caffeine 写后 30min / 访问后 10min |
+| 用户偏好 | 语义记忆（用户） | MySQL 三表 | `UserPreferenceService`、`PreferenceUpdateWorker`、`PromptPreferenceExtractor` | 永久 + 读取侧 30 天半衰期衰减 |
+| 项目品牌 | 语义记忆（项目） | MySQL `project_brand_profile` | `ProjectBrandService`（**只读**） | 项目生命周期，**无写入口** |
+| 设计指纹（RAG） | 语义记忆（全局） | MySQL `design_fingerprint` + PGvector | `DesignKnowledgeIndex`、`VectorSyncWorker` | 治理状态机驱动，无 TTL |
 
 ---
 
-## 2. 各层审查结论
+## 2. 各层现状与数据流
 
-### ① Blackboard（单次生成的短期记忆）
+### 2.1 情景记忆（对话）
 
-| 维度 | 结论 |
-|------|------|
-| 实现完成度 | **完整** |
-| 是否被消费 | 是——所有 Agent 通过它传递中间产物 |
-| 生命周期 | 每次 `init()` 重建，生成结束即丢弃 |
+**装配**（`agent/codegen/AiCodeGeneratorServiceFactory.java`）：
+- Caffeine 缓存 AI 服务实例：`maximumSize(1000)` + 写后 30min / 访问后 10min 过期（:62-69），缓存键 = `appId + "_" + codeGenType`（:89-91）。
+- 每个服务实例持有 `MessageWindowChatMemory.id(appId)` + Redis store + `maxMessages(100)`（:100-105，**硬编码**）。
+- 创建时回载 DB 最近 20 条历史（:107）。
+- `chatMemoryProvider(memoryId -> chatMemory)` 忽略 memoryId（:113/:125）。
+- 默认 Bean 用 `appId=0` 启动即建（:49-52）。
 
-全部方法：`putRequirementDoc` / `putPlan` / `putDesignSpec` / `putDesignEvidence` / `putUserDesignContext` / `putProjectBrandContext` / `putImageMap` / `putCriticReport` / `addGeneratedFile` / `putDeployUrl` + 对应 getter + `snapshot()`
+**写入路径**：
+| 时机 | 位置 |
+|---|---|
+| 生成前写用户消息 | `AppServiceImpl.java:193` |
+| 流式完成写 AI 消息 | `SimpleTextStreamHandler.java:39`、`JsonMessageStreamHandler.java:60` |
+| 流式失败写"AI回复失败：..." | 同上两文件的 :43-44 / :64-65 |
+| 增量编辑写用户/AI 消息 | `AppController.java:375-376`、`:413-415` |
+| 删除应用时删历史 | `AppServiceImpl.java:318` |
 
-**评估**：设计良好，语义化方法封装、线程安全。**无需优化**。
+**读取路径**：仅服务实例创建（缓存未命中）时回载一次；之后由 LangChain4j 框架自动向 Redis 追加。`loadChatHistoryToMemory`（`ChatHistoryServiceImpl.java:136-169`）先 `clear()` 再按时间正序回载，`limit(1, maxCount)` 跳过最新 1 条（注释：排除刚写入的当前用户消息）。
 
----
+### 2.2 语义记忆（用户偏好）
 
-### ② 对话历史（ChatHistory）
+- **读**：`UserPreferenceService.loadPreferenceWeights`（`UserPreferenceService.java:108-113`）按 userId 全量拉取权重行，内存匹配；时间衰减在**读取侧**（:184-195，半衰期 30 天，`exp` 衰减，因子 < 0.05 归零）。**无缓存**。
+- **写**：`PromptPreferenceExtractor`（LLM 提取正/负向标签，Δ=±0.15 / 负反馈 -0.20）与 `PreferenceUpdateWorker`（行为事件弱信号）→ 均汇聚到 `upsertWeight` → `atomicUpsertWeight` 原子 UPDATE，0 行则 INSERT，唯一键冲突重试（`PreferenceUpdateWorker.java:238-257`，并发设计本身合理）。
+- **画像摘要**：每 10 次事件触发一次 `profileSummary` 重算，虚拟线程异步（`PreferenceUpdateWorker.java:305-323`）。
+- **三表索引**（`docs/sql/001_user_preference.sql`）：uk(userId,preferenceType,preferenceKey)、uk_user_id、idx(userId,eventType) 等，对现有查询模式**充足**。
 
-| 维度 | 结论 |
-|------|------|
-| 表结构 | `id, message, messageType(user/ai), appId, userId, createTime, updateTime` |
-| 实现完成度 | **完整**——增删改查 + 游标分页 |
-| 数据量 | 118 条（2026-06-29 实测） |
-| 是否被消费 | **部分** |
+### 2.3 语义记忆（项目品牌）
 
-**消费现状**：
-- ✅ 前端 `AppChatPage.vue` 进入时调用 `listAppChatHistory` 加载历史，渲染为聊天气泡
-- ✅ 后端 `AppServiceImpl.chatToGenCode()` 将用户消息和 AI 回复分别入库
-- ✅ 增量编辑 SSE 接口也持久化用户消息和 AI 回复到 chat_history
-- ✅ `AiCodeGeneratorServiceFactory` 通过 `loadChatHistoryToMemory` 将历史加载到 LangChain4j ChatMemory
-- ⚠️ **Vue 项目生成的 AiCodeGeneratorService 已声明 `@MemoryId`，框架会自动注入历史上下文；但 HTML/MULTI_FILE 模式的方法未声明 `@MemoryId`，不加载历史**
+- `ProjectBrandService` 唯一业务方法 `loadProjectBrandContext`（`ProjectBrandService.java:43-69`），**全库无 insert/update 写入口**——与架构演进文档 §5.2"待补 upsert\*"的判断一致。
+- `forbiddenRules` 字段已存在（实体 `ProjectBrandProfile.java:70-71`、DTO、装配链路齐全），但因无写入侧，实际恒为空。
 
-**问题**：HTML 和多文件模式每次只看当前消息，不支持多轮迭代。
+### 2.4 语义记忆（全局指纹 RAG）
 
----
+- 检索：`DesignKnowledgeIndex` 多通道召回 + 个性化排序。
+- 向量同步：`VectorSyncWorker.syncOnApprove` 审核通过时同步 embedding 到 PGvector。
+- `DesignKnowledgeIndex.vectorRetrieve`（:302-308）是**返回空结果的桩方法**，向量通道尚未真正接入检索。
 
-### ③ 生成运行记录（GenerationRun）
+### 2.5 工作记忆
 
-| 维度 | 结论 |
-|------|------|
-| 表结构 | DDL 已设计（`docs/sql/006_generation_run.sql`） |
-| 实现完成度 | ⚠️ **表未创建**——MySQL 中不存在 `generation_run` 表，无写入逻辑 |
-| 是否被消费 | **否** |
-
-**问题**：缺乏运行时状态追踪和"从错误中学习"的数据基础。
+- `Blackboard`（`agent/core/Blackboard.java:29`）承载单次生成的中间产物（`designSpec`/`designEvidence`/`userDesignContext`/`projectBrandContext`/`criticReport` 等键均在 :34-41），状态健康，无突出问题。
 
 ---
 
-### ④ 用户画像（UserDesignProfile + UserPreferenceWeight + UserDesignEvent）
+## 3. 问题清单（按严重程度）
 
-| 维度 | 结论 |
-|------|------|
-| 表结构 | 3 张表完整（画像/权重/事件） |
-| 写入引擎 | `PreferenceUpdateWorker`——完整，8 类事件规则映射 |
-| 上报 API | ✅ `POST /app/record-edit-event` 已实现 |
-| 前端上报 | ✅ 前端 `recordEditEvent`/`recordTextEditEvent` 已在调用 |
-| 当前数据 | 画像 1 条（fish）+ 权重 22 条（5类别×正负）+ 事件 12 条（2026-06-29 实测） |
-| 加载服务 | `UserPreferenceService.loadUserDesignContext()`——完整 |
-| 消费 | `UserPreferenceTool` 写入 Blackboard → `ContextCompressTool` 注入 prompt → `DesignRetrieveTool` 增强检索 |
-| 实现完成度 | **基本完整** |
+### P0 — 疑似链路级故障，建议最优先核实
 
-**剩余问题**：
-- `profileSummary` 无自动刷新逻辑——当前是手动 SQL 写入的，后续新增事件不会自动更新摘要
+#### P0-1 偏好权重写入链路：蛇形 SQL vs 驼峰列名，疑似静默全灭
 
----
+- `UserPreferenceWeightMapper.java:22-24` 手写 SQL 使用**蛇形**列名：`user_id` / `preference_type` / `preference_key` / `evidence_count` / `last_evidence_at`。
+- 而 DDL（`docs/sql/001_user_preference.sql:35-45`）、实体 `@Column("userId")` 等、种子脚本全部为**驼峰**列名。`user_id` 与 `userId` 是不同列名（与大小写敏感性无关）。
+- 若实际库表按 DDL 建（驼峰），该 UPDATE 必抛 `Unknown column 'user_id'`，`upsertWeight` 第一行即抛、走不到 INSERT 分支；异常被 `PreferenceUpdateWorker.recordAndUpdate`（:75-77）和 `PromptPreferenceExtractor.extractAndRecordInternal`（:186-188）吞掉只记 warn——**所有偏好权重写入静默失败**。
+- 同理 `PreferenceUpdateWorker.java:309/332/339` 的 `QueryWrapper.eq("user_id", ...)`（QueryWrapper 按字面拼列名）会导致 profileSummary 刷新同样静默失败。
+- **核实方法**：对实际数据库执行 `SHOW CREATE TABLE user_preference_weight`，并 grep 近期日志中的 `偏好更新失败` / `Unknown column`。
 
-### ⑤ 项目品牌记忆（ProjectBrandProfile）
+#### P0-2 向量维度 1536 vs 1024 不匹配，本地配置下向量通道整体静默失效
 
-| 维度 | 结论 |
-|------|------|
-| 表结构 | 完整 |
-| 工具 | `ProjectBrandProfileTool`——从 Blackboard 读取 `ProjectBrandContext` |
-| 服务 | `ProjectBrandProfileService`——`loadBrandContext(userId, projectId)` |
-| 实现完成度 | **完整**——实体/Mapper/Service/Tool 全链路 |
-| 是否被消费 | **是**——在 V1/V2 流水线中作为 System Tool 被调用 |
+- PG 表定义 `embedding vector(1536)`（`docs/sql/design_fingerprint_vector.sql:20`、`011_init_pgvector_local.sql:24`）。
+- 但 `application-local.yml:39-46` 配智谱 embedding-2（注释自承 1024 维）且 `:91-93 use-openai: true` → 1024 维向量写入 vector(1536) 必被 PG 拒绝。
+- 异常链路：`upsert` 无 try/catch（`DesignFingerprintVectorRepository.java:63-96`）→ 异常上抛至 `VectorSyncWorker` 被吞（见 P1-2）。
+- 注：`EmbeddingModelConfig.java:25` 的哈希兜底是 1536 维（与表匹配），是 local 配置切智谱后才失配。
 
-**问题**：
-- 没有对外 API 供前端设置品牌信息（用户无法指定"我的品牌色是 #1677ff"）
-- 品牌信息只能通过后台手动写入数据库
+### P1 — 功能缺陷 / 数据污染
 
----
+#### P1-1 HTML 与 VUE_PROJECT 服务共享同一 memory id，双向交叉污染
 
-### ⑥ 设计知识库（DesignFingerprint）
+- 缓存键区分了 codeGenType（`AiCodeGeneratorServiceFactory.java:89-91`），但 memory id 只有 appId（:100-105）→ 两类服务指向**同一 Redis key**。
+- 创建 VUE 服务时 `loadChatHistoryToMemory` 的 `clear()`（`ChatHistoryServiceImpl.java:152`）会清掉 HTML 服务正在使用的记忆，反之亦然。
+- 修复方向：memory id 改为 `appId_codeGenType`（与缓存键对齐）。
 
-已在 `docs/rag-architecture-analysis.md` 中详细分析。
+#### P1-2 向量同步"三重静默"，故障完全无感知
 
-| 维度 | 结论 |
-|------|------|
-| 实现完成度 | **完整**——入库/审核/向量同步/三层检索全链路 |
-| 当前数据 | MySQL 139 APPROVED + 182 CANDIDATE；PGvector 131 条向量（2026-06-29 实测） |
-| 是否被消费 | **是**——`DesignRetrieveTool` → `DesignEvidence` → prompt 注入 |
+1. `VectorSyncWorker.syncOnApprove` 全方法 try/catch → 仅 log.error（`VectorSyncWorker.java:58-61`，`deactivateOnRejectOrArchive` 同 :68-70），无重试、无补偿、无状态回写。
+2. `DesignFingerprintVectorRepository.search` 自查自吞，任何异常返回空列表（:161-168）——上层把"PG 故障"误判为"无命中"。
+3. `DesignKnowledgeIndex` 再 catch 回退 STRUCTURAL_3A 通道（:94-96、:164-166），降级对外界无感知。
 
----
+建议：至少区分"故障"与"无命中"（检索异常上抛或记录指标），同步失败回写指纹状态 + 补一个对账重试任务。
 
-### 额外组件
+#### P1-3 错误消息入库污染对话上下文
 
-**GeneratedPage + GenerationRecordTool**：
+- 流式失败时把 `"AI回复失败：..."` 作为 AI 消息写入 `chat_history`（`SimpleTextStreamHandler.java:43-44`、`JsonMessageStreamHandler.java:64-65`），下次回载时作为正常 AI 回复进入 prompt，污染后续生成。
+- 建议：失败消息不入库，或加类型标记并在回载时过滤。
 
-| 维度 | 结论 |
-|------|------|
-| 实体/Mapper | ✅ 完整 |
-| 写入工具 | ✅ `GenerationRecordTool` 已实现，`GenerationOrchestrator.doRecord()` 中调用 |
-| 写入时机 | V2 编排器三种模式（low_cost/standard/high_quality）末尾 |
-| 当前数据 | 0 条（实现后尚无 V2 生成触发） |
-| 实现完成度 | **完整** |
+#### P1-4 增量编辑的记忆与主生成链路互不可见
 
-**GenerationRagTrace + RagTraceTool**：
+- `IncrementalEditService`（:99-106、:129-136）每次请求新建 `MessageWindowChatMemory`，**无 chatMemoryStore（纯 JVM 内存）、不回载历史、不持久化**，请求结束记忆即弃。
+- 它写入 `chat_history` 的消息主生成链路可见，但它自己看不到主链路历史——多轮增量编辑上下文完全丢失，与 `AppController.java:361` "刷新页面不丢失对话"的注释矛盾。
 
-| 维度 | 结论 |
-|------|------|
-| 实体/Mapper | ✅ 完整 |
-| 写入工具 | ✅ `RagTraceTool` 已实现，与 `GenerationRecordTool` 同时调用 |
-| 当前数据 | 0 条（同上） |
-| 实现完成度 | **完整** |
+### P2 — 性能与一致性
 
----
+| # | 问题 | 位置 | 说明 |
+|---|---|---|---|
+| P2-1 | 偏好权重重复查询（N+1） | `UserPreferenceService.java:129,155` + `DesignKnowledgeIndex.java:425-438` | `calculatePreferenceScore` 与 `calculateDislikePenalty` 各自全量查权重表；个性化排序每个候选 item 最多 6 次调用 → 单次检索对同一 userId 反复全量查库。应入口加载一次权重 Map 内存计算（可配合短期缓存） |
+| P2-2 | 应用删除不失效记忆 | `AppServiceImpl.java:306-322` | 只删 `chat_history`；Redis 记忆残留至 1h TTL、Caffeine 服务实例残留至 30min。建议删除时同步 evict |
+| P2-3 | TTL / 窗口 / 回载量三者矛盾 | `application.yml:29`、`Factory:104,107` | 窗口 100 但冷启动只回载 20 条且 `clear()` 丢弃 Redis 其余内容 → 每次缓存重建记忆"缩水"为 20 条，100 窗口永远填不满；Redis 对话 TTL 1h 与"100 条窗口"的设计意图也不一致 |
+| P2-4 | 回载排除最新 1 条依赖隐式时序 | `ChatHistoryServiceImpl.java:139-142` | 依赖"先写用户消息、后建服务"（`AppServiceImpl.java:193`）的约定，未来新增调用点极易踩坑导致当前消息重复入记忆 |
+| P2-5 | 每条事件全量 count 判刷新 | `PreferenceUpdateWorker.java:305-310` | 每条行为事件都 `selectCountByQuery(user_id)`；count 与 insert 非原子，并发下漏/重触发（现靠幂等覆盖写兜底）。可改为权重表计数或 Redis 计数器 |
+| P2-6 | 裸 `new Thread()` | `AppController.java:90` | 偏好提取用平台线程，与全项目虚拟线程/池化方针不一致（同文件 :383 用的是 `Thread.ofVirtual()`） |
 
-## 3. 核心问题诊断
+### P3 — 代码质量 / 文档卫生
 
-按严重程度排序：
-
-### 问题 A：对话历史不注入 LLM——仅 HTML/MULTI_FILE 模式（已验证）
-
-**症状**：HTML/多文件模式下用户说"把导航栏改成深色"，LLM 不知道之前生成了什么
-**原因**：`AiCodeGeneratorService` 的 `generateHtmlCodeStream()` 和 `generateMultiFileCodeStream()` 未声明 `@MemoryId`
-**影响**：HTML/多文件模式不支持多轮迭代
-**现状**：Vue 项目模式已有 `@MemoryId` ✅；HTML/多文件缺失 ⚠️
-
-### 问题 B：用户画像闭环——已部分修复
-
-**症状（原）**：权重表为空 → **已修复**：22 条权重 + 12 条事件 + 1 条画像
-**剩余**：`profileSummary` 无自动刷新逻辑
-
-### 问题 C：项目品牌无输入入口
-
-**症状**：`ProjectBrandProfile` 实体和 Tool 完整，但用户无法通过前端设置品牌信息
-**原因**：无对外 API、无前端 UI
-**影响**：跨对话品牌一致性功能形同虚设
-
-### 问题 D：生成记录表未创建
-
-**症状**：`generation_run` 表 DDL 存在但未执行
-**影响**：无法实现自适应路由（如 V2 连续失败自动降级）
-
-### 问题 E：GeneratedPage / GenerationRagTrace —— 已修复
-
-**症状（原）**：表设计好了但没有写入逻辑 → **已修复**
-**状态**：`GenerationRecordTool` + `RagTraceTool` 已实现，下次 V2 生成即写入
+| # | 问题 | 位置 |
+|---|---|---|
+| P3-1 | `doRefreshProfileSummary` try 嵌套畸形（内外双层 catch 重复）；`addAllTags`（:285-290）死代码 | `PreferenceUpdateWorker.java:328-378` |
+| P3-2 | `memory-system-architecture-evolution.md:5` 引用 `memory-system-review.md`，但该文件此前**不存在**（悬空引用，本文档已补齐） | docs |
+| P3-3 | `rag-fix-plans/README.md:8` 仍称已删除的 `UserFingerprintIngestService` 为生产链路；`application-local.yml:100-101` 的 `agent.fingerprint.user-ingest.enabled` 成为孤儿配置 | docs / yml |
+| P3-4 | `EmbeddingModelConfig.java:19` 注释称 use-openai 切换 "text-embedding-3-small"，实际切的是智谱 embedding-2，易误导 | config |
+| P3-5 | `RedisChatMemoryStoreConfig` password 空串未判空，对无密码 Redis 可能触发 AUTH 失败 | `RedisChatMemoryStoreConfig.java:23-30` |
 
 ---
 
-## 4. 优化建议
+## 4. 优化建议（分优先级）
 
-### 4.1 短期：接通断裂的管道（1-3 天）
+### 第一梯队：先确认"记忆到底写没写进去"（P0）
 
-#### A-1. HTML/MULTI_FILE 模式注入历史上下文（P0，预估 1h）
+1. **核实并修复列名不一致**（P0-1）：对实际库 `SHOW CREATE TABLE user_preference_weight`；统一口径（建议沿用项目驼峰约定改手写 SQL 与 QueryWrapper 列名），修完补一条权重写入的冒烟验证。
+2. **核实向量维度**（P0-2）：确认线上 PG 列维度与 embedding 模型实际维度，不一致则 `ALTER TABLE ... ALTER COLUMN embedding TYPE vector(1024)` 并重建向量索引；同时核对各环境 `use-openai` 配置。
+3. 这两个问题共同点是"**异常被吞、静默失败**"——修复后建议给两条链路各加一个最低限度的可观测手段（失败计数指标或告警日志升格）。
 
-**现状**：Vue 项目已有 `@MemoryId` ✅；HTML 和 MULTI_FILE 缺失。
+### 第二梯队：记忆正确性（P1）
 
-**方案**：直接在 `AiCodeGeneratorService` 对应方法签名上加 `@MemoryId`：
+4. memory id 改为 `appId_codeGenType`，消除 HTML/VUE 交叉污染（P1-1）。
+5. 向量链路去静默化：检索异常与"无命中"分流、同步失败回写状态 + 对账重试（P1-2）。
+6. 失败消息不进 `chat_history`（或标记过滤）（P1-3）。
+7. 增量编辑记忆与主链路统一：同一 Redis store + 回载，或明确产品语义为"无记忆单轮"并修正注释（P1-4）。
 
-```java
-// 修改前
-Flux<String> generateHtmlCodeStream(String userMessage);
-Flux<String> generateMultiFileCodeStream(String userMessage);
+### 第三梯队：性能与生命周期治理（P2）
 
-// 修改后
-Flux<String> generateHtmlCodeStream(@MemoryId long appId, @UserMessage String userMessage);
-Flux<String> generateMultiFileCodeStream(@MemoryId long appId, @UserMessage String userMessage);
-```
+8. 偏好权重"一次加载、内存计算"改造，顺带评估加短期 Caffeine 缓存（P2-1）。
+9. 建立记忆失效矩阵：应用删除 → 同步清 `chat_history` + Redis key + Caffeine 实例（P2-2）。
+10. 对齐三个参数：Redis TTL、memory 窗口、冷启动回载量（P2-3）；回载"排除最新 1 条"改为显式参数语义（P2-4）。
+11. profileSummary 刷新计数改权重表/Redis 计数（P2-5）；偏好提取线程方式统一为虚拟线程（P2-6）。
 
-> **注**：原文档建议手动拼接字符串，但项目已使用 LangChain4j 的 ChatMemory 体系。`AiCodeGeneratorServiceFactory` 已将 `chatHistory` 加载到 `chatMemory` 并通过 `chatMemoryProvider` 绑定。只需声明 `@MemoryId`，框架自动注入历史上下文，无需手动拼接。
+### 第四梯队：文档与配置卫生（P3）
 
-#### A-2. profileSummary 自动刷新（P1，预估 1h）
-
-**现状**：画像数据已存在（1条），权重 22 条，但 `profileSummary` 是手动 SQL 写入的，后续新增事件不会刷新。
-
-**方案**：在 `PreferenceUpdateWorker.recordAndUpdate()` 中，每 10 次更新触发一次摘要重算。
-
-**前提**：需要先在对应 Mapper 中新增以下方法（约 30 分钟）：
-- `UserDesignEventMapper.countByUserId(userId)` — 统计用户事件总数
-- `UserPreferenceWeightMapper.selectTopByType(userId, preferenceType, k, order)` — 按类型获取权重 top-k
-- `UserDesignProfileMapper.updateSummaryField(userId, summary)` — 更新摘要字段
+12. 清理孤儿配置 `agent.fingerprint.user-ingest.enabled`、更新 `rag-fix-plans/README.md` 与 `EmbeddingModelConfig` 注释（P3-3/3-4）。
+13. `RedisChatMemoryStoreConfig` password 判空（P3-5）；`PreferenceUpdateWorker` 嵌套 try 与死代码清理（P3-1）。
 
 ---
 
-### 4.2 中期：完善记忆消费（3-7 天）
+## 5. 与架构演进文档的对齐关系
 
-#### B-1. 项目品牌 API + 前端 UI（P1，预估 1d）
+架构演进文档（2026-07-10）给出的三阶段路径仍然成立，但本次审查发现的问题**改变了优先级排序**：
 
-**后端**：`AppController` 新增：
-- `POST /app/{appId}/brand` — 设置品牌信息（品牌色、字体、调性）
-- `GET /app/{appId}/brand` — 获取品牌信息
+| 架构文档路径 | 本次审查结论 |
+|---|---|
+| ① 记忆正名（Blackboard / ProjectBrandProfile 纳入分层） | 仍然有效、低成本，但**应先做 P0 核实**——分类再对，写不进去也白搭 |
+| ② 统一仲裁 `MemoryPriorityResolver` | 仍待启动；注意 `forbiddenRules` 因项目品牌**无写入口**实际恒空，仲裁规则短期只有"prompt > 用户 > 全局"在真实生效 |
+| ③ 固化管线 `doConsolidate` | 方向正确，但 **P0-1 意味着现有唯一固化通道（PromptPreferenceExtractor → 权重表）可能一直在空转**，新管线开工前必须先修好旧通道 |
 
-**前端**：`AppChatPage.vue` 工具栏新增"品牌设置"按钮，弹出 Modal 让用户指定品牌色、字体、调性关键词。
-
-#### B-2. 创建 generation_run 表 + 自适应路由（P2，预估 4h）
-
-**前提**：先执行 `docs/sql/006_generation_run.sql` 创建表，再实现 `GenerationRunService`。
-
-**方案**：在 `GenerationPipelineRouter.route()` 开头查询该 appId 最近 5 次生成，V2 连续失败 ≥ 3 次时自动降级 V1。
-
-#### B-3. GeneratedPage 写入 —— ✅ 已完成
-
-`GenerationRecordTool` 已实现，`GenerationOrchestrator.doRecord()` 中调用。下次 V2 生成即写入。
-
-#### B-4. RAG Trace 写入 —— ✅ 已完成
-
-`RagTraceTool` 已实现，与 B-3 同时调用。
+**一句话总结**：架构方向（三层模型 + 固化通道）无需推翻；当务之急是先核实并修复两个"静默全灭"级故障（偏好权重写入、向量同步），让已有的记忆链路真正跑通，再谈编排与仲裁。
 
 ---
 
-### 4.3 长期：深度记忆能力（1-2 周）
+## 6. 关键类索引
 
-#### C-1. 对话历史摘要压缩（P3，预估 1d）
+### 情景记忆
+| 类 | 位置 | 备注 |
+|---|---|---|
+| `AiCodeGeneratorServiceFactory` | `agent/codegen/` | Caffeine + MessageWindowChatMemory 装配 |
+| `RedisChatMemoryStoreConfig` | `config/` | TTL 3600s |
+| `ChatHistoryServiceImpl` | `service/impl/` | 持久化 + 回载 |
 
-当历史超过 5 轮时，用 LLM 对旧历史做一次摘要压缩：
-```
-最近 3 轮：原文保留
-更早的历史：压缩为一段摘要
-  "用户之前创建了一个电商网站，包含商品列表和购物车页面，
-   使用了深色主题和卡片布局，后来把导航栏改成了固定顶部..."
-```
+### 语义记忆（用户）
+| 类 | 位置 | 备注 |
+|---|---|---|
+| `UserPreferenceService` | `service/` | 读取侧衰减，无缓存 |
+| `PromptPreferenceExtractor` | `service/` | LLM 提取正/负向标签 |
+| `PreferenceUpdateWorker` | `worker/` | 行为事件 → 权重 |
+| `UserPreferenceWeightMapper` | `mapper/` | **P0-1 蛇形 SQL 所在** |
 
-#### C-2. 跨应用记忆迁移（P3，预估 1d）
+### 语义记忆（项目 / 全局）
+| 类 | 位置 | 备注 |
+|---|---|---|
+| `ProjectBrandService` | `service/` | 只读，无写入口 |
+| `DesignKnowledgeIndex` | `service/design/` | 多通道召回 + 个性化排序 |
+| `VectorSyncWorker` | `worker/` | 审核通过 → PGvector 同步 |
+| `DesignFingerprintVectorRepository` | `repository/` | **P0-2 / P1-2 所在** |
 
-新建应用时，查询该用户最近的 `GeneratedPage`，提取共性模式作为初始上下文。
-
-#### C-3. 反馈驱动的知识库自进化（P3，预估 4h）
-
-用户评分后反写指纹 confidence，低分指纹自动 ARCHIVE。
-
-#### C-4. 结构化设计记忆（P4，预估 2d）
-
-每次生成完成后，从代码中提取结构化设计快照（`DesignSnapshot`），存储关键决策。
-
----
-
-## 总览
-
-```
-优先级 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-P0 ┃ A-1 HTML/MULTI_FILE 模式添加 @MemoryId     ← 1h，修复多轮迭代
-   ┃
-P1 ┃ A-2 profileSummary 自动刷新                ← 1h，需先补 Mapper 方法
-   ┃ B-1 品牌 API + 前端 UI                     ← 1d，激活品牌记忆
-   ┃
-P2 ┃ B-2 创建 generation_run + 自适应路由       ← 4h，需先建表
-   ┃
-P3 ┃ C-1 对话历史摘要压缩                       ← 1d
-   ┃ C-2 跨应用记忆迁移                         ← 1d
-   ┃ C-3 反馈驱动知识库自进化                    ← 4h
-   ┃
-P4 ┃ C-4 结构化设计记忆                         ← 2d
-   ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-已完成 ✅
-   ✅ POST /app/record-edit-event 行为事件上报 API
-   ✅ 前端 recordEditEvent/recordTextEditEvent 调用
-   ✅ user_preference_weight 22条 + events 12条 + profile 1条
-   ✅ GenerationRecordTool 写入 generated_page
-   ✅ RagTraceTool 写入 generation_rag_trace
-   ✅ Vue 项目 @MemoryId 历史注入
-```
-
-### 当前最优先
-
-| # | 方案 | 解决什么 | 工作量 |
-|---|------|---------|:---:|
-| 1 | **HTML/MULTI_FILE 加 @MemoryId** | 所有模式支持多轮对话 | 1h |
-| 2 | **补 Mapper 方法 + profileSummary 刷新** | 画像自动更新 | 1.5h |
-| 3 | **品牌 API + 前端 UI** | 品牌记忆激活 | 1d |
+### 工作记忆
+| 类 | 位置 | 备注 |
+|---|---|---|
+| `Blackboard` | `agent/core/` | 单次生成共享状态，健康 |
