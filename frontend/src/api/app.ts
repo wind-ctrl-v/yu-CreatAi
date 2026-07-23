@@ -45,8 +45,3 @@ export function buildDownloadUrl(appId: string) {
 export function buildPreviewUrl(codeGenType: string, appId: string) {
   return `${API_BASE_URL}/static/${codeGenType}_${appId}/`
 }
-
-/** 增量编辑（只改不生成） */
-export function incrementalEdit(params: { appId: string; instruction: string }) {
-  return request.post<any, BaseResponse<{ success: boolean; message: string }>>('/app/incremental-edit', params)
-}

@@ -372,28 +372,6 @@ personalizedScore = 0.40 * semanticScore      // queryTags 命中率
                   - 0.20 * dislikePenalty        // 用户反感惩罚
 ```
 
-### 综合重排服务（`DesignRerankService`）
-
-开关：`agent.rerank.enabled`（默认 false）
-
-独立的 10 项加权重排服务，可叠加在召回结果之上：
-
-```
-final_score =
-    0.25 * semantic_similarity    // 语义相似度（用 matchScore 近似）
-  + 0.15 * style_profile_score     // 风格画像匹配
-  + 0.15 * component_match_score   // 组件匹配
-  + 0.10 * layout_match_score      // 布局匹配
-  + 0.10 * design_quality_score    // 设计质量（置信度）
-  + 0.15 * user_preference_score   // 用户偏好
-  + 0.15 * project_brand_score     // 项目品牌匹配
-  - 0.20 * user_dislike_penalty    // 用户反感惩罚
-  - 0.20 * project_forbidden_penalty // 项目禁用规则惩罚
-  - 0.10 * duplicate_penalty       // 同风格去重惩罚
-```
-
-所有权重均可通过 `agent.rerank.weights.*` 配置项调整。
-
 ---
 
 ## 8. 个性化查询构造
@@ -670,7 +648,6 @@ CoderAgent.buildUserMessage():
 | `DesignRetrieveTool` | `tool.system` | 运行时检索入口（System Tool） |
 | `DesignKnowledgeIndex` | `service.design` | 统一知识层索引（三档降级召回） |
 | `DesignFingerprintVectorRepository` | `repository` | PGvector 原生 SQL 访问层 |
-| `DesignRerankService` | `service` | 10 项加权综合重排 |
 | `PersonalizedQueryBuilder` | `service` | 个性化查询文本构造 |
 
 ### 闭环链路

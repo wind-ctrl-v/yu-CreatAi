@@ -48,7 +48,7 @@ public class AiCodeGeneratorServiceFactory {
      */
     @Bean
     public AiCodeGeneratorService aiCodeGeneratorService() {
-        return getAiCodeGeneratorService(0L);
+        return getAiCodeGeneratorService(0L, CodeGenTypeEnum.HTML);
     }
 
 
@@ -67,13 +67,6 @@ public class AiCodeGeneratorServiceFactory {
                 log.debug("AI 服务实例被移除，缓存键: {}, 原因: {}", key, cause);
             })
             .build();
-
-    /**
-     * 根据 appId 获取服务（带缓存）这个方法是为了兼容历史逻辑
-     */
-    public AiCodeGeneratorService getAiCodeGeneratorService(long appId) {
-        return getAiCodeGeneratorService(appId, CodeGenTypeEnum.HTML);
-    }
 
     /**
      * 根据 appId 和代码生成类型获取服务（带缓存）

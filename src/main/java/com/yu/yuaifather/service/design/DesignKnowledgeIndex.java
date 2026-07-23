@@ -401,12 +401,7 @@ public class DesignKnowledgeIndex {
     private double calculatePersonalizedScore(Ranked r, List<String> queryTags,
                                                UserDesignContext userContext) {
         DesignEvidence.Item item = r.item;
-        // ★ 统一排序权重（P0-5 修复，2026-07-04）：与 DesignRerankService 的 10 项公式保持一致，
-        // 避免双轨权重不一致导致"开 rerank 和不开 rerank 效果完全不同"的问题。
-        // 两套开关（personalization.enabled / rerank.enabled）的联动：
-        //   - personalization=true, rerank=false → 用本方法（10项简化版，无 brandContext/duplicate）
-        //   - personalization=true, rerank=true  → 本方法先排序，再由 DesignRerankService 做完整 10 项重排
-        //   - personalization=false              → 用默认 priority/confidence/updatedAt 排序
+        // 使用统一的个性化排序权重；当前上下文装配阶段不参与项目品牌和去重维度。
         double semanticScore = (queryTags != null && !queryTags.isEmpty())
                 ? Math.min(1.0, (double) r.matchScore / Math.max(1, queryTags.size()))
                 : 0.5;
@@ -438,7 +433,7 @@ public class DesignKnowledgeIndex {
             }
         }
         double conf = qualityScore;
-        // 与 DesignRerankService 保持一致的权重（无 projectBrand / forbidden / duplicate，因为此处无 brandContext）
+        // 当前排序不使用 projectBrand / forbidden / duplicate 维度，因为此处无 brandContext。
         return 0.25 * semanticScore
                 + 0.15 * styleScore
                 + 0.15 * componentScore

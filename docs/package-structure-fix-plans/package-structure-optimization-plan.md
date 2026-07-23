@@ -145,30 +145,21 @@ V1 编排器 `OrchestratorAgent` 位于 `agent/orchestrator/` 子包下，V2 编
 
 ### 1. 问题描述
 
-正式的 Agent 工具体系是 `tool/core/`（`AgentTool`/`SystemTool`/`ToolContext`/`ToolRegistry`）+ `tool/system/` + `tool/agent/` + `tool/engine/`。但增量编辑场景专用的文件操作工具（`FileReadTool`/`FileWriteTool`/`FileDeleteTool`/`FileModifyTool`/`FileDirReadTool`/`BaseTool`/`ToolManager`）却位于完全不相关的 `agent/codegen/fileops/` 包下，命名模式（`XxxTool`）与职责（供 LLM Function Call 调用）都与 `tool/` 体系高度相似，却没有实现 `tool/core/AgentTool` 接口，也没有走 `ToolRegistry` 统一注册。
+当前增量编辑仍使用 `agent/codegen/fileops/` 下基于 LangChain4j 的 `BaseTool`/`ToolManager` 体系。原先未接入运行链路的 `tool/core/AgentTool`、`ToolSchema`、`ToolRegistry` 以及 `tool/agent` 占位工具已在死代码清理中移除，避免保留一套不可达的重复工具注册体系。
 
 ### 2. 影响范围
 
-- `ToolRegistry` 无法统一管理全部工具，增量编辑这条链路的工具集对整体工具治理（如统一的调用审计 `ToolCallTraceService`）不可见。
-- 新增/维护工具时，需要同时了解两套不同的工具注册机制，增加认知负担。
+- 增量编辑工具继续由 `ToolManager` 统一装配。
+- 当前项目不再维护未接入的 Agent Tool 注册中心。
 
 ### 3. 涉及文件
 
-- `src/main/java/com/yu/yuaifather/agent/codegen/fileops/`（全部 7 个文件）
-- `src/main/java/com/yu/yuaifather/tool/core/AgentTool.java`（待复用的契约接口）
-- `src/main/java/com/yu/yuaifather/tool/core/ToolRegistry.java`（待接入的注册中心）
+- `src/main/java/com/yu/yuaifather/agent/codegen/fileops/`
+- `src/main/java/com/yu/yuaifather/agent/codegen/AiCodeGeneratorServiceFactory.java`
 
 ### 4. 修改方案
 
-**先决条件确认**：需要先确认 `fileops/` 下工具当前的调用方式（是否已经是通过某个 LLM SDK 的原生 Function Calling 机制注册的，而非 `AgentTool` 接口）。若两者的调用协议本质不同（例如 `fileops/` 走的是 LangChain4j 的 `@Tool` 注解机制，而 `tool/core/AgentTool` 是自定义协议），则不能简单"实现接口"了事，需要评估是否值得做适配层。
-
-**若确认可以统一**：
-1. 让 `fileops/` 下各工具改为实现（或适配到）`AgentTool` 接口。
-2. 迁移到 `tool/agent/` 包下（与 `BrandExtractTool` 等已有的 Agent 工具放在一起）。
-3. 通过 `ToolManager`（若其职责与 `ToolRegistry` 重叠）评估是否可以合并两者，或明确划分二者的职责边界（例如 `ToolManager` 专注增量编辑场景的工具装配，`ToolRegistry` 专注全局工具 schema 声明）。
-
-**若确认不能简单统一**（更可能的情况，因为增量编辑走的可能是不同的 LLM SDK 调用协议）：
-- 至少在两边的类级 Javadoc 里互相注明"这是另一套独立的工具体系，勿混淆"，避免认知混乱，改动成本极低。
+无需迁移。后续新增工具应直接遵循现有 `BaseTool`/`ToolManager` 装配方式，并在对应的 AI 服务构建处注册。
 
 ### 5. 验证方式
 
@@ -283,6 +274,5 @@ V1 编排器 `OrchestratorAgent` 位于 `agent/orchestrator/` 子包下，V2 编
 6. **问题 6**（微型包合并 + 枚举命名）：🟡 微型包合并已完成；枚举命名统一延后未做（原因见问题 6 实施记录）。
 
 **本次未处理事项**（供下次窗口参考）：
-- 问题 4（fileops 工具是否统一到 `ToolRegistry`）需要先确认其调用协议是否与 `AgentTool` 兼容，未做代码改动。
 - 问题 6 的枚举命名统一（`EventTypeEnum`→`EventType` 等）未做。
-- 全部改动均未在具备 JDK/Maven 的环境下编译验证，建议尽快执行一次 `./mvnw compile` 确认无误。
+- 本次清理已通过 `./mvnw clean -DskipTests compile` 验证。

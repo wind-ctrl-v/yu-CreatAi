@@ -32,8 +32,8 @@
 │ 路径2: LLM 提示词偏好提取         │───→│ weight        │───→│ 消费点2: 个性化排序           │
 │   (从修改指令文本提取偏好标签)     │    │ user_design_  │    │   (DesignKnowledgeIndex)       │
 │                                   │    │ profile       │    │                              │
-│ 路径3: 下载行为记录               │───→│               │───→│ 消费点3: 独立重排服务         │
-│   (导出时 +0.2 权重)              │    │               │    │   (DesignRerankService)       │
+│ 路径3: 下载行为记录               │───→│               │───→│ 消费点3: 个性化检索排序         │
+│   (导出时 +0.2 权重)              │    │               │    │   (DesignKnowledgeIndex)       │
 │                                   │    │               │    │                              │
 │                                   │    │               │───→│ 消费点4: Prompt 上下文压缩    │
 │                                   │    │               │    │   (ContextCompressTool)       │
@@ -244,8 +244,8 @@ dislikePenalty = userPreferenceService.calculateDislikePenalty(uid, "style", ite
 
 ### 4.3 消费点 3：独立重排服务
 
-**类**：`DesignRerankService`
-**开关**：`agent.rerank.enabled=true`
+**实现**：`DesignKnowledgeIndex.calculatePersonalizedScore()`
+**开关**：`agent.personalization.enabled=true`
 
 10 项加权计分公式中的两项涉及用户偏好：
 
@@ -473,6 +473,5 @@ context:
 | `UserPreferenceTool` | `tool.system` | 生成时加载偏好到 Blackboard |
 | `PersonalizedQueryBuilder` | `service` | 个性化查询文本构造 |
 | `DesignKnowledgeIndex` | `service.design` | 个性化排序 |
-| `DesignRerankService` | `service` | 10 项加权独立重排 |
 | `ContextCompressTool` | `tool.system` | 偏好压缩为 prompt 摘要 |
 | `UserDesignContext` | `model.dto.agent` | 运行时偏好上下文 DTO |
