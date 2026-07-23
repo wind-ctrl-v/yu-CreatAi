@@ -1,6 +1,5 @@
 package com.yu.yuaifather.tool.system;
 
-import cn.hutool.json.JSONUtil;
 import com.yu.yuaifather.mapper.GeneratedPageMapper;
 import com.yu.yuaifather.model.entity.GeneratedPage;
 import com.yu.yuaifather.tool.core.SystemTool;

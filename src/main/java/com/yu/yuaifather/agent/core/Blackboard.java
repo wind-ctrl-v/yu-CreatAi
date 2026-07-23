@@ -7,6 +7,7 @@ import com.yu.yuaifather.model.dto.agent.GenerationPlan;
 import com.yu.yuaifather.model.dto.agent.ProjectBrandContext;
 import com.yu.yuaifather.model.dto.agent.RequirementDoc;
 import com.yu.yuaifather.model.dto.agent.UserDesignContext;
+import com.yu.yuaifather.generation.domain.GeneratedArtifact;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,6 +34,7 @@ public class Blackboard {
     private static final String KEY_IMAGE_MAP = "imageMap";
     private static final String KEY_CRITIC_REPORT = "criticReport";
     private static final String KEY_GENERATED_FILES = "generatedFiles";
+    private static final String KEY_GENERATED_ARTIFACT = "generatedArtifact";
     private static final String KEY_DEPLOY_URL = "deployUrl";
     private static final String KEY_DESIGN_SPEC = "designSpec";
     private static final String KEY_DESIGN_EVIDENCE = "designEvidence";
@@ -152,6 +154,18 @@ public class Blackboard {
     public Map<String, Boolean> getGeneratedFiles() {
         Map<String, Boolean> m = (Map<String, Boolean>) store.get(KEY_GENERATED_FILES);
         return m == null ? Collections.emptyMap() : m;
+    }
+
+    // ---------- generatedArtifact ----------
+
+    public void putGeneratedArtifact(GeneratedArtifact artifact) {
+        if (artifact != null) {
+            store.put(KEY_GENERATED_ARTIFACT, artifact);
+        }
+    }
+
+    public GeneratedArtifact getGeneratedArtifact() {
+        return (GeneratedArtifact) store.get(KEY_GENERATED_ARTIFACT);
     }
 
     // ---------- deployUrl ----------

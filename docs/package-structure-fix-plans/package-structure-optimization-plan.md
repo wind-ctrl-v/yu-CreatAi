@@ -12,7 +12,7 @@
 | 1 | 用户私有指纹入库 / 向量同步存在双实现，向量同步补丁误落在未被调用的类上 | `worker/`、`service/` | P0 | ✅ 已完成（2026-07-03，见 [rag-fix-plans/06](../rag-fix-plans/06-duplicate-user-fingerprint-ingest-service.md)） |
 | 2 | `AppController` 承担了应下沉到 Service 层的业务逻辑，文件过重（554 行） | `controller/` | P1 | ✅ 已完成（2026-07-03） |
 | 3 | 两套编排器（V1/V2）分散在不同层级的包里，命名易混淆 | `orchestrator/`、`agent/orchestrator/` | P1 | ✅ 已完成（2026-07-03） |
-| 4 | 增量编辑场景的文件操作工具游离在统一工具体系之外 | `agent/codegen/fileops/`、`tool/` | P2 | 待评审（未实施，需先做 4.1 先决条件确认） |
+| 4 | 增量编辑场景的文件操作工具游离在统一工具体系之外 | `codegen/tools/` | P2 | ✅ 已完成（迁移至独立 codegen 工具体系） |
 | 5 | 向量数据访问层与普通业务 Service 混放，缺少独立的 Repository 分层 | `service/` | P2 | ✅ 已完成（2026-07-03） |
 | 6 | 若干微型包（1-2 个文件）拆分粒度过细，枚举命名不统一 | `annotation/`、`aop/`、`ratelimiter/`、`model/enums/` | P3 | 🟡 部分完成（微型包合并已完成；枚举命名统一延后未做） |
 
@@ -143,32 +143,31 @@ V1 编排器 `OrchestratorAgent` 位于 `agent/orchestrator/` 子包下，V2 编
 
 ## 问题 4：增量编辑工具游离在统一工具体系之外
 
-### 1. 问题描述
+### 1. 实施结果
 
-当前增量编辑仍使用 `agent/codegen/fileops/` 下基于 LangChain4j 的 `BaseTool`/`ToolManager` 体系。原先未接入运行链路的 `tool/core/AgentTool`、`ToolSchema`、`ToolRegistry` 以及 `tool/agent` 占位工具已在死代码清理中移除，避免保留一套不可达的重复工具注册体系。
+原先位于 `agent/codegen` 下的代码生成和增量编辑工具已迁移到独立的 `codegen` 体系：
 
-### 2. 影响范围
+- `codegen/service/`：代码生成服务与 Facade
+- `codegen/routing/`：代码类型路由
+- `codegen/parser/`：代码解析
+- `codegen/saver/`：代码保存
+- `codegen/stream/`：SSE 流处理与消息模型
+- `codegen/tools/`：增量编辑文件工具
+- `codegen/build/`：Vue 项目构建
 
-- 增量编辑工具继续由 `ToolManager` 统一装配。
-- 当前项目不再维护未接入的 Agent Tool 注册中心。
+该体系继续使用 LangChain4j 的 `BaseTool`/`ToolManager`，不与已删除的 `AgentTool` 注册体系混用。
 
-### 3. 涉及文件
+### 2. 验证结果
 
-- `src/main/java/com/yu/yuaifather/agent/codegen/fileops/`
-- `src/main/java/com/yu/yuaifather/agent/codegen/AiCodeGeneratorServiceFactory.java`
+- `IncrementalEditService` 的工具导入已更新为 `codegen.tools`；
+- `AiCodeGeneratorServiceFactory` 的工具装配已更新；
+- `GenerationPipelineRouter`、`AppServiceImpl`、`CoderAgent`、`DeployTool` 的 codegen 依赖已更新；
+- Java 源码中已无 `agent.codegen` 旧包引用；
+- Maven 编译通过。
 
-### 4. 修改方案
+### 3. 风险说明
 
-无需迁移。后续新增工具应直接遵循现有 `BaseTool`/`ToolManager` 装配方式，并在对应的 AI 服务构建处注册。
-
-### 5. 验证方式
-
-1. 若执行迁移：确认增量编辑功能（`IncrementalEditService`）在迁移后行为不变，走一次真实的增量编辑请求验证。
-2. 若仅补充文档说明：Review 确认两处 Javadoc 已经互相引用、说明清晰。
-
-### 6. 风险评估
-
-- **风险从低到高不等，取决于先决条件的确认结果**：如果两套工具调用协议本质不同，强行统一可能得不偿失，建议**先做 4.1 的先决条件确认**，很可能最终会得出"保持现状，仅补充文档说明"的结论（类比修复计划 05 的处理方式）。
+本次仅调整包结构和导入，不改变 AI Prompt、文件操作协议、SSE 数据格式或生成逻辑。
 
 ---
 
@@ -274,5 +273,6 @@ V1 编排器 `OrchestratorAgent` 位于 `agent/orchestrator/` 子包下，V2 编
 6. **问题 6**（微型包合并 + 枚举命名）：🟡 微型包合并已完成；枚举命名统一延后未做（原因见问题 6 实施记录）。
 
 **本次未处理事项**（供下次窗口参考）：
+- 问题 4（fileops 工具是否统一到 `ToolRegistry`）需要先确认其调用协议是否与 `AgentTool` 兼容，未做代码改动。
 - 问题 6 的枚举命名统一（`EventTypeEnum`→`EventType` 等）未做。
-- 本次清理已通过 `./mvnw clean -DskipTests compile` 验证。
+- 全部改动均未在具备 JDK/Maven 的环境下编译验证，建议尽快执行一次 `./mvnw compile` 确认无误。

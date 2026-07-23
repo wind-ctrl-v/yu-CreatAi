@@ -3,7 +3,7 @@ package com.yu.yuaifather.worker;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.query.QueryWrapper;
-import com.yu.yuaifather.agent.workers.DesignExtractorAgent;
+import com.yu.yuaifather.service.design.DesignExtractorAgent;
 import com.yu.yuaifather.model.dto.agent.DesignFingerprintDTO;
 import com.yu.yuaifather.constant.AppConstant;
 import com.yu.yuaifather.model.entity.App;

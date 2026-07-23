@@ -48,13 +48,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- PGvector Java 辅助库：向量类型映射、<=> 操作符等 -->
-        <dependency>
-            <groupId>com.pgvector</groupId>
-            <artifactId>pgvector</artifactId>
-            <version>0.1.6</version>
-        </dependency>
-
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -87,20 +80,6 @@
             <artifactId>mybatis-flex-spring-boot3-starter</artifactId>
             <version>${mybatis-flex.version}</version>
         </dependency>
-
-        <!-- 代码生成模块 -->
-        <dependency>
-            <groupId>com.mybatis-flex</groupId>
-            <artifactId>mybatis-flex-codegen</artifactId>
-            <version>${mybatis-flex.version}</version>
-        </dependency>
-
-        <!-- 数据库连接池 -->
-        <dependency>
-            <groupId>com.zaxxer</groupId>
-            <artifactId>HikariCP</artifactId>
-        </dependency>
-
 
         <!-- 测试 -->
         <dependency>
@@ -139,14 +118,6 @@
 
 
 
-        <dependency>
-            <groupId>org.jetbrains</groupId>
-            <artifactId>annotations</artifactId>
-            <version>13.0</version>
-            <scope>compile</scope>
-        </dependency>
-
-
         <!-- Spring Boot Data Redis（提供 LettuceConnectionFactory） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -157,18 +128,6 @@
         <dependency>
             <groupId>org.springframework.session</groupId>
             <artifactId>spring-session-data-redis</artifactId>
-        </dependency>
-
-        <!-- Lettuce: Spring Session Redis 底层连接器 -->
-        <dependency>
-            <groupId>io.lettuce</groupId>
-            <artifactId>lettuce-core</artifactId>
-        </dependency>
-
-        <!-- Jackson jsr310 模块：支持 LocalDateTime JSON 序列化 -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
         <!-- Spring Security Crypto：BCrypt 密码加密（不引入 Spring Security 完整框架） -->

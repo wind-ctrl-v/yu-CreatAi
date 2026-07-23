@@ -13,8 +13,7 @@ import java.util.List;
 /**
  * 指纹质量反哺服务（阶段三：评估治理）。
  * <p>
- * CriticAgent 评估后，反向更新指纹的 usage_count、retrieval_success_score，
- * 并记录审核日志。
+ * CriticAgent 评估后，反向更新指纹的 usage_count、retrieval_success_score。
  *
  * @author yu
  */

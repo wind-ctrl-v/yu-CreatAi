@@ -7,7 +7,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
-import javax.sql.DataSource;
 
 /**
  * PGvector 辅助数据源配置。仅在 {@code agent.retrieve.vector.enabled=true} 时激活。

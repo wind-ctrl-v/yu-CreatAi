@@ -5,9 +5,11 @@ import com.yu.yuaifather.model.entity.UserDesignEvent;
 import com.yu.yuaifather.worker.PreferenceUpdateWorker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.Executor;
 
 /**
  * 应用相关的用户行为记录服务（从 {@code AppController} 下沉，见包结构优化计划问题 2）。
@@ -31,12 +33,15 @@ public class AppBehaviorService {
 
     private final PreferenceUpdateWorker preferenceUpdateWorker;
     private final PromptPreferenceExtractor promptPreferenceExtractor;
+    private final Executor preferenceExecutor;
 
     @Autowired
     public AppBehaviorService(PreferenceUpdateWorker preferenceUpdateWorker,
-                               PromptPreferenceExtractor promptPreferenceExtractor) {
+                              PromptPreferenceExtractor promptPreferenceExtractor,
+                              @Qualifier("preferenceExecutor") Executor preferenceExecutor) {
         this.preferenceUpdateWorker = preferenceUpdateWorker;
         this.promptPreferenceExtractor = promptPreferenceExtractor;
+        this.preferenceExecutor = preferenceExecutor;
     }
 
     /**
@@ -102,7 +107,7 @@ public class AppBehaviorService {
         // 仅在应该计入负反馈时，异步提取负向偏好标签
         if (shouldCountAsNegative && StrUtil.isNotBlank(initPrompt)) {
             final Long uid = userId;
-            Thread.ofVirtual().start(() -> {
+            preferenceExecutor.execute(() -> {
                 try {
                     promptPreferenceExtractor.extractAndRecordNegative(uid, initPrompt);
                 } catch (Exception e) {

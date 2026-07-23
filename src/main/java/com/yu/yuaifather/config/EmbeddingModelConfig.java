@@ -27,13 +27,13 @@ public class EmbeddingModelConfig {
     @Value("${agent.embedding.use-openai:false}")
     private boolean useOpenAI;
 
-    @Value("${langchain4j.open-ai.embedding-model.api-key}")
+    @Value("${langchain4j.open-ai.embedding-model.api-key:}")
     private String apiKey;
 
-    @Value("${langchain4j.open-ai.embedding-model.base-url}")
+    @Value("${langchain4j.open-ai.embedding-model.base-url:}")
     private String baseUrl;
 
-    @Value("${langchain4j.open-ai.embedding-model.model-name}")
+    @Value("${langchain4j.open-ai.embedding-model.model-name:text-embedding-3-small}")
     private String modelName;
 
     @Bean

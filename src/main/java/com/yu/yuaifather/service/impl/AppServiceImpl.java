@@ -5,10 +5,9 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
-import com.yu.yuaifather.agent.codegen.AiCodeGenTypeRoutingService;
-import com.yu.yuaifather.agent.codegen.core.AiCodeGeneratorFacade;
-import com.yu.yuaifather.agent.codegen.core.VueProjectBuilder;
-import com.yu.yuaifather.agent.codegen.core.StreamHandlerExecutor;
+import com.yu.yuaifather.codegen.routing.AiCodeGenTypeRoutingService;
+import com.yu.yuaifather.codegen.build.VueProjectBuilder;
+import com.yu.yuaifather.codegen.stream.StreamHandlerExecutor;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.model.dto.app.AppAddRequest;
 import com.yu.yuaifather.model.dto.app.AppQueryRequest;
@@ -24,7 +23,7 @@ import com.yu.yuaifather.model.vo.AppVO;
 import com.yu.yuaifather.model.vo.UserVO;
 import com.yu.yuaifather.service.AppService;
 import com.yu.yuaifather.service.ChatHistoryService;
-import com.yu.yuaifather.service.ScreenshotService;
+import com.yu.yuaifather.media.screenshot.ScreenshotService;
 import com.yu.yuaifather.service.UserService;
 import com.yu.yuaifather.service.generation.GenerationPipelineRouter;
 import jakarta.annotation.Resource;
@@ -57,9 +56,6 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
     @Autowired
     private UserService userService;
-
-    @Autowired
-    private AiCodeGeneratorFacade aiCodeGeneratorFacade;
 
     @Resource
     private ChatHistoryService chatHistoryService;
@@ -159,9 +155,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         Map<Long, UserVO> userVOMap = userService.listByIds(userIds).stream()
                 .collect(Collectors.toMap(User::getId, userService::getUserVO));
         return appList.stream().map(app -> {
-            AppVO appVO = getAppVO(app);
-            UserVO userVO = userVOMap.get(app.getUserId());
-            appVO.setUser(userVO);
+            AppVO appVO = new AppVO();
+            BeanUtil.copyProperties(app, appVO);
+            appVO.setUser(userVOMap.get(app.getUserId()));
             return appVO;
         }).collect(Collectors.toList());
     }

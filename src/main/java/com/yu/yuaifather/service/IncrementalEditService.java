@@ -1,10 +1,10 @@
 package com.yu.yuaifather.service;
 
 import cn.hutool.json.JSONUtil;
-import com.yu.yuaifather.agent.codegen.fileops.*;
-import com.yu.yuaifather.agent.codegen.model.message.AiResponseMessage;
-import com.yu.yuaifather.agent.codegen.model.message.ToolExecutedMessage;
-import com.yu.yuaifather.agent.codegen.model.message.ToolRequestMessage;
+import com.yu.yuaifather.codegen.tools.*;
+import com.yu.yuaifather.codegen.stream.model.AiResponseMessage;
+import com.yu.yuaifather.codegen.stream.model.ToolExecutedMessage;
+import com.yu.yuaifather.codegen.stream.model.ToolRequestMessage;
 import com.yu.yuaifather.constant.AppConstant;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;

@@ -5,17 +5,23 @@ import { message } from 'ant-design-vue'
 import { addApp, listGoodAppByPage, listMyAppByPage } from '../api/app'
 import type { AppVO } from '../types'
 import AppCard from '../components/AppCard.vue'
+import { useAppPage } from '../composables/useAppPage'
 
 const router = useRouter()
 
 const prompt = ref('')
 const creating = ref(false)
 
-const goodApps = ref<AppVO[]>([])
-const loadingApps = ref(false)
-
-const myApps = ref<AppVO[]>([])
-const loadingMyApps = ref(false)
+const {
+  records: goodApps,
+  loading: loadingApps,
+  load: loadGoodApps,
+} = useAppPage(listGoodAppByPage, 6)
+const {
+  records: myApps,
+  loading: loadingMyApps,
+  load: loadMyApps,
+} = useAppPage(listMyAppByPage, 6)
 
 const genMode = ref<string>('standard')
 
@@ -34,20 +40,6 @@ const suggestions = [
   '电商商品页',
   '数据大屏',
 ]
-
-async function loadGoodApps() {
-  loadingApps.value = true
-  const res = await listGoodAppByPage({ pageNum: 1, pageSize: 6 }).catch(() => null)
-  loadingApps.value = false
-  if (res?.code === 0) goodApps.value = res.data.records || []
-}
-
-async function loadMyApps() {
-  loadingMyApps.value = true
-  const res = await listMyAppByPage({ pageNum: 1, pageSize: 6 }).catch(() => null)
-  loadingMyApps.value = false
-  if (res?.code === 0) myApps.value = res.data.records || []
-}
 
 async function handleCreate() {
   const initPrompt = prompt.value.trim()

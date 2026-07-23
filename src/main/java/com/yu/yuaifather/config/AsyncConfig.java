@@ -29,6 +29,18 @@ public class AsyncConfig {
         return executor;
     }
 
+    @Bean(name = "preferenceExecutor")
+    public Executor preferenceExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("preference-");
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+
     @Bean(name = "buildExecutor")
     public Executor buildExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

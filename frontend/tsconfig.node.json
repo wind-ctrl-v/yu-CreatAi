@@ -6,6 +6,10 @@
     "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
     "verbatimModuleSyntax": false,
+    "types": ["node"],
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.cache/tsconfig-node",
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },

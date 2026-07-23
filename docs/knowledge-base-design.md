@@ -168,7 +168,7 @@ POST /fingerprint/admin/ingest-external { url, styleProfileHint }
       ├── 移除 <script> 块（安全：防 prompt injection）
       ├── 提取 CSS 声明（最多 40 条）
       └── 统计结构化标签数量
-  → DesignExtractorAgent.extract(summary, styleProfileHint, sourceId)
+  → service.design.DesignExtractorAgent.extract(summary, styleProfileHint, sourceId)
       ├── 调用 LLM 提炼六层指纹
       └── FingerprintParser.parse() 解析为 DesignFingerprintDTO
   → DesignFingerprintService.saveCandidate(dto, selfGenerated=false)
@@ -297,19 +297,35 @@ softMatchScore(item, queryTags) → 关键词软匹配打分
 priority DESC → confidence DESC → updatedAt DESC → matchScore DESC
 ```
 
-### 个性化排序（开关控制）
+### 个性化排序（开关控制，P0-5 修复后权重统一）
 
-当 `agent.personalization.enabled=true` 且用户有偏好数据时，`DesignKnowledgeIndex.calculatePersonalizedScore()` 使用加权评分替换默认排序：
+当 `agent.personalization.enabled=true` 且用户有偏好数据时，替换默认排序为加权评分。
+
+**★ 权重已与 `DesignRerankService` 统一（P0-5 修复）**：
 
 ```
 personalizedScore = 0.25 * semanticScore      // queryTags 命中率
                   + 0.15 * styleScore          // tone 与用户偏好风格重叠率
-                  + 0.15 * componentScore      // preferredPatterns 与用户偏好组件重叠率
+                  + 0.15 * componentScore       // preferredPatterns 与用户偏好组件重叠率
                   + 0.10 * layoutScore         // layoutPatterns 与用户偏好布局重叠率
-                  + 0.10 * qualityScore         // 指纹置信度
+                  + 0.10 * qualityScore        // 指纹置信度
                   + 0.15 * userPrefScore        // 偏好权重表计算的分值（含时间衰减）
                   - 0.20 * dislikePenalty       // 用户反感标签惩罚（含时间衰减）
 ```
+
+**与 `DesignRerankService` 的差异**：
+
+| 维度 | DesignKnowledgeIndex | DesignRerankService |
+|---|---|---|
+| 7 个公共维度 | ✅ 权重完全一致 | ✅ 权重完全一致 |
+| projectBrand | ❌ 无（召回阶段无 brandContext） | ✅ +0.15 |
+| forbiddenPenalty | ❌ 无 | ✅ -0.20 |
+| duplicatePenalty | ❌ 无 | ✅ -0.10 |
+
+**双开关联动**：
+- `personalization=true, rerank=false` → 用 `calculatePersonalizedScore`（7 项简化版）
+- `personalization=true, rerank=true` → 先用 `calculatePersonalizedScore` 排序，再由 `DesignRerankService` 做 10 项完整重排
+- `personalization=false` → 用默认 `priority/confidence/updatedAt` 排序
 
 ### Prompt 注入
 
@@ -436,6 +452,7 @@ user_design_event（用户行为事件流，只写不删）
 |---|---|---|---|
 | 个性化查询文本 | `PersonalizedQueryBuilder` | 偏好标签融入向量检索查询文本 | `personalization.enabled` |
 | 个性化排序 | `DesignKnowledgeIndex` | 偏好权重影响检索结果排序 | `personalization.enabled` |
+| 独立重排服务 | `DesignRerankService` | 10 项加权独立重排 | `rerank.enabled` |
 | Prompt 上下文压缩 | `ContextCompressTool` | 偏好压缩为自然语言注入 prompt | 自动（V2 编排器） |
 | 偏好加载入口 | `UserPreferenceTool` | 生成时加载偏好到 Blackboard | `personalization.enabled` |
 
@@ -602,7 +619,7 @@ design:
 | `FingerprintCrawlScheduler` | `worker` | 定时爬取本站精选应用 |
 | `DesignFingerprintController` | `controller` | 管理员指纹管理接口 |
 | `DesignSourcePreprocessor` | `service.design` | HTML 预处理 + SSRF 防护 |
-| `DesignExtractorAgent` | `agent.workers` | LLM 六层指纹提炼 |
+| `DesignExtractorAgent` | `service.design` | LLM 六层指纹提炼 |
 | `FingerprintParser` | `service.design` | 解析/校验/置信度/签名 |
 | `FingerprintProjector` | `service.design` | DTO → DesignSpec 投影 |
 | `DesignFingerprintService` | `service` | 指纹治理（入库/审核/状态流转） |
@@ -615,6 +632,7 @@ design:
 | `DesignRetrieveTool` | `tool.system` | 运行时检索入口 |
 | `DesignKnowledgeIndex` | `service.design` | 统一知识层索引（三档降级召回） |
 | `DesignFingerprintVectorRepository` | `repository` | PGvector 原生 SQL 访问层 |
+| `DesignRerankService` | `service` | 10 项加权综合重排 |
 | `PersonalizedQueryBuilder` | `service` | 个性化查询文本构造 |
 | `EmbeddingService` | `service.design` | 语义文本构造 + 向量生成 |
 
@@ -648,5 +666,5 @@ design:
 | P0-2 负反馈采集 | 删除应用 → `extractAndRecordNegative` 提取标签全部 -0.15 | `AppController.java`、`AppBehaviorService.java`、`PromptPreferenceExtractor.java` |
 | P0-3 反模式信号 | 评审有误，不修改 | — |
 | P0-4 并发保护 | `maybeRefreshProfileSummary` 异步虚拟线程化 | `PreferenceUpdateWorker.java` |
-| P0-5 排序统一 | 7 项公共维度权重统一到 `DesignKnowledgeIndex` | `DesignKnowledgeIndex.java` |
+| P0-5 排序统一 | 7 项公共维度权重与 `DesignRerankService` 对齐 | `DesignKnowledgeIndex.java` |
 | P0-6 冷启动 | 新用户注入默认偏好画像 | `UserPreferenceService.java` |

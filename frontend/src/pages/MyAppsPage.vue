@@ -5,16 +5,22 @@ import { message, Modal } from 'ant-design-vue'
 import { listMyAppByPage, updateApp, deleteApp } from '../api/app'
 import type { AppVO, DeleteReason } from '../types'
 import AppCard from '../components/AppCard.vue'
+import { useAppPage } from '../composables/useAppPage'
 
 const router = useRouter()
 
-const apps = ref<AppVO[]>([])
-const loading = ref(false)
 const searchName = ref('')
 const filterType = ref<string | undefined>(undefined)
-const total = ref(0)
-const pageNum = ref(1)
-const pageSize = 12
+const {
+  records: apps,
+  loading,
+  total,
+  pageNum,
+  pageSize,
+  load,
+  changePage,
+  resetAndLoad,
+} = useAppPage(listMyAppByPage, 12)
 
 const typeOptions = [
   { value: undefined, label: '全部类型' },
@@ -26,14 +32,12 @@ const typeOptions = [
 function openApp(app: AppVO) { router.push({ name: 'appChat', params: { id: String(app.id) } }) }
 function shareApp(app: AppVO) { router.push({ name: 'appShare', params: { id: String(app.id) } }) }
 
-async function loadApps() {
-  loading.value = true
-  const res = await listMyAppByPage({ pageNum: pageNum.value, pageSize, appName: searchName.value || undefined, codeGenType: filterType.value }).catch(() => null)
-  loading.value = false
-  if (res?.code === 0) {
-    apps.value = res.data.records || []
-    total.value = res.data.totalRow || 0
-  }
+function queryParams() {
+  return { appName: searchName.value || undefined, codeGenType: filterType.value }
+}
+
+function loadApps() {
+  return load(queryParams())
 }
 
 async function handleRename(app: AppVO) {
@@ -82,19 +86,16 @@ async function confirmDelete() {
   }
 }
 
-function onPageChange(p: number) {
-  pageNum.value = p
-  loadApps()
+function onPageChange(page: number) {
+  changePage(page, queryParams())
 }
 
 function onSearch() {
-  pageNum.value = 1
-  loadApps()
+  resetAndLoad(queryParams())
 }
 
 function onFilterChange() {
-  pageNum.value = 1
-  loadApps()
+  resetAndLoad(queryParams())
 }
 
 onMounted(() => { loadApps() })

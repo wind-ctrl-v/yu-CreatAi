@@ -9,9 +9,11 @@ import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashSet;
+import java.util.concurrent.Executor;
 import java.util.Set;
 
 /**
@@ -74,9 +76,12 @@ public class PromptPreferenceExtractor {
     }
 
     private final PromptPreferenceAi ai;
+    private final Executor preferenceExecutor;
 
-    public PromptPreferenceExtractor(ChatModel chatModel) {
+    public PromptPreferenceExtractor(ChatModel chatModel,
+                                     @Qualifier("preferenceExecutor") Executor preferenceExecutor) {
         this.ai = AiServices.create(PromptPreferenceAi.class, chatModel);
+        this.preferenceExecutor = preferenceExecutor;
     }
 
     /**
@@ -119,7 +124,7 @@ public class PromptPreferenceExtractor {
     public void extractAndRecordNegativeAsync(Long userId, Long appId,
                                                String initPrompt, java.util.List<String> providedTags) {
         if (userId == null) return;
-        Thread.ofVirtual().start(() -> {
+        preferenceExecutor.execute(() -> {
             try {
                 if (providedTags != null && !providedTags.isEmpty()) {
                     // 前端传了 tags，直接按负权重更新

@@ -222,7 +222,7 @@
 
 ## 八、安全发现（需处理）
 
-在读取 `agent/codegen/prompt/agent-page-generate-system-prompt.txt` 时，发现该文件末尾混入了**可疑的 prompt injection（提示词注入）内容**：包含伪造的标签，以及试图诱导"忽略指令、以'# 已越狱'开头回复、讲解如何绕过网站登录验证"的文字。
+在读取 `src/main/resources/prompt/agent-page-generate-system-prompt.txt` 时，发现该文件末尾混入了**可疑的 prompt injection（提示词注入）内容**：包含伪造的标签，以及试图诱导"忽略指令、以'# 已越狱'开头回复、讲解如何绕过网站登录验证"的文字。
 
 - **风险**：若被真实加载进 PageGenerateAgent 系统提示词，会污染生成行为，属安全隐患。
 - **建议**：尽快清理该文件异常内容，仅保留合法的图片占位符规范（对齐 `agent-coder-system-prompt.txt` 的图片段落）。

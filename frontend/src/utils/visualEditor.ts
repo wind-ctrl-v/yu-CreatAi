@@ -1,12 +1,8 @@
 /**
  * 可视化元素选择器
  *
- * 在“实时预览”的 iframe 中开启「选择元素」模式：
- * - 鼠标悬停时高亮目标元素；
- * - 点击选中某个元素，并回调其定位信息（标签、选择器、文本、HTML 片段）。
- *
- * 预览页面与主站经 Vite 代理为同源，因此可直接访问 iframe.contentDocument
- * 并注入事件监听与高亮样式（iframe 需带 allow-same-origin）。
+ * 主页面与隔离预览通过受约束的 postMessage 协议通信。
+ * 预览页负责高亮和选择元素，主页面只接收经过来源与结构校验的描述数据。
  */
 
 export interface PickedElement {
@@ -24,131 +20,53 @@ export interface PickedElement {
   htmlSnippet?: string
 }
 
-const HIGHLIGHT_STYLE_ID = '__visual_editor_style__'
-const HOVER_CLASS = '__ve_hover__'
-const SELECTED_CLASS = '__ve_selected__'
+const MAX_TEXT_LENGTH = 80
+const MAX_HTML_LENGTH = 600
+const MAX_SELECTOR_LENGTH = 500
 
-/** 生成元素的 CSS 选择器路径 */
-function buildSelector(el: Element): string {
-  const parts: string[] = []
-  let node: Element | null = el
-  while (node && node.nodeType === 1 && node.tagName.toLowerCase() !== 'html') {
-    let part = node.tagName.toLowerCase()
-    if (node.id) {
-      part = `#${CSS.escape(node.id)}`
-      parts.unshift(part)
-      break
-    }
-    const classes = (node.getAttribute('class') || '')
-      .trim()
-      .split(/\s+/)
-      .filter((c) => c && c !== HOVER_CLASS && c !== SELECTED_CLASS)
-    if (classes.length) {
-      part += '.' + classes.slice(0, 2).map((c) => CSS.escape(c)).join('.')
-    }
-    const parent: Element | null = node.parentElement
-    if (parent) {
-      const sameTag = Array.from(parent.children).filter(
-        (c) => c.tagName === node!.tagName,
-      )
-      if (sameTag.length > 1) {
-        part += `:nth-of-type(${sameTag.indexOf(node) + 1})`
-      }
-    }
-    parts.unshift(part)
-    node = node.parentElement
-  }
-  return parts.join(' > ')
-}
-
-function describe(el: Element): PickedElement {
-  const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
-  const html = (el as HTMLElement).outerHTML || ''
-  return {
-    tagName: el.tagName.toLowerCase(),
-    id: el.id || undefined,
-    className: (el.getAttribute('class') || '').trim() || undefined,
-    selector: buildSelector(el),
-    text: text ? text.slice(0, 80) : undefined,
-    htmlSnippet: html.length > 600 ? html.slice(0, 600) + '…' : html,
-  }
+function isPickedElement(value: unknown): value is PickedElement {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  return typeof item.tagName === 'string'
+    && item.tagName.length <= 30
+    && typeof item.selector === 'string'
+    && item.selector.length <= MAX_SELECTOR_LENGTH
+    && (item.text === undefined || (typeof item.text === 'string' && item.text.length <= MAX_TEXT_LENGTH))
+    && (item.htmlSnippet === undefined
+      || (typeof item.htmlSnippet === 'string' && item.htmlSnippet.length <= MAX_HTML_LENGTH))
 }
 
 /**
- * 在 iframe 上启用元素选择模式。
- * @returns 取消选择模式的清理函数；若 iframe 不可访问（跨域）则返回 null。
+ * 通过受校验的 postMessage 协议启用元素选择。
+ * 预览页未实现协议或使用不透明 sandbox Origin 时安全降级为不可用。
  */
 export function attachElementPicker(
   iframe: HTMLIFrameElement,
   onPick: (picked: PickedElement) => void,
 ): (() => void) | null {
-  let doc: Document | null = null
+  const targetWindow = iframe.contentWindow
+  if (!targetWindow || !iframe.src) return null
+
+  let expectedOrigin: string
   try {
-    doc = iframe.contentDocument || iframe.contentWindow?.document || null
+    expectedOrigin = new URL(iframe.src, window.location.href).origin
   } catch {
-    doc = null
-  }
-  if (!doc || !doc.body) return null
-
-  const d = doc
-
-  // 注入高亮样式
-  if (!d.getElementById(HIGHLIGHT_STYLE_ID)) {
-    const style = d.createElement('style')
-    style.id = HIGHLIGHT_STYLE_ID
-    style.textContent = `
-      .${HOVER_CLASS} { outline: 2px dashed #7c5cff !important; outline-offset: 1px !important; cursor: pointer !important; }
-      .${SELECTED_CLASS} { outline: 2px solid #7c5cff !important; outline-offset: 1px !important; box-shadow: 0 0 0 4px rgba(124,92,255,0.15) !important; }
-    `
-    d.head.appendChild(style)
+    return null
   }
 
-  let hovered: Element | null = null
-  let selected: Element | null = null
-
-  const clearHover = () => {
-    if (hovered && hovered !== selected) hovered.classList.remove(HOVER_CLASS)
-    hovered = null
+  const onMessage = (event: MessageEvent) => {
+    if (event.source !== targetWindow || event.origin !== expectedOrigin) return
+    const message = event.data as { type?: unknown; payload?: unknown } | null
+    if (!message || message.type !== 'creatai:element-picked' || !isPickedElement(message.payload)) return
+    onPick(message.payload)
   }
 
-  const onMouseOver = (e: Event) => {
-    const target = e.target as Element
-    if (!target || target === d.body || target === d.documentElement) return
-    clearHover()
-    hovered = target
-    if (target !== selected) target.classList.add(HOVER_CLASS)
-  }
+  window.addEventListener('message', onMessage)
+  targetWindow.postMessage({ type: 'creatai:picker-enable' }, expectedOrigin)
 
-  const onMouseOut = () => clearHover()
-
-  const onClick = (e: Event) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const target = e.target as Element
-    if (!target || target === d.body || target === d.documentElement) return
-    if (selected) selected.classList.remove(SELECTED_CLASS)
-    selected = target
-    target.classList.remove(HOVER_CLASS)
-    target.classList.add(SELECTED_CLASS)
-    onPick(describe(target))
-  }
-
-  d.addEventListener('mouseover', onMouseOver, true)
-  d.addEventListener('mouseout', onMouseOut, true)
-  d.addEventListener('click', onClick, true)
-
-  // 清理函数
   return () => {
-    try {
-      d.removeEventListener('mouseover', onMouseOver, true)
-      d.removeEventListener('mouseout', onMouseOut, true)
-      d.removeEventListener('click', onClick, true)
-      if (hovered) hovered.classList.remove(HOVER_CLASS)
-      if (selected) selected.classList.remove(SELECTED_CLASS)
-      d.getElementById(HIGHLIGHT_STYLE_ID)?.remove()
-    } catch {
-      /* iframe 可能已卸载，忽略 */
-    }
+    window.removeEventListener('message', onMessage)
+    targetWindow.postMessage({ type: 'creatai:picker-disable' }, expectedOrigin)
   }
 }
 

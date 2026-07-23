@@ -28,19 +28,3 @@ CREATE TABLE IF NOT EXISTS `project_brand_profile`
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4 COMMENT ='项目品牌画像';
 
--- 2. 设计指纹审核日志表
-CREATE TABLE IF NOT EXISTS `design_fingerprint_review_log`
-(
-    `id`              BIGINT       NOT NULL COMMENT '主键（雪花ID）',
-    `fingerprintId`   BIGINT       NOT NULL COMMENT '指纹ID',
-    `reviewerId`      BIGINT       NULL COMMENT '审核人ID',
-    `action`          VARCHAR(32)  NOT NULL COMMENT '审核动作：APPROVE/REJECT/ARCHIVE',
-    `reason`          TEXT         NULL COMMENT '审核原因',
-    `qualityScore`    DOUBLE       NULL COMMENT '人工质量评分',
-    `createTime`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    PRIMARY KEY (`id`),
-    KEY `idx_fingerprint_id` (`fingerprintId`),
-    KEY `idx_reviewer_id` (`reviewerId`),
-    KEY `idx_creation_time` (`createTime`)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4 COMMENT ='设计指纹审核日志';

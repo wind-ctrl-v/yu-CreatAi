@@ -1,8 +1,8 @@
 package com.yu.yuaifather.service.generation;
 
 import cn.hutool.json.JSONUtil;
-import com.yu.yuaifather.agent.codegen.core.AiCodeGeneratorFacade;
-import com.yu.yuaifather.agent.codegen.model.message.AiResponseMessage;
+import com.yu.yuaifather.codegen.service.AiCodeGeneratorFacade;
+import com.yu.yuaifather.codegen.stream.model.AiResponseMessage;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
 import com.yu.yuaifather.model.dto.generation.GenerationPolicy;
@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class GenerationPipelineRouter {
 
     /** V2 多 Agent 流水线开关：仅对 VUE_PROJECT 生效，默认关闭。 */
-    @Value("${agent.orchestrator.enabled:false}")
+    @Value("${agent.orchestrator.v2.enabled:false}")
     private boolean orchestratorEnabled;
 
     private final GenerationOrchestrator generationOrchestrator;

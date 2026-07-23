@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import com.yu.yuaifather.app.application.AppAccessService;
 import com.yu.yuaifather.auth.AuthCheck;
 import com.yu.yuaifather.common.BaseResponse;
 import com.yu.yuaifather.common.ResultUtils;
@@ -38,6 +39,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import com.yu.yuaifather.model.entity.App;
 import com.yu.yuaifather.service.AppService;
 import reactor.core.publisher.Flux;
@@ -46,6 +48,7 @@ import reactor.core.publisher.Mono;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 /**
  * 应用 控制层。
@@ -59,6 +62,9 @@ public class AppController {
 
     @Autowired
     private AppService appService;
+
+    @Autowired
+    private AppAccessService appAccessService;
 
     @Autowired
     private UserService userService;
@@ -78,6 +84,10 @@ public class AppController {
     @Autowired
     private IncrementalEditService incrementalEditService;
 
+    @Autowired
+    @Qualifier("preferenceExecutor")
+    private Executor preferenceExecutor;
+
     @PostMapping("/add")
     public BaseResponse<Long> addApp(@RequestBody AppAddRequest appAddRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appAddRequest == null, ErrorCode.PARAMS_ERROR);
@@ -87,7 +97,7 @@ public class AppController {
         // 异步从提示词中提取用户偏好标签（不阻塞创建流程）
         String prompt = appAddRequest.getInitPrompt();
         if (StrUtil.isNotBlank(prompt)) {
-            new Thread(() -> promptPreferenceExtractor.extractAndRecord(loginUser.getId(), prompt)).start();
+            preferenceExecutor.execute(() -> promptPreferenceExtractor.extractAndRecord(loginUser.getId(), prompt));
         }
 
         return ResultUtils.success(appId);
@@ -108,13 +118,7 @@ public class AppController {
         }
         User loginUser = userService.getLoginUser(request);
         long id = appUpdateRequest.getId();
-        // 判断是否存在
-        App oldApp = appService.getById(id);
-        ThrowUtils.throwIf(oldApp == null, ErrorCode.NOT_FOUND_ERROR);
-        // 仅本人可更新
-        if (!oldApp.getUserId().equals(loginUser.getId())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
-        }
+        appAccessService.requireOwner(id, loginUser.getId());
         App app = new App();
         app.setId(id);
         app.setAppName(appUpdateRequest.getAppName());
@@ -140,13 +144,7 @@ public class AppController {
         }
         User loginUser = userService.getLoginUser(request);
         long id = deleteRequest.getId();
-        // 判断是否存在
-        App oldApp = appService.getById(id);
-        ThrowUtils.throwIf(oldApp == null, ErrorCode.NOT_FOUND_ERROR);
-        // 仅本人或管理员可删除
-        if (!oldApp.getUserId().equals(loginUser.getId()) && !UserConstant.ADMIN_ROLE.equals(loginUser.getUserRole())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
-        }
+        App oldApp = appAccessService.requireOwnerOrAdmin(id, loginUser);
         boolean result = appService.removeById(id);
 
         // 删除 = 用户对该应用设计不满意 → 记录 page_deleted 负反馈事件（P0-2 + N-3 边界控制）
@@ -332,8 +330,9 @@ public class AppController {
         // 参数校验
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
         ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "用户消息不能为空");
-        // 获取当前登录用户
+        // 获取当前登录用户并统一校验应用所有权
         User loginUser = userService.getLoginUser(request);
+        appAccessService.requireOwner(appId, loginUser.getId());
         // 调用服务生成代码（流式）。mode 为前端请求模式（不可信意图），由服务端按套餐封顶。
         Flux<String> contentFlux = appService.chatToGenCode(appId, message, mode, loginUser);
         // 转换为 ServerSentEvent 格式
@@ -369,6 +368,7 @@ public class AppController {
         User loginUser = userService.getLoginUser(request);
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
         ThrowUtils.throwIf(StrUtil.isBlank(instruction), ErrorCode.PARAMS_ERROR, "修改指令不能为空");
+        appAccessService.requireOwner(appId, loginUser.getId());
 
         // 保存用户消息到对话历史
         try {
@@ -380,7 +380,7 @@ public class AppController {
 
         // 异步从修改指令中提取用户偏好（颜色/风格/布局标签），不阻塞主流程
         final Long currentUserId = loginUser.getId();
-        Thread.ofVirtual().start(() -> {
+        preferenceExecutor.execute(() -> {
             try {
                 promptPreferenceExtractor.extractAndRecord(currentUserId, instruction);
             } catch (Exception e) {
@@ -447,8 +447,9 @@ public class AppController {
         ThrowUtils.throwIf(appDeployRequest == null, ErrorCode.PARAMS_ERROR);
         Long appId = appDeployRequest.getAppId();
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
-        // 获取当前登录用户
+        // 获取当前登录用户并统一校验应用所有权
         User loginUser = userService.getLoginUser(request);
+        appAccessService.requireOwner(appId, loginUser.getId());
         // 调用服务部署应用
         String deployUrl = appService.deployApp(appId, loginUser);
         return ResultUtils.success(deployUrl);
@@ -468,17 +469,10 @@ public class AppController {
     public void downloadAppCode(@PathVariable Long appId,
                                 HttpServletRequest request,
                                 HttpServletResponse response) {
-        // 1. 基础校验
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
-        // 2. 查询应用信息
-        App app = appService.getById(appId);
-        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
-        // 3. 权限校验：只有应用创建者可以下载代码
         User loginUser = userService.getLoginUser(request);
-        if (!app.getUserId().equals(loginUser.getId())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限下载该应用代码");
-        }
-        // 4. 解析并校验代码生成目录（生成目录，非部署目录）
+        App app = appAccessService.requireOwner(appId, loginUser.getId());
+        // 解析并校验代码生成目录（生成目录，非部署目录）
         String sourceDirPath = projectDownloadService.resolveAndValidateSourceDir(app);
         // 5. 生成下载文件名（不建议添加中文内容）
         String downloadFileName = String.valueOf(appId);
@@ -496,10 +490,11 @@ public class AppController {
     @PostMapping("/incremental-edit")
     public BaseResponse<Map<String, Object>> incrementalEdit(@RequestBody Map<String, Object> body,
                                                               HttpServletRequest request) {
-        userService.getLoginUser(request);
+        User loginUser = userService.getLoginUser(request);
         Long appId = body.get("appId") != null ? Long.valueOf(body.get("appId").toString()) : null;
         String instruction = (String) body.get("instruction");
         ThrowUtils.throwIf(appId == null || StrUtil.isBlank(instruction), ErrorCode.PARAMS_ERROR);
+        appAccessService.requireOwner(appId, loginUser.getId());
 
         String result = incrementalEditService.incrementalEdit(appId, instruction);
         Map<String, Object> data = new java.util.HashMap<>();

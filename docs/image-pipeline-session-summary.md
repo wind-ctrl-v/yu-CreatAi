@@ -253,7 +253,7 @@ Caffeine 缓存**存的是 URL 字符串，不是图片本身**。URL 首次由 
 | `service/design/DesignContext.java` | ✅ `imageMap` 字段注释更新为"【已废弃】…保留仅为兼容" |
 | `service/design/ImagePlaceholderReplacer.java` | ✅ 修正失效的 `@link ImageSearchTool` → `@link ImageSearchEngine` |
 
-> 注：正确的 prompt 文件目录是 `src/main/resources/prompt/`（会话中一度出现被污染的错误路径 `src/main/java/.../agent/codegen/prompt/`）。
+> 注：正确的 prompt 文件目录是 `src/main/resources/prompt/`（会话中一度出现被污染的错误路径 `src/main/resources/prompt/`）。
 
 ---
 

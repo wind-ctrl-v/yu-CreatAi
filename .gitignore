@@ -4,6 +4,9 @@ tmp/
 stdout.log
 compile_out.txt
 cookies.txt
+frontend/vite.config.js
+frontend/vite.config.d.ts
+frontend/*.tsbuildinfo
 
 HELP.md
 target/

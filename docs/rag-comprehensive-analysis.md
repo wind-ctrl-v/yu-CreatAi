@@ -22,7 +22,7 @@
 FingerprintCrawlScheduler（@Scheduled，默认30分钟/次，agent.fingerprint.crawl.enabled 默认 false）
   → 抓取已部署的精选应用 HTML
   → DesignSourcePreprocessor（SSRF 内网段黑名单过滤 + HTML 摘要/剥离 script）
-  → DesignExtractorAgent（LLM 离线提炼六层指纹：tokens/layout/components/interaction/antiPatterns/tone）
+  → service.design.DesignExtractorAgent（LLM 离线提炼六层指纹：tokens/layout/components/interaction/antiPatterns/tone）
   → FingerprintParser（schema 版本校验 + validate() + computeConfidence() 四维加权 + signature() MD5去重）
   → DesignFingerprintService.saveCandidate(dto, selfGenerated=false)
       sourceType = EXTRACTED_FINGERPRINT
@@ -114,7 +114,7 @@ STATIC_FALLBACK（内置默认规范）
   DesignProfileResolver.buildBuiltinDefaultSpec()
 ```
 
-召回结果经 `applyDiversityFilter()`（私池指纹≤40%，精选指纹≥30%）→ `DesignKnowledgeIndex.calculatePersonalizedScore()` 个性化排序：
+召回结果经 `applyDiversityFilter()`（私池指纹≤40%，精选指纹≥30%）→ `DesignRerankService.rerank()` 9 维加权精排：
 
 ```
 final_score = 0.25·semantic + 0.15·style + 0.15·component + 0.10·layout + 0.10·quality
@@ -132,7 +132,7 @@ final_score = 0.25·semantic + 0.15·style + 0.15·component + 0.10·layout + 0.
       ✅ [核实于 2026-07-02] user_rating_5/user_rating_1_2 前端无对应埋点入口，已修正类 Javadoc 移除失实描述（问题 #5）
   → upsertWeight()：行锁 UPDATE + 0 行回退 INSERT + 唯一约束冲突重试（原子 upsert）
   → 每 10 次事件触发 maybeRefreshProfileSummary()：取 Top5 喜欢 + Top3 反感重算画像摘要
-  → 回灌：UserPreferenceService.loadUserDesignContext() 供下一次检索的 PersonalizedQueryBuilder / DesignKnowledgeIndex 使用
+  → 回灌：UserPreferenceService.loadUserDesignContext() 供下一次检索的 PersonalizedQueryBuilder / DesignRerankService 使用
 ```
 
 另有 `PromptPreferenceExtractor`（LLM 从用户 Prompt 中提取偏好标签，仅正向 +0.15，不做负向提取）作为补充信号源。

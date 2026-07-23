@@ -56,6 +56,11 @@ export function adminUpdateApp(params: AdminAppUpdateRequest) {
   return request.post<any, BaseResponse<boolean>>('/app/admin/update', params)
 }
 
+/** 管理员获取应用详情 */
+export function adminGetAppById(id: string) {
+  return request.get<any, BaseResponse<AppVO>>('/app/admin/get/vo', { params: { id } })
+}
+
 // ==================== 对话历史管理 ====================
 
 /** 管理员分页查询所有对话历史 */
