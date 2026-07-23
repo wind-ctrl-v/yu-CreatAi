@@ -170,7 +170,7 @@
 |---|---|---|
 | 1 | `orchestrator/v1/OrchestratorAgent.java` | 删 `.concatWith(imageSearchTool.handle(ctx))` 及注释；删字段/构造参数/赋值/import；更新类注释流水线图 |
 | 2 | `service/design/DesignContextAssembler.java` | 删「5. 检索图片」整段与 `builder.imageMap(...)`；ContextCompressTool 调用不再传 imageMap；删字段/构造参数/赋值；更新类注释 |
-| 3 | `orchestrator/v2/GenerationOrchestrator.java` | 删 `if (dc.getImageMap()...) putImageMap(...)` |
+| 3 | `orchestrator/GenerationOrchestrator.java` | 删 `if (dc.getImageMap()...) putImageMap(...)` |
 
 ### 阶段二：清理死代码（验证通过后再做）
 

@@ -26,9 +26,6 @@ public class GenerationPolicy {
     /** 是否启用 V2 主链路。 */
     boolean v2Enabled;
 
-    /** 是否允许 V2 失败降级到 V1。 */
-    boolean allowV1Fallback;
-
     /** 是否允许降级到经典链路兜底。 */
     boolean allowClassicFallback;
 

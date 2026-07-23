@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
  *
  * <h3>定位</h3>
  * <ul>
- *   <li>属于<b>离线预热</b>链路，<b>不</b>接入 {@code OrchestratorAgent} 实时生成流水线，
+ *   <li>属于<b>离线预热</b>链路，<b>不</b>接入 {@code GenerationOrchestrator} 实时生成流水线，
  *       失败不影响实时生成（见三阶段对照表）；</li>
  *   <li>输入必须先经 {@link DesignSourcePreprocessor} 归一化（剥离脚本与业务文案），
  *       不直接把原始 HTML 喂给 LLM（呼应 2.6 prompt injection 隔离）；</li>

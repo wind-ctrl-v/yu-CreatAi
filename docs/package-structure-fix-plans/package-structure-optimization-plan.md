@@ -112,7 +112,7 @@ V1 编排器 `OrchestratorAgent` 位于 `agent/orchestrator/` 子包下，V2 编
 
 1. 将两个编排器统一收敛到同一层级，建议路径：
    - `orchestrator/v1/OrchestratorAgent.java`
-   - `orchestrator/v2/GenerationOrchestrator.java`
+   - `orchestrator/GenerationOrchestrator.java`
 2. `DesignContext`/`DesignContextAssembler`/`DesignContextInput` 迁移到 `service/design/` 包下（与 `DesignKnowledgeIndex`、`FingerprintProjector` 等同域类放在一起）。
 3. 迁移后需要同步更新所有 import 路径（预计影响 `GenerationOrchestrator` 自身及任何引用 `DesignContext*` 的测试/调用代码）。
 
@@ -130,15 +130,14 @@ V1 编排器 `OrchestratorAgent` 位于 `agent/orchestrator/` 子包下，V2 编
 ### 7. 实施记录
 
 - **状态**：已实施
-- **完成时间**：2026-07-03
+- **完成时间**：2026-07-23
 - **改动内容**：
-  1. `GenerationOrchestrator.java`：`orchestrator/` → `orchestrator/v2/`，包名改为 `com.yu.yuaifather.orchestrator.v2`。
-  2. `OrchestratorAgent.java`：`agent/orchestrator/` → `orchestrator/v1/`，包名改为 `com.yu.yuaifather.orchestrator.v1`；原 `agent/orchestrator/` 空目录已清理。
-  3. `DesignContext.java`/`DesignContextInput.java`/`DesignContextAssembler.java`：`orchestrator/` → `service/design/`，包名改为 `com.yu.yuaifather.service.design`。
-  4. 同步更新所有 import 引用：`GenerationOrchestrator` 内新增对 `service.design.DesignContext*` 三个类的 import；`GenerationPipelineRouter.java` 更新 `OrchestratorAgent`/`GenerationOrchestrator` 的 import 路径为 `.v1`/`.v2`；`PageGenerateAgent.java` 更新 `DesignContext` 的 import 路径为 `service.design`。
-- **涉及文件**：迁移 4 个文件（`GenerationOrchestrator.java`、`OrchestratorAgent.java`、`DesignContext.java`、`DesignContextInput.java`、`DesignContextAssembler.java`，共 5 个文件迁移），修改 2 个引用方文件（`GenerationPipelineRouter.java`、`PageGenerateAgent.java`）。
-- **验证说明**：全局搜索确认无任何旧包路径（`com.yu.yuaifather.agent.orchestrator`、`com.yu.yuaifather.orchestrator.DesignContext*`、`com.yu.yuaifather.orchestrator.GenerationOrchestrator`）残留引用；当前环境无 JDK/Maven，未能编译验证，建议后续补充一次 `./mvnw compile`。
-- **Spring 组件扫描确认**：`YuAiFatherApplication` 使用默认 `@SpringBootApplication`（无自定义 `@ComponentScan`），扫描根包为 `com.yu.yuaifather`，`orchestrator.v1`/`orchestrator.v2` 子包均在扫描范围内，不受影响。
+  1. `GenerationOrchestrator.java` 归入 `com.yu.yuaifather.orchestrator` 顶层包，取消 `orchestrator.v2` 子包。
+  2. V1 编排器已移除，实时生成链路收敛为 V2 → Classic。
+  3. `DesignContext.java`/`DesignContextInput.java`/`DesignContextAssembler.java` 保持在 `service.design` 包。
+  4. 更新 `GenerationPipelineRouter.java` 的编排器 import，并同步修正文档路径。
+- **验证说明**：源码中已无 `com.yu.yuaifather.orchestrator.v2` 或 `orchestrator/v2` 引用；目标包仅保留 `GenerationOrchestrator.java`，并已通过 Maven 编译验证。
+- **Spring 组件扫描确认**：`GenerationOrchestrator` 仍位于 `com.yu.yuaifather` 根包下，默认 `@SpringBootApplication` 扫描范围不受影响。
 
 ---
 

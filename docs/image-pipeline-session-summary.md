@@ -236,7 +236,7 @@ Caffeine 缓存**存的是 URL 字符串，不是图片本身**。URL 首次由 
 |---|---|
 | `orchestrator/v1/OrchestratorAgent.java` | 移除 `.concatWith(imageSearchTool.handle(ctx))` 调用 + 字段/构造参数/赋值/import/流水线注释；补充"图片由生成后占位符回填处理"说明 |
 | `service/design/DesignContextAssembler.java` | 移除「5. 检索图片」整段与 `builder.imageMap(...)`；`ContextCompressTool` 调用改传 `Map.of()`；移除 `imageSearchTool` 字段/构造参数/赋值；更新类注释编排顺序 |
-| `orchestrator/v2/GenerationOrchestrator.java` | 移除 `if (dc.getImageMap() != null) putImageMap(...)` |
+| `orchestrator/GenerationOrchestrator.java` | 移除 `if (dc.getImageMap() != null) putImageMap(...)` |
 
 **验证**：全局搜索确认 `ImageSearchTool`/`putImageMap`/`getImageMap` 外部引用清零（仅 `ImageSearchTool.java` 自身残留）；`AiCodeGeneratorFacade` 只依赖回填器 `ImagePlaceholderReplacer`，与预搜图无关，不受影响。
 

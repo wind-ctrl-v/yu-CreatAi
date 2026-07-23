@@ -36,7 +36,7 @@ FingerprintCrawlScheduler（@Scheduled，默认30分钟/次，agent.fingerprint.
 ### 链路 B：用户私有指纹反哺入库（个人知识，用户行为触发）
 
 ```
-GenerationOrchestrator.doRecord()（V2 编排器生成完成后触发，V1 OrchestratorAgent 不触发此链路）
+GenerationOrchestrator.doRecord()（V2 编排器生成完成后触发）
   → UserFingerprintIngestService.ingestUserFingerprint(pageId, userId, projectId)
       （agent.fingerprint.user-ingest.enabled 默认 false；★ 生产唯一入口，详见问题 #6）
   → buildSurfaceFingerprint()：纯正则规则提取（无 LLM），扫描 CSS 关键字判定配色/圆角/阴影，
@@ -80,24 +80,9 @@ REJECTED                 REJECTED
 
 ## 二、检索流程链路（Retrieval）总览
 
-当前系统存在 **2 套并行的编排器实现**，均从同一批 System Tool 组装设计上下文，但装配方式不同。两者默认均关闭（`agent.*.enabled=false`）。
+当前系统保留 **V2 `GenerationOrchestrator`** 这一套实时编排器，默认关闭（`agent.*.enabled=false`）。V1 `OrchestratorAgent` 已移除；历史分析中的 V1 流程仅作为架构演进记录。
 
-### 编排器 V1：`OrchestratorAgent`（逐 Tool 串行 concatWith）
-
-```
-PlanningAgent（需求解析→GenerationPlan）
-  → DesignTokenTool（先验静态规范注入，零 LLM）
-  → UserPreferenceTool（加载 UserDesignContext：偏好画像+权重列表，零 LLM）
-  → ProjectProfileTool（项目品牌记忆：brandTone/forbiddenRules，零 LLM）
-  → DesignRetrieveTool（核心召回，见下方通道说明，消耗 Embedding 不消耗 Chat Token）
-  → [个性化重排 DesignRerankService + 多样性过滤]
-  → DesignEvidence 写入 Blackboard
-  → CoderAgent/StyleAgent（Prompt 强契约注入：tokenGroups 变量名清单 + forbidden/preferred 优先级高于用户需求）
-  → CriticAgent 评分 → Critic 反馈循环（不达标回退重生成）
-  → RagTraceTool 落 generation_rag_trace
-```
-
-### 编排器 V2：`GenerationOrchestrator` + `DesignContextAssembler`
+### 当前编排器：`GenerationOrchestrator` + `DesignContextAssembler`
 
 ```
 GenerationOrchestrator（按 GenerationMode 分三档：low_cost / standard / high_quality）
@@ -170,12 +155,12 @@ CriticAgent 评分 → FingerprintFeedbackService.feedbackFingerprintQuality()
 | 1 | 用户私有指纹只落 MySQL，未触发 `VectorSyncWorker.syncOnApprove()`，导致 VECTOR_3B 通道永远召回不到私有指纹 | 入库 B / 检索核心召回 | 高 | ✅ 已修复（2026-07-02 首次实施，2026-07-03 修正生效，详见问题 #6） | [rag-fix-plans/01](./rag-fix-plans/01-private-fingerprint-vector-sync.md) |
 | 2 | `listApproved()`（STRUCTURAL_3A 降级通道）未按 `ownerUserId`/`visibility` 过滤，存在跨用户私有指纹越权泄露风险 | 检索核心召回 | 高（安全） | ✅ 已修复（2026-07-02） | [rag-fix-plans/02](./rag-fix-plans/02-structural-retrieval-authz-gap.md) |
 | 3 | `GenerationOrchestrator.doRecord()` 调用 `RagTraceTool` 时 `queryText` 参数位误传 `channel` 值，追踪表无法还原真实查询文本 | 检索 V2 追踪落库 | 中 | ✅ 已修复（2026-07-02） | [rag-fix-plans/03](./rag-fix-plans/03-rag-trace-query-text-bug.md) |
-| 4 | `FingerprintFeedbackService.feedbackFingerprintQuality` 已实现但无任何调用点，效果反哺闭环未接入主链路 | 效果反哺 | 中 | ✅ 已核实（2026-07-02）：复查发现原诊断有误，`CriticAgent` 内部已实际接入该调用，V1/V2 均生效，未做代码改动。2026-07-03 另有独立提交打通了 `ragTraceId` 回填链路（详见补充说明） | [rag-fix-plans/04](./rag-fix-plans/04-fingerprint-feedback-loop-not-wired.md) |
+| 4 | `FingerprintFeedbackService.feedbackFingerprintQuality` 已实现但无任何调用点，效果反哺闭环未接入主链路 | 效果反哺 | 中 | ✅ 已核实（2026-07-02）：复查发现原诊断有误，`CriticAgent` 内部已实际接入该调用，V2 生效，未做代码改动。2026-07-03 另有独立提交打通了 `ragTraceId` 回填链路（详见补充说明） | [rag-fix-plans/04](./rag-fix-plans/04-fingerprint-feedback-loop-not-wired.md) |
 | 5 | `PreferenceUpdateWorker` 文档声称支持 `user_rating_5`/`user_rating_1_2` 评分反馈，但 `switch` 分支与 `EventTypeEnum` 均未实现，评分信号被静默丢弃 | 用户偏好闭环 | 低-中 | ✅ 已处理（2026-07-02）：前端确认无评分入口，已修正 Javadoc 移除失实描述，未新增死代码 | [rag-fix-plans/05](./rag-fix-plans/05-user-rating-feedback-not-implemented.md) |
 | 6 | 用户私有指纹入库存在 `FingerprintIngestWorker`/`UserFingerprintIngestService` 双实现，问题 #1 的补丁误打在未被调用的类上，生产链路实际未修复；同一模式的孤儿类 `VectorSyncService` 亦被发现 | 入库 B | 高 | ✅ 已修复（2026-07-03）：补丁迁移至生产实际调用的 `UserFingerprintIngestService`，删除 `FingerprintIngestWorker`/`VectorSyncService` 两处死代码 | [rag-fix-plans/06](./rag-fix-plans/06-duplicate-user-fingerprint-ingest-service.md) |
 
 补充说明（非缺陷，架构现状）：
-- V1 `OrchestratorAgent` 与 V2 `GenerationOrchestrator` 两套编排器并存，功能有重叠，长期看存在维护双份逻辑的成本，是否收敛为单一编排器建议作为独立架构决策讨论，不纳入本次问题清单（不是 bug，是技术债）。
+- V1 `OrchestratorAgent` 已删除，实时生成链路已收敛为 V2 `GenerationOrchestrator`；历史 V1 设计说明仅保留在架构演进文档中。
 - 用户私有指纹入库（链路 B）完全绕开 `CONFIDENCE_GATE`/多样性配额/人工审核，这是**当前设计的有意选择**（个人数据无需审核），但需要注意问题 #1 修复后，私有指纹已首次进入向量召回，其质量把控完全依赖 `USER_PRIVATE_CONFIDENCE_GATE=0.65` 这一道低门槛，建议后续观察实际召回质量。
 - 问题 #4 复查中发现的遗留 TODO（`ragTraceId` 固定传 `null`）已由另一次独立提交（`80e9446`）打通：`Blackboard` 新增 `ragTraceId` 读写，`GenerationOrchestrator` 捕获 `RagTraceTool.execute()` 返回值写入 Blackboard，`CriticAgent` 读取并回填 `critic_result`。同一提交还将 Embedding 模型从本地哈希兜底切换为智谱 AI `embedding-2`（1024维语义模型），解决了此前评估中标注的"默认 embedding 不具备语义能力"这一 P0 风险点。
 - 问题 #6 的根因（同一功能在 `worker`/`service` 两个包下各有一份实现，且历史上出现过两次）提示项目中可能还有第三例类似情况，建议后续做一次全局排查（搜索所有 Javadoc 中含"已重命名为"/"改名重构而来"关键字的类）。

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS generation_run (
 
     requested_mode VARCHAR(32) NULL COMMENT '前端请求模式（不可信意图）',
     final_mode VARCHAR(32) NULL COMMENT '服务端最终模式：low_cost/standard/high_quality',
-    pipeline_type VARCHAR(32) NULL COMMENT '实际成功链路：V2/V1/CLASSIC',
+    pipeline_type VARCHAR(32) NULL COMMENT '实际成功链路：V2/CLASSIC；历史记录可能包含 V1',
 
     status VARCHAR(32) NOT NULL COMMENT '状态：RUNNING/SUCCESS/FAILED/FALLBACK_SUCCESS',
     fallback_from VARCHAR(32) NULL COMMENT '降级来源链路',

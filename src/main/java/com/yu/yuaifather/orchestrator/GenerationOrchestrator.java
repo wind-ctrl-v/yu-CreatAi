@@ -1,4 +1,4 @@
-package com.yu.yuaifather.orchestrator.v2;
+package com.yu.yuaifather.orchestrator;
 
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
@@ -29,8 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * GenerationOrchestrator：新版生成编排器（V2 主链路），按 {@link GenerationPolicy} 编排，
  * 自身不做任何用户身份/套餐/额度判断。
  * <p>
- * ★ 包结构说明：本类原位于顶层 {@code orchestrator} 包，现迁移到 {@code orchestrator.v2} 子包，
- * 与 {@code orchestrator.v1.OrchestratorAgent} 统一层级划分（见包结构优化计划问题 3）。
+ * ★ 本类位于 {@code orchestrator} 包，作为当前唯一的多 Agent 主编排器。
  * 数据组装类 {@code DesignContext}/{@code DesignContextAssembler}/{@code DesignContextInput}
  * 已同步迁移至 {@code service.design} 包。
  *
@@ -132,10 +131,8 @@ public class GenerationOrchestrator {
             case HIGH_QUALITY -> generateHighQuality(ctx, toolContext, effectivePolicy);
         };
 
-        return pipeline.onErrorResume(err -> {
-            log.error("GenerationOrchestrator 异常 mode={}", mode, err);
-            return Flux.just(AgentEvent.error(NAME, "生成失败: " + err.getMessage()));
-        });
+        return pipeline.doOnError(err ->
+                log.error("GenerationOrchestrator 异常 mode={}", mode, err));
     }
 
     // ==================== 三模式编排 ====================
@@ -277,7 +274,7 @@ public class GenerationOrchestrator {
     private static final String BRANCH_BOTH = "BOTH";
 
     /**
-     * 单轮 Critic 质检 + 按 issue 分类的修复分支（对齐 V1 OrchestratorAgent）。
+     * 单轮 Critic 质检 + 按 issue 分类的修复分支。
      */
     private Flux<AgentEvent> doCriticRound(AgentContext ctx, int round, String lastBranch, int pingpongCount, int maxRounds) {
         return criticAgent.handle(ctx)
@@ -386,7 +383,6 @@ public class GenerationOrchestrator {
                 .preferredPipeline(PipelineType.V2)
                 .generationMode(mode)
                 .v2Enabled(v2Enabled)
-                .allowV1Fallback(true)
                 .allowClassicFallback(true)
                 .enableLlmCritic(mode != GenerationMode.LOW_COST)
                 .enableCoderStyleParallel(mode == GenerationMode.HIGH_QUALITY)

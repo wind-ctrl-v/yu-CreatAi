@@ -36,12 +36,12 @@ public class AgentContext {
     private CodeGenTypeEnum codeGenType;
 
     /**
-     * 本次生成的全局追踪 ID（由 Router 生成，贯穿 V2/V1/Classic 各 attempt，用于日志与 generation_run 关联）。
+     * 本次生成的全局追踪 ID（由 Router 生成，贯穿 V2/Classic 各 attempt，用于日志与 generation_run 关联）。
      */
     private String generationId;
 
     /**
-     * 当前链路 attempt 标识（如 v2/v1/classic），用于区分同一 generationId 下的不同降级尝试。
+     * 当前链路 attempt 标识（如 v2/classic），用于区分同一 generationId 下的不同降级尝试。
      */
     private String pipelineAttemptId;
 

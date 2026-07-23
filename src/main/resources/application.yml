@@ -100,7 +100,7 @@ code:
 # 多 Agent 编排开关
 agent:
   orchestrator:
-    # 是否启用多 Agent 流水线（仅 VUE_PROJECT 生效，默认关闭以避免影响存量）
+    # 是否启用 V2 多 Agent 流水线（仅 VUE_PROJECT 生效，默认关闭以避免影响存量）
     enabled: ${AGENT_ORCHESTRATOR_ENABLED:false}
     # V2 编排器开关（架构分层后新流程），默认关闭
     v2:
@@ -128,7 +128,6 @@ generation:
   mode: ${GENERATION_MODE:standard}
   pipeline:
     preferred: V2
-    allow-v1-fallback: true
     allow-classic-fallback: true
   modes:
     low_cost:

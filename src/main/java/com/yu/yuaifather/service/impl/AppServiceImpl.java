@@ -194,7 +194,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         } catch (Exception e) {
             log.warn("用户消息写入历史失败，appId={}，不影响生成流程: {}", appId, e.getMessage());
         }
-        // 6. 路由到生成链路：V2 → V1 → Classic 三级降级由 GenerationPipelineRouter 统一编排，
+        // 6. 路由到生成链路：V2 → Classic 两级降级由 GenerationPipelineRouter 统一编排，
         //    本方法仅保留参数校验、鉴权、写历史与 doExecuteStream 收口。
         Flux<String> codeStream = generationPipelineRouter.route(appId, message, requestedMode, loginUser, codeGenTypeEnum);
         return doExecuteStream(codeStream, appId, loginUser, codeGenTypeEnum);

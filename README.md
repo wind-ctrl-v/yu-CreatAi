@@ -134,7 +134,7 @@ CreatAi/
     │   └── model/                     # SSE 消息、代码结果 DTO
     ├── agent/                         # ★ 多 Agent 流水线
     │   ├── core/                      # Agent 接口、AgentContext、AgentEvent、Blackboard
-    │   ├── orchestrator/              # OrchestratorAgent（编排 + Critic 循环）
+    ├── orchestrator/                 # GenerationOrchestrator（V2 编排 + Critic 循环）
     │   ├── workers/                   # Product / Architect / Image / Coder / Style / Critic / Deploy
     │   ├── tools/                     # ImageSearchTool（含 SSRF 防护）
     │   └── support/                   # ImagePlaceholderReplacer、JsonExtractor

@@ -190,7 +190,6 @@ GenerationOrchestrator.doRecord()（V2 编排器，每次生成完成后触发�
 
 - 开关：`agent.fingerprint.user-ingest.enabled`（默认 false）
 - 异步执行（`Mono.fromRunnable().subscribeOn(boundedElastic())`），不阻塞主流程
-- V1 `OrchestratorAgent` 不触发此链路
 
 ### 表层特征提取（`buildSurfaceFingerprint`，纯正则无 LLM）
 

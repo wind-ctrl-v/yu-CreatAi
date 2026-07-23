@@ -108,7 +108,6 @@ public class GenerationModeResolver {
                 .preferredPipeline(parsePipeline(pipeline.getPreferred()))
                 .generationMode(mode)
                 .v2Enabled(v2Enabled)
-                .allowV1Fallback(pipeline.isAllowV1Fallback())
                 .allowClassicFallback(pipeline.isAllowClassicFallback())
                 .enableLlmCritic(cfg.isEnableLlmCritic())
                 .enableCoderStyleParallel(cfg.isEnableCoderStyleParallel())
