@@ -20,10 +20,6 @@ export interface SSECallbacks {
   onReconnected?: () => void
 }
 
-/** SSE 重连配置 */
-const MAX_RETRIES = 3
-const BASE_DELAY_MS = 2000
-
 /** 结构化事件文本前缀（与后端 GenerationPipelineRouter 保持一致） */
 const GENERATION_STARTED_PREFIX = '[生成]'
 const PIPELINE_FALLBACK_PREFIX = '[降级]'
@@ -46,7 +42,8 @@ function extractEventJson<T>(text: string): T | null {
 }
 
 /**
- * 连接 AI 代码生成的 SSE 流（支持断线自动重连）。
+ * 连接 AI 代码生成的 SSE 流。
+ * 当前旧接口是带副作用的 GET，网络中断时禁止自动重放，避免重复生成和扣额。
  */
 export function connectChatSSE(
   appId: string,
@@ -61,7 +58,6 @@ export function connectChatSSE(
   let doneReceived = false
   let businessErrored = false
   let es: EventSource | null = null
-  let retriesLeft = MAX_RETRIES
 
   const dispose = () => { if (es) { es.close(); es = null } }
   const finalClose = () => { closed = true; dispose() }
@@ -103,21 +99,8 @@ export function connectChatSSE(
 
     source.onerror = (err: Event) => {
       if (doneReceived || closed) { finalClose(); return }
-      dispose()
-      if (retriesLeft > 0) {
-        retriesLeft--
-        const delay = BASE_DELAY_MS * Math.pow(2, MAX_RETRIES - retriesLeft - 1)
-        callbacks.onReconnecting?.(retriesLeft, delay)
-        setTimeout(() => {
-          if (closed) return
-          es = new EventSource(url, { withCredentials: true })
-          bindEvents(es)
-          callbacks.onReconnected?.()
-        }, delay)
-      } else {
-        callbacks.onError?.(err)
-        finalClose()
-      }
+      callbacks.onError?.(err)
+      finalClose()
     }
   }
 

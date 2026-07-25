@@ -3,7 +3,8 @@ package com.yu.yuaifather.controller;
 import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
-import com.yu.yuaifather.agent.workers.DesignExtractorAgent;
+import com.yu.yuaifather.service.design.DesignExtractorAgent;
+import com.yu.yuaifather.shared.security.SafeUrlValidator;
 import com.yu.yuaifather.auth.AuthCheck;
 import com.yu.yuaifather.common.BaseResponse;
 import com.yu.yuaifather.common.ResultUtils;
@@ -19,12 +20,14 @@ import com.yu.yuaifather.model.enums.FingerprintStatus;
 import com.yu.yuaifather.service.DesignFingerprintService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -45,14 +48,13 @@ public class DesignFingerprintController {
     @Autowired(required = false)
     private DesignExtractorAgent extractorAgent;
 
-    private final RestTemplate restTemplate;
+    private static final int MAX_REDIRECTS = 3;
+    private static final int MAX_HTML_BYTES = 2 * 1024 * 1024;
 
-    public DesignFingerprintController() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(15_000);
-        factory.setReadTimeout(30_000);
-        this.restTemplate = new RestTemplate(factory);
-    }
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
 
     /**
      * 管理员分页查询指纹列表。
@@ -163,14 +165,8 @@ public class DesignFingerprintController {
         String styleProfileHint = body.get("styleProfileHint");
         ThrowUtils.throwIf(StrUtil.isBlank(url), ErrorCode.PARAMS_ERROR, "URL 不能为空");
 
-        String rawHtml;
-        try {
-            rawHtml = restTemplate.execute(url, HttpMethod.GET, null,
-                    response -> new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            log.warn("外部网页抓取失败 url={}", url, e);
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "网页抓取失败: " + e.getMessage());
-        }
+        URI validatedUri = SafeUrlValidator.validate(url);
+        String rawHtml = fetchExternalHtml(validatedUri);
         ThrowUtils.throwIf(StrUtil.isBlank(rawHtml), ErrorCode.OPERATION_ERROR, "抓取到的 HTML 为空");
 
         if (extractorAgent == null) {
@@ -195,7 +191,50 @@ public class DesignFingerprintController {
                 "styleProfile", dto.getStyleProfile() != null ? dto.getStyleProfile() : "unknown",
                 "url", url
         );
-        log.info("外部指纹录入成功 id={} url={}", id, url);
+        log.info("外部指纹录入成功 id={} host={}", id, validatedUri.getHost());
         return ResultUtils.success(result);
+    }
+
+    private String fetchExternalHtml(URI initialUri) {
+        URI current = initialUri;
+        for (int redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+            current = SafeUrlValidator.validate(current.toString());
+            HttpRequest request = HttpRequest.newBuilder(current)
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Accept", "text/html,application/xhtml+xml")
+                    .GET()
+                    .build();
+            try {
+                HttpResponse<java.io.InputStream> response = httpClient.send(request,
+                        HttpResponse.BodyHandlers.ofInputStream());
+                int status = response.statusCode();
+                if (status >= 300 && status < 400) {
+                    String location = response.headers().firstValue("location")
+                            .orElseThrow(() -> new BusinessException(ErrorCode.OPERATION_ERROR,
+                                    "重定向响应缺少 Location"));
+                    current = current.resolve(location);
+                    continue;
+                }
+                if (status < 200 || status >= 300) {
+                    throw new BusinessException(ErrorCode.OPERATION_ERROR, "网页返回异常状态: " + status);
+                }
+                try (java.io.InputStream inputStream = response.body()) {
+                    byte[] body = inputStream.readNBytes(MAX_HTML_BYTES + 1);
+                    if (body.length > MAX_HTML_BYTES) {
+                        throw new BusinessException(ErrorCode.OPERATION_ERROR, "网页内容超过大小限制");
+                    }
+                    return new String(body, StandardCharsets.UTF_8);
+                }
+            } catch (BusinessException e) {
+                throw e;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "网页抓取被中断");
+            } catch (Exception e) {
+                log.warn("外部网页抓取失败 host={} type={}", current.getHost(), e.getClass().getSimpleName());
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "网页抓取失败");
+            }
+        }
+        throw new BusinessException(ErrorCode.OPERATION_ERROR, "网页重定向次数过多");
     }
 }

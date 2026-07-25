@@ -18,7 +18,6 @@ import com.yu.yuaifather.model.entity.ChatHistory;
 import com.yu.yuaifather.service.ChatHistoryService;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 对话历史 控制层。

@@ -14,6 +14,7 @@ import com.yu.yuaifather.model.entity.UserDesignProfile;
 import com.yu.yuaifather.model.entity.UserPreferenceWeight;
 import com.mybatisflex.core.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 /**
  * PreferenceUpdateWorker：偏好更新异步 Worker。
@@ -51,18 +53,21 @@ public class PreferenceUpdateWorker {
     private final UserPreferenceWeightMapper weightMapper;
     private final UserDesignProfileMapper profileMapper;
     private final ObjectMapper objectMapper;
+    private final Executor preferenceExecutor;
 
     /** 每 N 次权重更新触发一次 profileSummary 重算 */
     private static final int SUMMARY_REFRESH_INTERVAL = 10;
 
     public PreferenceUpdateWorker(UserDesignEventMapper eventMapper,
-                                   UserPreferenceWeightMapper weightMapper,
-                                   UserDesignProfileMapper profileMapper,
-                                   ObjectMapper objectMapper) {
+                                  UserPreferenceWeightMapper weightMapper,
+                                  UserDesignProfileMapper profileMapper,
+                                  ObjectMapper objectMapper,
+                                  @Qualifier("preferenceExecutor") Executor preferenceExecutor) {
         this.eventMapper = eventMapper;
         this.weightMapper = weightMapper;
         this.profileMapper = profileMapper;
         this.objectMapper = objectMapper;
+        this.preferenceExecutor = preferenceExecutor;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -162,7 +167,11 @@ public class PreferenceUpdateWorker {
         switch (eventType) {
             case "page_saved" -> updatePageLifecycleWeight(userId, metadata, "page_saved", 0.1);
             case "page_exported" -> updatePageLifecycleWeight(userId, metadata, "page_exported", 0.2);
-            case "page_deleted" -> updatePageLifecycleWeight(userId, metadata, "page_deleted", -0.1);
+            case "page_deleted" -> {
+                if (Boolean.TRUE.equals(metadata.get("countAsNegative"))) {
+                    updatePageLifecycleWeight(userId, metadata, "page_deleted", -0.1);
+                }
+            }
             case "page_regenerated" -> updatePageLifecycleWeight(userId, metadata, "page_regenerated", -0.05);
             // ===== 负反馈事件（P0-残留-1 补全） =====
             // 弱负信号：用户撤销修改，仅记录弱惩罚
@@ -310,7 +319,7 @@ public class PreferenceUpdateWorker {
             if (totalEvents == 0 || totalEvents % SUMMARY_REFRESH_INTERVAL != 0) return;
 
             // 异步刷新，不阻塞偏好更新主链路
-            Thread.ofVirtual().start(() -> {
+            preferenceExecutor.execute(() -> {
                 try {
                     doRefreshProfileSummary(userId);
                 } catch (Exception e) {

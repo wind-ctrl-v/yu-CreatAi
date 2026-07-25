@@ -17,8 +17,9 @@ import {
   type PickedElement,
 } from '../utils/visualEditor'
 import type { AppVO } from '../types'
-import { PLAN_LABELS, DISLIKE_REASONS, type PlanCapabilities } from '../types'
+import { PLAN_LABELS, type PlanCapabilities } from '../types'
 import { dislike, recordNegativeEvent } from '../api/preference'
+import DislikeFeedbackModal from '../components/app-chat/DislikeFeedbackModal.vue'
 
 interface ChatMessage {
   id: number
@@ -672,7 +673,7 @@ onBeforeUnmount(() => {
             ref="previewIframeRef"
             :key="previewKey"
             :src="previewUrl"
-            sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+            sandbox="allow-scripts allow-forms"
             @load="onIframeLoad"
           />
           <div v-else class="preview-empty">
@@ -685,23 +686,11 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <!-- 点踩反馈弹窗 -->
-    <a-modal
+    <DislikeFeedbackModal
       v-model:open="dislikeModalOpen"
-      title="点踩反馈"
-      ok-text="提交"
-      cancel-text="取消"
-      @ok="confirmDislike"
-    >
-      <p class="dislike-hint">告诉 AI 你不喜欢哪里，帮助后续生成更符合你的喜好</p>
-      <a-radio-group v-model:value="dislikeReason" class="dislike-reason-group">
-        <a-radio
-          v-for="r in DISLIKE_REASONS"
-          :key="r.value"
-          :value="r.value"
-        >{{ r.label }}</a-radio>
-      </a-radio-group>
-    </a-modal>
+      v-model:reason="dislikeReason"
+      @confirm="confirmDislike"
+    />
   </div>
 </template>
 
@@ -826,17 +815,6 @@ onBeforeUnmount(() => {
 }
 .msg-actions :deep(.ant-btn:hover) {
   color: var(--text-primary, #333);
-}
-
-.dislike-hint {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--text-secondary, #666);
-}
-.dislike-reason-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 .typing i {

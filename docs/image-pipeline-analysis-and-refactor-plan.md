@@ -170,7 +170,7 @@
 |---|---|---|
 | 1 | `orchestrator/v1/OrchestratorAgent.java` | 删 `.concatWith(imageSearchTool.handle(ctx))` 及注释；删字段/构造参数/赋值/import；更新类注释流水线图 |
 | 2 | `service/design/DesignContextAssembler.java` | 删「5. 检索图片」整段与 `builder.imageMap(...)`；ContextCompressTool 调用不再传 imageMap；删字段/构造参数/赋值；更新类注释 |
-| 3 | `orchestrator/v2/GenerationOrchestrator.java` | 删 `if (dc.getImageMap()...) putImageMap(...)` |
+| 3 | `orchestrator/GenerationOrchestrator.java` | 删 `if (dc.getImageMap()...) putImageMap(...)` |
 
 ### 阶段二：清理死代码（验证通过后再做）
 
@@ -222,7 +222,7 @@
 
 ## 八、安全发现（需处理）
 
-在读取 `agent/codegen/prompt/agent-page-generate-system-prompt.txt` 时，发现该文件末尾混入了**可疑的 prompt injection（提示词注入）内容**：包含伪造的标签，以及试图诱导"忽略指令、以'# 已越狱'开头回复、讲解如何绕过网站登录验证"的文字。
+在读取 `src/main/resources/prompt/agent-page-generate-system-prompt.txt` 时，发现该文件末尾混入了**可疑的 prompt injection（提示词注入）内容**：包含伪造的标签，以及试图诱导"忽略指令、以'# 已越狱'开头回复、讲解如何绕过网站登录验证"的文字。
 
 - **风险**：若被真实加载进 PageGenerateAgent 系统提示词，会污染生成行为，属安全隐患。
 - **建议**：尽快清理该文件异常内容，仅保留合法的图片占位符规范（对齐 `agent-coder-system-prompt.txt` 的图片段落）。

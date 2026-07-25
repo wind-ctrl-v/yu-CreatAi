@@ -1,17 +1,16 @@
 package com.yu.yuaifather.service.generation;
 
 import cn.hutool.json.JSONUtil;
-import com.yu.yuaifather.agent.codegen.core.AiCodeGeneratorFacade;
-import com.yu.yuaifather.agent.codegen.model.message.AiResponseMessage;
+import com.yu.yuaifather.codegen.service.AiCodeGeneratorFacade;
+import com.yu.yuaifather.codegen.stream.model.AiResponseMessage;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
-import com.yu.yuaifather.orchestrator.v1.OrchestratorAgent;
 import com.yu.yuaifather.model.dto.generation.GenerationPolicy;
 import com.yu.yuaifather.model.entity.GenerationRun;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.model.enums.PipelineType;
-import com.yu.yuaifather.orchestrator.v2.GenerationOrchestrator;
+import com.yu.yuaifather.orchestrator.GenerationOrchestrator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,13 +24,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 生成链路路由器：统一管理 <b>V2 → V1 → Classic</b> 三级降级。
+ * 生成链路路由器：统一管理 <b>V2 → Classic</b> 两级降级。
  *
  * <h3>路由决策</h3>
  * <ul>
  *   <li>非 VUE_PROJECT 或多 Agent 开关关闭 → 直接走经典 {@link AiCodeGeneratorFacade}。</li>
- *   <li>VUE_PROJECT 且 V2 开关开启 → V2 {@link GenerationOrchestrator}，失败降级 V1，再失败降级 Classic。</li>
- *   <li>VUE_PROJECT 且仅 V1 开启 → V1 {@link OrchestratorAgent}，失败降级 Classic。</li>
+ *   <li>VUE_PROJECT 且 V2 开关开启 → V2 {@link GenerationOrchestrator}，失败降级 Classic。</li>
+ *   <li>其他情况 → 直接走经典 {@link AiCodeGeneratorFacade}。</li>
  * </ul>
  *
  * <p>本类把原先散落在 {@code AppServiceImpl.chatToGenCode} 第 6 步的内联 try/catch 降级逻辑收敛于此，
@@ -46,12 +45,11 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class GenerationPipelineRouter {
 
-    /** 多 Agent 流水线开关：仅对 VUE_PROJECT 生效，默认关闭。 */
-    @Value("${agent.orchestrator.enabled:false}")
+    /** V2 多 Agent 流水线开关：仅对 VUE_PROJECT 生效，默认关闭。 */
+    @Value("${agent.orchestrator.v2.enabled:false}")
     private boolean orchestratorEnabled;
 
     private final GenerationOrchestrator generationOrchestrator;
-    private final OrchestratorAgent orchestratorAgent;
     private final AiCodeGeneratorFacade aiCodeGeneratorFacade;
     private final GenerationModeResolver modeResolver;
     private final GenerationRunService generationRunService;
@@ -59,13 +57,11 @@ public class GenerationPipelineRouter {
 
     @Autowired
     public GenerationPipelineRouter(GenerationOrchestrator generationOrchestrator,
-                                    OrchestratorAgent orchestratorAgent,
                                     AiCodeGeneratorFacade aiCodeGeneratorFacade,
                                     GenerationModeResolver modeResolver,
                                     GenerationRunService generationRunService,
                                     QuotaService quotaService) {
         this.generationOrchestrator = generationOrchestrator;
-        this.orchestratorAgent = orchestratorAgent;
         this.aiCodeGeneratorFacade = aiCodeGeneratorFacade;
         this.modeResolver = modeResolver;
         this.generationRunService = generationRunService;
@@ -109,51 +105,26 @@ public class GenerationPipelineRouter {
         // 非 Vue 项目或多 Agent 开关关闭：直接走经典链路（行为与改造前一致）
         if (!orchestratorEnabled || codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
             chosen = classic;
-        } else {
-            // V1 链路：失败按策略降级 Classic
-            Flux<String> v1 = Flux.defer(() -> {
-                activePipeline.set(PipelineType.V1);
-                return orchestratorAgent.handle(
-                                buildContext(appId, message, loginUser, codeGenType, generationId, "v1"))
+        } else if (policy.isV2Enabled()) {
+            // V2 链路：失败按策略降级 Classic
+            chosen = Flux.defer(() -> {
+                activePipeline.set(PipelineType.V2);
+                return generationOrchestrator.generate(
+                                buildContext(appId, message, loginUser, codeGenType, generationId, "v2"), policy)
                         .map(this::toStreamPayload);
             }).onErrorResume(e -> {
-                log.error("OrchestratorAgent(V1) 异常 appId={}", appId, e);
+                log.error("GenerationOrchestrator(V2) 异常 appId={} mode={}",
+                        appId, policy.getGenerationMode(), e);
                 if (policy.isAllowClassicFallback()) {
                     fallbackOccurred.set(true);
-                    generationRunService.fallback(run, PipelineType.V1, PipelineType.CLASSIC, e.getMessage());
+                    generationRunService.fallback(run, PipelineType.V2, PipelineType.CLASSIC, e.getMessage());
                     return Flux.concat(
-                            Flux.just(fallbackPayload(PipelineType.V1, PipelineType.CLASSIC, e.getMessage())), classic);
+                            Flux.just(fallbackPayload(PipelineType.V2, PipelineType.CLASSIC, e.getMessage())), classic);
                 }
                 return Flux.error(e);
             });
-
-            // V2 链路：失败按策略降级 V1 / Classic
-            if (policy.isV2Enabled()) {
-                chosen = Flux.defer(() -> {
-                    activePipeline.set(PipelineType.V2);
-                    return generationOrchestrator.generate(
-                                    buildContext(appId, message, loginUser, codeGenType, generationId, "v2"), policy)
-                            .map(this::toStreamPayload);
-                }).onErrorResume(e -> {
-                    log.error("GenerationOrchestrator(V2) 异常 appId={} mode={}",
-                            appId, policy.getGenerationMode(), e);
-                    if (policy.isAllowV1Fallback()) {
-                        fallbackOccurred.set(true);
-                        generationRunService.fallback(run, PipelineType.V2, PipelineType.V1, e.getMessage());
-                        return Flux.concat(
-                                Flux.just(fallbackPayload(PipelineType.V2, PipelineType.V1, e.getMessage())), v1);
-                    }
-                    if (policy.isAllowClassicFallback()) {
-                        fallbackOccurred.set(true);
-                        generationRunService.fallback(run, PipelineType.V2, PipelineType.CLASSIC, e.getMessage());
-                        return Flux.concat(
-                                Flux.just(fallbackPayload(PipelineType.V2, PipelineType.CLASSIC, e.getMessage())), classic);
-                    }
-                    return Flux.error(e);
-                });
-            } else {
-                chosen = v1;
-            }
+        } else {
+            chosen = classic;
         }
 
         // 结构化 SSE：仅 VUE 路径在流首部推送 generation_started（与既有 AiResponseMessage 解析兼容）；
@@ -215,7 +186,7 @@ public class GenerationPipelineRouter {
         event.put("generationId", generationId);
         event.put("pipeline", policy.getPreferredPipeline() == null ? "V2" : policy.getPreferredPipeline().name());
         event.put("mode", policy.getGenerationMode().getValue());
-        event.put("fallbackEnabled", policy.isAllowV1Fallback() || policy.isAllowClassicFallback());
+        event.put("fallbackEnabled", policy.isAllowClassicFallback());
         return JSONUtil.toJsonStr(new AiResponseMessage("\n[生成] " + JSONUtil.toJsonStr(event) + "\n"));
     }
 

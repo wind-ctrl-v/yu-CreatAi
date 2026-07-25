@@ -190,7 +190,6 @@ GenerationOrchestrator.doRecord()（V2 编排器，每次生成完成后触发�
 
 - 开关：`agent.fingerprint.user-ingest.enabled`（默认 false）
 - 异步执行（`Mono.fromRunnable().subscribeOn(boundedElastic())`），不阻塞主流程
-- V1 `OrchestratorAgent` 不触发此链路
 
 ### 表层特征提取（`buildSurfaceFingerprint`，纯正则无 LLM）
 
@@ -656,7 +655,7 @@ CoderAgent.buildUserMessage():
 | `FingerprintCrawlScheduler` | `worker` | 定时爬取本站精选应用 |
 | `DesignFingerprintController` | `controller` | 管理员指纹管理接口 |
 | `DesignSourcePreprocessor` | `service.design` | HTML 预处理 + SSRF 防护 |
-| `DesignExtractorAgent` | `agent.workers` | LLM 六层指纹提炼 |
+| `DesignExtractorAgent` | `service.design` | LLM 六层指纹提炼 |
 | `FingerprintParser` | `service.design` | 解析/校验/置信度/签名 |
 | `FingerprintProjector` | `service.design` | DTO → DesignSpec 投影 |
 | `DesignFingerprintService` | `service` | 指纹治理（入库/审核/状态流转） |

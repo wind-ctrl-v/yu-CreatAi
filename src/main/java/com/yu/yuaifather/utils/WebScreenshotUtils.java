@@ -6,6 +6,7 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
+import com.yu.yuaifather.shared.security.SafeUrlValidator;
 import io.github.bonigarcia.wdm.WebDriverManager;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +68,7 @@ public class WebScreenshotUtils {
 
         WebDriver driver = null;
         try {
+            SafeUrlValidator.validate(webUrl);
             // 每次调用创建新的 WebDriver 实例
             driver = getWebDriver();
 
@@ -82,8 +84,9 @@ public class WebScreenshotUtils {
             // 访问网页
             driver.get(webUrl);
 
-            // 等待网页加载
+            // 等待网页加载，并拒绝跳转到内部网络的结果
             waitForPageLoad(driver);
+            SafeUrlValidator.validate(driver.getCurrentUrl());
 
             // 截图
             byte[] screenshotBytes = ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);

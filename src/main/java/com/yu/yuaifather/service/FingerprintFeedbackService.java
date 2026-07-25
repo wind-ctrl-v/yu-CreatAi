@@ -1,23 +1,19 @@
 package com.yu.yuaifather.service;
 
-import com.yu.yuaifather.mapper.DesignFingerprintReviewLogMapper;
 import com.yu.yuaifather.mapper.GenerationRagTraceMapper;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
-import com.yu.yuaifather.model.entity.DesignFingerprintReviewLog;
 import com.yu.yuaifather.model.entity.GenerationRagTrace;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
  * 指纹质量反哺服务（阶段三：评估治理）。
  * <p>
- * CriticAgent 评估后，反向更新指纹的 usage_count、retrieval_success_score，
- * 并记录审核日志。
+ * CriticAgent 评估后，反向更新指纹的 usage_count、retrieval_success_score。
  *
  * @author yu
  */
@@ -27,15 +23,12 @@ public class FingerprintFeedbackService {
 
     private final DesignFingerprintService designFingerprintService;
     private final GenerationRagTraceMapper ragTraceMapper;
-    private final DesignFingerprintReviewLogMapper reviewLogMapper;
 
     @Autowired
     public FingerprintFeedbackService(DesignFingerprintService designFingerprintService,
-                                       GenerationRagTraceMapper ragTraceMapper,
-                                       DesignFingerprintReviewLogMapper reviewLogMapper) {
+                                       GenerationRagTraceMapper ragTraceMapper) {
         this.designFingerprintService = designFingerprintService;
         this.ragTraceMapper = ragTraceMapper;
-        this.reviewLogMapper = reviewLogMapper;
     }
 
     /**
@@ -106,23 +99,4 @@ public class FingerprintFeedbackService {
         }
     }
 
-    /**
-     * 记录指纹审核日志。
-     */
-    public void logReview(Long fingerprintId, Long reviewerId, String action,
-                           String reason, Double qualityScore) {
-        try {
-            DesignFingerprintReviewLog logEntry = DesignFingerprintReviewLog.builder()
-                    .fingerprintId(fingerprintId)
-                    .reviewerId(reviewerId)
-                    .action(action)
-                    .reason(reason)
-                    .qualityScore(qualityScore)
-                    .createTime(LocalDateTime.now())
-                    .build();
-            reviewLogMapper.insert(logEntry);
-        } catch (Exception e) {
-            log.warn("审核日志记录失败 fingerprintId={}", fingerprintId, e);
-        }
-    }
 }

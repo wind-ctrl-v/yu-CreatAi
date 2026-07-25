@@ -8,7 +8,7 @@ import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.yu.yuaifather.config.ImageProperties;
-import com.yu.yuaifather.manager.LocalImageStorage;
+import com.yu.yuaifather.media.storage.LocalImageStorage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;

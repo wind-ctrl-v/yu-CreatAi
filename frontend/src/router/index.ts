@@ -20,12 +20,6 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: true },
       },
       {
-        path: 'app/share/:id',
-        name: 'appShare',
-        component: () => import('../pages/AppSharePage.vue'),
-        meta: { requiresAuth: false },
-      },
-      {
         path: 'apps',
         name: 'myApps',
         component: () => import('../pages/MyAppsPage.vue'),
@@ -42,6 +36,18 @@ const routes: RouteRecordRaw[] = [
         name: 'profile',
         component: () => import('../pages/ProfilePage.vue'),
         meta: { requiresAuth: true },
+      },
+    ],
+  },
+  {
+    path: '/app/share',
+    component: () => import('../layouts/PublicLayout.vue'),
+    children: [
+      {
+        path: ':id',
+        name: 'appShare',
+        component: () => import('../pages/AppSharePage.vue'),
+        meta: { requiresAuth: false },
       },
     ],
   },

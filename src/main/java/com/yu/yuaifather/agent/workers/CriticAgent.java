@@ -1,10 +1,9 @@
 package com.yu.yuaifather.agent.workers;
 
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.yu.yuaifather.agent.AgentAiService;
+import com.yu.yuaifather.agent.service.AgentAiService;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
@@ -259,7 +258,7 @@ public class CriticAgent implements Agent {
     /**
      * 把 DesignLintChecker 的确定性命中合并为结构化 issues 并回填到 report。
      * <p>
-     * 按可修复归属归类为 {@code category="code"} / {@code category="style"}，便于 OrchestratorAgent 路由修复：
+     * 按可修复归属归类为 {@code category="code"} / {@code category="style"}，便于 GenerationOrchestrator 路由修复：
      * <ul>
      *   <li>缺少全局样式 import / 组件悬空变量 → P0，且强制 {@code passed=false}；</li>
      *   <li>毛玻璃 / 装饰渐变 / 硬编码 px / 硬编码颜色 / 浮夸 scale → P1，记录但不单独强制失败

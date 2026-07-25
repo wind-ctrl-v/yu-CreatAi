@@ -50,7 +50,7 @@ public class GenerationRun implements Serializable {
     @Column("final_mode")
     private String finalMode;
 
-    /** 实际成功链路：V2/V1/CLASSIC。 */
+    /** 实际成功链路：V2/CLASSIC；历史记录可能包含 V1。 */
     @Column("pipeline_type")
     private String pipelineType;
 

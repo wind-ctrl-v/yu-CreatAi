@@ -57,7 +57,7 @@ onMounted(() => { loadApp() })
             v-if="app.codeGenType && app.id"
             class="preview-frame"
             :src="buildPreviewUrl(app.codeGenType, app.id)"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
           />
           <p v-else class="no-preview">暂无预览</p>
         </div>

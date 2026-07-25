@@ -12,7 +12,7 @@
 | 1 | 用户私有指纹入库 / 向量同步存在双实现，向量同步补丁误落在未被调用的类上 | `worker/`、`service/` | P0 | ✅ 已完成（2026-07-03，见 [rag-fix-plans/06](../rag-fix-plans/06-duplicate-user-fingerprint-ingest-service.md)） |
 | 2 | `AppController` 承担了应下沉到 Service 层的业务逻辑，文件过重（554 行） | `controller/` | P1 | ✅ 已完成（2026-07-03） |
 | 3 | 两套编排器（V1/V2）分散在不同层级的包里，命名易混淆 | `orchestrator/`、`agent/orchestrator/` | P1 | ✅ 已完成（2026-07-03） |
-| 4 | 增量编辑场景的文件操作工具游离在统一工具体系之外 | `agent/codegen/fileops/`、`tool/` | P2 | 待评审（未实施，需先做 4.1 先决条件确认） |
+| 4 | 增量编辑场景的文件操作工具游离在统一工具体系之外 | `codegen/tools/` | P2 | ✅ 已完成（迁移至独立 codegen 工具体系） |
 | 5 | 向量数据访问层与普通业务 Service 混放，缺少独立的 Repository 分层 | `service/` | P2 | ✅ 已完成（2026-07-03） |
 | 6 | 若干微型包（1-2 个文件）拆分粒度过细，枚举命名不统一 | `annotation/`、`aop/`、`ratelimiter/`、`model/enums/` | P3 | 🟡 部分完成（微型包合并已完成；枚举命名统一延后未做） |
 
@@ -112,7 +112,7 @@ V1 编排器 `OrchestratorAgent` 位于 `agent/orchestrator/` 子包下，V2 编
 
 1. 将两个编排器统一收敛到同一层级，建议路径：
    - `orchestrator/v1/OrchestratorAgent.java`
-   - `orchestrator/v2/GenerationOrchestrator.java`
+   - `orchestrator/GenerationOrchestrator.java`
 2. `DesignContext`/`DesignContextAssembler`/`DesignContextInput` 迁移到 `service/design/` 包下（与 `DesignKnowledgeIndex`、`FingerprintProjector` 等同域类放在一起）。
 3. 迁移后需要同步更新所有 import 路径（预计影响 `GenerationOrchestrator` 自身及任何引用 `DesignContext*` 的测试/调用代码）。
 
@@ -130,55 +130,44 @@ V1 编排器 `OrchestratorAgent` 位于 `agent/orchestrator/` 子包下，V2 编
 ### 7. 实施记录
 
 - **状态**：已实施
-- **完成时间**：2026-07-03
+- **完成时间**：2026-07-23
 - **改动内容**：
-  1. `GenerationOrchestrator.java`：`orchestrator/` → `orchestrator/v2/`，包名改为 `com.yu.yuaifather.orchestrator.v2`。
-  2. `OrchestratorAgent.java`：`agent/orchestrator/` → `orchestrator/v1/`，包名改为 `com.yu.yuaifather.orchestrator.v1`；原 `agent/orchestrator/` 空目录已清理。
-  3. `DesignContext.java`/`DesignContextInput.java`/`DesignContextAssembler.java`：`orchestrator/` → `service/design/`，包名改为 `com.yu.yuaifather.service.design`。
-  4. 同步更新所有 import 引用：`GenerationOrchestrator` 内新增对 `service.design.DesignContext*` 三个类的 import；`GenerationPipelineRouter.java` 更新 `OrchestratorAgent`/`GenerationOrchestrator` 的 import 路径为 `.v1`/`.v2`；`PageGenerateAgent.java` 更新 `DesignContext` 的 import 路径为 `service.design`。
-- **涉及文件**：迁移 4 个文件（`GenerationOrchestrator.java`、`OrchestratorAgent.java`、`DesignContext.java`、`DesignContextInput.java`、`DesignContextAssembler.java`，共 5 个文件迁移），修改 2 个引用方文件（`GenerationPipelineRouter.java`、`PageGenerateAgent.java`）。
-- **验证说明**：全局搜索确认无任何旧包路径（`com.yu.yuaifather.agent.orchestrator`、`com.yu.yuaifather.orchestrator.DesignContext*`、`com.yu.yuaifather.orchestrator.GenerationOrchestrator`）残留引用；当前环境无 JDK/Maven，未能编译验证，建议后续补充一次 `./mvnw compile`。
-- **Spring 组件扫描确认**：`YuAiFatherApplication` 使用默认 `@SpringBootApplication`（无自定义 `@ComponentScan`），扫描根包为 `com.yu.yuaifather`，`orchestrator.v1`/`orchestrator.v2` 子包均在扫描范围内，不受影响。
+  1. `GenerationOrchestrator.java` 归入 `com.yu.yuaifather.orchestrator` 顶层包，取消 `orchestrator.v2` 子包。
+  2. V1 编排器已移除，实时生成链路收敛为 V2 → Classic。
+  3. `DesignContext.java`/`DesignContextInput.java`/`DesignContextAssembler.java` 保持在 `service.design` 包。
+  4. 更新 `GenerationPipelineRouter.java` 的编排器 import，并同步修正文档路径。
+- **验证说明**：源码中已无 `com.yu.yuaifather.orchestrator.v2` 或 `orchestrator/v2` 引用；目标包仅保留 `GenerationOrchestrator.java`，并已通过 Maven 编译验证。
+- **Spring 组件扫描确认**：`GenerationOrchestrator` 仍位于 `com.yu.yuaifather` 根包下，默认 `@SpringBootApplication` 扫描范围不受影响。
 
 ---
 
 ## 问题 4：增量编辑工具游离在统一工具体系之外
 
-### 1. 问题描述
+### 1. 实施结果
 
-正式的 Agent 工具体系是 `tool/core/`（`AgentTool`/`SystemTool`/`ToolContext`/`ToolRegistry`）+ `tool/system/` + `tool/agent/` + `tool/engine/`。但增量编辑场景专用的文件操作工具（`FileReadTool`/`FileWriteTool`/`FileDeleteTool`/`FileModifyTool`/`FileDirReadTool`/`BaseTool`/`ToolManager`）却位于完全不相关的 `agent/codegen/fileops/` 包下，命名模式（`XxxTool`）与职责（供 LLM Function Call 调用）都与 `tool/` 体系高度相似，却没有实现 `tool/core/AgentTool` 接口，也没有走 `ToolRegistry` 统一注册。
+原先位于 `agent/codegen` 下的代码生成和增量编辑工具已迁移到独立的 `codegen` 体系：
 
-### 2. 影响范围
+- `codegen/service/`：代码生成服务与 Facade
+- `codegen/routing/`：代码类型路由
+- `codegen/parser/`：代码解析
+- `codegen/saver/`：代码保存
+- `codegen/stream/`：SSE 流处理与消息模型
+- `codegen/tools/`：增量编辑文件工具
+- `codegen/build/`：Vue 项目构建
 
-- `ToolRegistry` 无法统一管理全部工具，增量编辑这条链路的工具集对整体工具治理（如统一的调用审计 `ToolCallTraceService`）不可见。
-- 新增/维护工具时，需要同时了解两套不同的工具注册机制，增加认知负担。
+该体系继续使用 LangChain4j 的 `BaseTool`/`ToolManager`，不与已删除的 `AgentTool` 注册体系混用。
 
-### 3. 涉及文件
+### 2. 验证结果
 
-- `src/main/java/com/yu/yuaifather/agent/codegen/fileops/`（全部 7 个文件）
-- `src/main/java/com/yu/yuaifather/tool/core/AgentTool.java`（待复用的契约接口）
-- `src/main/java/com/yu/yuaifather/tool/core/ToolRegistry.java`（待接入的注册中心）
+- `IncrementalEditService` 的工具导入已更新为 `codegen.tools`；
+- `AiCodeGeneratorServiceFactory` 的工具装配已更新；
+- `GenerationPipelineRouter`、`AppServiceImpl`、`CoderAgent`、`DeployTool` 的 codegen 依赖已更新；
+- Java 源码中已无 `agent.codegen` 旧包引用；
+- Maven 编译通过。
 
-### 4. 修改方案
+### 3. 风险说明
 
-**先决条件确认**：需要先确认 `fileops/` 下工具当前的调用方式（是否已经是通过某个 LLM SDK 的原生 Function Calling 机制注册的，而非 `AgentTool` 接口）。若两者的调用协议本质不同（例如 `fileops/` 走的是 LangChain4j 的 `@Tool` 注解机制，而 `tool/core/AgentTool` 是自定义协议），则不能简单"实现接口"了事，需要评估是否值得做适配层。
-
-**若确认可以统一**：
-1. 让 `fileops/` 下各工具改为实现（或适配到）`AgentTool` 接口。
-2. 迁移到 `tool/agent/` 包下（与 `BrandExtractTool` 等已有的 Agent 工具放在一起）。
-3. 通过 `ToolManager`（若其职责与 `ToolRegistry` 重叠）评估是否可以合并两者，或明确划分二者的职责边界（例如 `ToolManager` 专注增量编辑场景的工具装配，`ToolRegistry` 专注全局工具 schema 声明）。
-
-**若确认不能简单统一**（更可能的情况，因为增量编辑走的可能是不同的 LLM SDK 调用协议）：
-- 至少在两边的类级 Javadoc 里互相注明"这是另一套独立的工具体系，勿混淆"，避免认知混乱，改动成本极低。
-
-### 5. 验证方式
-
-1. 若执行迁移：确认增量编辑功能（`IncrementalEditService`）在迁移后行为不变，走一次真实的增量编辑请求验证。
-2. 若仅补充文档说明：Review 确认两处 Javadoc 已经互相引用、说明清晰。
-
-### 6. 风险评估
-
-- **风险从低到高不等，取决于先决条件的确认结果**：如果两套工具调用协议本质不同，强行统一可能得不偿失，建议**先做 4.1 的先决条件确认**，很可能最终会得出"保持现状，仅补充文档说明"的结论（类比修复计划 05 的处理方式）。
+本次仅调整包结构和导入，不改变 AI Prompt、文件操作协议、SSE 数据格式或生成逻辑。
 
 ---
 

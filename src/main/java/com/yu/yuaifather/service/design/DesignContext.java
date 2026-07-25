@@ -4,7 +4,6 @@ import com.yu.yuaifather.model.dto.agent.*;
 import lombok.Builder;
 import lombok.Data;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -16,7 +15,7 @@ import java.util.Map;
  * <p>
  * ★ 包结构说明（包结构优化计划问题 3）：本类原位于 {@code orchestrator} 包，
  * 现迁移到 {@code service.design}（与 {@code DesignKnowledgeIndex}/{@code FingerprintProjector}
- * 等同域数据组装类聚合），编排器包只保留真正的编排逻辑类（{@code OrchestratorAgent}/{@code GenerationOrchestrator}）。
+ * 等同域数据组装类聚合），编排器包只保留真正的编排逻辑类 {@code GenerationOrchestrator}。
  */
 @Data
 @Builder

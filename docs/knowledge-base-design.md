@@ -168,7 +168,7 @@ POST /fingerprint/admin/ingest-external { url, styleProfileHint }
       ├── 移除 <script> 块（安全：防 prompt injection）
       ├── 提取 CSS 声明（最多 40 条）
       └── 统计结构化标签数量
-  → DesignExtractorAgent.extract(summary, styleProfileHint, sourceId)
+  → service.design.DesignExtractorAgent.extract(summary, styleProfileHint, sourceId)
       ├── 调用 LLM 提炼六层指纹
       └── FingerprintParser.parse() 解析为 DesignFingerprintDTO
   → DesignFingerprintService.saveCandidate(dto, selfGenerated=false)
@@ -619,7 +619,7 @@ design:
 | `FingerprintCrawlScheduler` | `worker` | 定时爬取本站精选应用 |
 | `DesignFingerprintController` | `controller` | 管理员指纹管理接口 |
 | `DesignSourcePreprocessor` | `service.design` | HTML 预处理 + SSRF 防护 |
-| `DesignExtractorAgent` | `agent.workers` | LLM 六层指纹提炼 |
+| `DesignExtractorAgent` | `service.design` | LLM 六层指纹提炼 |
 | `FingerprintParser` | `service.design` | 解析/校验/置信度/签名 |
 | `FingerprintProjector` | `service.design` | DTO → DesignSpec 投影 |
 | `DesignFingerprintService` | `service` | 指纹治理（入库/审核/状态流转） |

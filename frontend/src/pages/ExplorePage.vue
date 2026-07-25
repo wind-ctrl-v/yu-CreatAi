@@ -1,29 +1,25 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { listGoodAppByPage } from '../api/app'
 import type { AppVO } from '../types'
 import AppCard from '../components/AppCard.vue'
+import { useAppPage } from '../composables/useAppPage'
 
 const router = useRouter()
-const apps = ref<AppVO[]>([])
-const loading = ref(false)
-const total = ref(0)
-const pageNum = ref(1)
-const pageSize = 12
+const {
+  records: apps,
+  loading,
+  total,
+  pageNum,
+  pageSize,
+  load: loadApps,
+  changePage,
+} = useAppPage(listGoodAppByPage, 12)
 
 function openApp(app: AppVO) { router.push({ name: 'appShare', params: { id: String(app.id) } }) }
 
-async function loadApps() {
-  loading.value = true
-  const res = await listGoodAppByPage({ pageNum: pageNum.value, pageSize }).catch(() => null)
-  loading.value = false
-  if (res?.code === 0) {
-    apps.value = res.data.records || []
-    total.value = res.data.totalRow || 0
-  }
-}
-function onPageChange(p: number) { pageNum.value = p; loadApps() }
+function onPageChange(page: number) { changePage(page) }
 
 onMounted(() => { loadApps() })
 </script>

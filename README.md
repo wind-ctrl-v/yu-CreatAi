@@ -79,27 +79,22 @@
 
 ## 多 Agent 流水线（可选）
 
-通过环境变量 `AGENT_ORCHESTRATOR_ENABLED=true` 启用，默认关闭，仅对 `VUE_PROJECT` 生效。
+通过环境变量 `AGENT_ORCHESTRATOR_V2_ENABLED=true` 启用，默认关闭，仅对 `VUE_PROJECT` 生效；V2 失败时仍会按策略降级到 Classic。
 
 ```
 用户 Prompt
   │
-  ├─① ProductAgent    ── 解析需求 → 结构化 RequirementDoc（JSON）
-  │
-  ├─② ArchitectAgent  ── 技术选型 + 规划 → GenerationPlan（文件列表、路由、图片槽）
-  │
-  ├─③ ImageAgent      ── 并发搜图 → imageMap（keyword → 真实 URL）
-  │
-  ├─④ CoderAgent  ┐
-  │   StyleAgent  ┘ ── 并发执行：逐文件生成代码 + 全局 CSS
-  │
-  ├─⑤ CriticAgent     ── 质检（静态检查 + LLM 评分，score ≥ 80 通过）
-  │                       未通过 → 回到 CoderAgent 修复，最多 3 轮
-  │
-  └─⑥ DeployAgent     ── （可选）npm build → 上传 COS（需 AGENT_DEPLOY_ENABLED=true）
+  ├─① PlanningAgent       ── 需求与架构规划 → RequirementDoc / GenerationPlan
+  ├─② DesignContext       ── 装配偏好、品牌、设计规范和受控检索证据
+  ├─③ PageGenerateAgent   ── low_cost 单次生成并安全落盘
+  │   或 CoderAgent ∥ StyleAgent ── standard / high_quality 生成代码和样式
+  ├─④ RuleCriticTool      ── 确定性文件与占位符检查
+  ├─⑤ CriticAgent         ── 按策略执行 LLM 质检和有限轮修复
+  ├─⑥ DeployTool          ── 可选构建与部署（AGENT_DEPLOY_ENABLED=true）
+  └─⑦ GenerationRecordTool ── 保存生成运行与设计证据记录
 ```
 
-各 Agent 通过线程安全的 **Blackboard（黑板）** 传递中间产物，全程以 `Flux<AgentEvent>` 事件流实时推送给前端 SSE。
+各 Agent 通过线程安全的 **Blackboard（黑板）** 传递 `GeneratedArtifact` 等中间产物，全程以 `Flux<AgentEvent>` 事件流推送；V2 异常按策略降级 Classic。
 
 **Critic 质检分级**：
 - **P0 核心文件**（`package.json` / `index.html` / `src/main.js` / `src/App.vue`）缺失 → 强制重新生成
@@ -128,16 +123,20 @@ CreatAi/
     ├── service/                       # 业务逻辑（AppServiceImpl 为核心入口）
     ├── mapper/                        # MyBatis-Flex Mapper
     ├── model/                         # 实体、VO、枚举
-    ├── ai/
-    │   ├── core/                      # AiCodeGeneratorFacade、StreamHandlerExecutor
-    │   ├── tools/                     # 文件工具（写/读/改/删/列目录）
-    │   └── model/                     # SSE 消息、代码结果 DTO
     ├── agent/                         # ★ 多 Agent 流水线
     │   ├── core/                      # Agent 接口、AgentContext、AgentEvent、Blackboard
-    │   ├── orchestrator/              # OrchestratorAgent（编排 + Critic 循环）
-    │   ├── workers/                   # Product / Architect / Image / Coder / Style / Critic / Deploy
-    │   ├── tools/                     # ImageSearchTool（含 SSRF 防护）
-    │   └── support/                   # ImagePlaceholderReplacer、JsonExtractor
+    │   ├── service/                   # AgentAiService 及其工厂
+    │   └── workers/                   # Planning / Coder / Style / Critic
+    ├── codegen/                       # 代码生成、解析、保存、流处理和文件工具
+    │   ├── service/                   # 代码生成服务与 Facade
+    │   ├── routing/                   # 代码类型路由
+    │   ├── parser/                    # HTML / 多文件解析
+    │   ├── saver/                     # 代码文件保存
+    │   ├── stream/                    # SSE 流处理与消息模型
+    │   ├── tools/                     # 增量编辑文件工具
+    │   └── build/                     # Vue 项目构建
+    ├── orchestrator/                  # GenerationOrchestrator（V2 编排 + Critic 循环）
+    ├── service/design/                # 设计上下文与离线指纹提取
     ├── config/                        # Redis 对话记忆、流式模型、COS、图片配置
     ├── ratelimiter/                   # 限流注解与 AOP
     ├── exception/                     # 全局异常处理与错误码

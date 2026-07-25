@@ -30,7 +30,6 @@ const editForm = reactive<AdminAppUpdateRequest & { appName: string }>({
   id: '',
   appName: '',
   priority: 0,
-  codeGenType: '',
 })
 
 // ======== 表格列定义 ========
@@ -91,7 +90,6 @@ function openEditDialog(row: AppVO) {
   editForm.id        = row.id
   editForm.appName   = row.appName
   editForm.priority  = row.priority ?? 0
-  editForm.codeGenType = row.codeGenType
   editVisible.value  = true
 }
 
@@ -103,10 +101,9 @@ async function handleSave() {
   editLoading.value = true
   try {
     const res = await adminUpdateApp({
-      id:          editForm.id,
-      appName:     editForm.appName,
-      priority:    editForm.priority,
-      codeGenType: editForm.codeGenType,
+      id:       editForm.id,
+      appName:  editForm.appName,
+      priority: editForm.priority,
     })
     if (res?.code === 0) {
       message.success('更新成功')
@@ -248,13 +245,6 @@ function handleDelete(row: AppVO) {
       <a-form layout="vertical" style="margin-top: 8px;">
         <a-form-item label="应用名称" required>
           <a-input v-model:value="editForm.appName" placeholder="请输入应用名称" />
-        </a-form-item>
-        <a-form-item label="代码类型">
-          <a-select v-model:value="editForm.codeGenType">
-            <a-select-option v-for="o in codeGenTypeOptions" :key="o.value" :value="o.value">
-              {{ o.label }}
-            </a-select-option>
-          </a-select>
         </a-form-item>
         <a-form-item label="优先级">
           <a-input-number v-model:value="editForm.priority" :min="0" style="width: 100%;" />

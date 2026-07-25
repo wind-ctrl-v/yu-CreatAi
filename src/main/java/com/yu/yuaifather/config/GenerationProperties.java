@@ -30,8 +30,6 @@ public class GenerationProperties {
     public static class Pipeline {
         /** 首选链路。 */
         private String preferred = "V2";
-        /** 是否允许降级 V1。 */
-        private boolean allowV1Fallback = true;
         /** 是否允许降级 Classic。 */
         private boolean allowClassicFallback = true;
     }

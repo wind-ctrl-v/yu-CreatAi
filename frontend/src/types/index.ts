@@ -143,7 +143,6 @@ export interface AdminAppUpdateRequest {
   id: string
   appName?: string
   priority?: number
-  codeGenType?: string
 }
 
 /** 设计指纹实体 */
