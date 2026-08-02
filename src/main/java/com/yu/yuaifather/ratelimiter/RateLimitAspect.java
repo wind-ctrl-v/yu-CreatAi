@@ -4,6 +4,8 @@ import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.service.UserService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +34,8 @@ public class RateLimitAspect {
     private RedissonClient redissonClient;
     @Resource
     private UserService userService;
+    @Resource
+    private MeterRegistry meterRegistry;
 
     @Before("@annotation(rateLimit)")
     public void doBefore(JoinPoint point, RateLimit rateLimit) {
@@ -44,7 +48,27 @@ public class RateLimitAspect {
         }
         // 尝试获取令牌，如果获取失败则限流
         if (!rateLimiter.tryAcquire(1)) {
+            recordRejected(point, rateLimit);
             throw new BusinessException(ErrorCode.TOO_MANY_REQUEST, rateLimit.message());
+        }
+    }
+
+    /**
+     * 限流拒绝打点：ratelimit.rejected{type, interface}。标签保持低基数，不放用户ID/IP。
+     */
+    private void recordRejected(JoinPoint point, RateLimit rateLimit) {
+        try {
+            String interfaceTag = rateLimit.limitType().name();
+            if (rateLimit.limitType() == RateLimitType.API) {
+                MethodSignature signature = (MethodSignature) point.getSignature();
+                interfaceTag = signature.getMethod().getDeclaringClass().getSimpleName()
+                        + "." + signature.getMethod().getName();
+            }
+            Counter.builder("ratelimit.rejected")
+                    .tags("type", rateLimit.limitType().name(), "interface", interfaceTag)
+                    .register(meterRegistry).increment();
+        } catch (Exception e) {
+            log.warn("限流指标打点失败: {}", e.getMessage());
         }
     }
 

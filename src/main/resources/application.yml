@@ -57,6 +57,21 @@ knife4j:
   setting:
     language: zh_cn
 
+# 可观测性：应用指标暴露（prometheus 等敏感端点由 ActuatorAuthFilter 做管理员鉴权）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+# 日志串联：requestId（每请求）/ generationId / appId（生成链路）占位，无 MDC 时输出为空
+logging:
+  pattern:
+    level: "%5p [requestId=%X{requestId}] [generationId=%X{generationId}] [appId=%X{appId}]"
+
 # 图片服务配置：所有 API Key 通过环境变量注入，禁止在此明文写入
 image:
   # 首选搜图源：Pixabay（国内访问友好，key 作为 URL 查询参数）

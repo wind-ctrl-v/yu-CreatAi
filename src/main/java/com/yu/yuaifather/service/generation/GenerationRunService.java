@@ -5,6 +5,9 @@ import com.yu.yuaifather.mapper.GenerationRunMapper;
 import com.yu.yuaifather.model.entity.GenerationRun;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.model.enums.PipelineType;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -23,9 +26,11 @@ import java.time.LocalDateTime;
 public class GenerationRunService {
 
     private final GenerationRunMapper generationRunMapper;
+    private final MeterRegistry meterRegistry;
 
-    public GenerationRunService(GenerationRunMapper generationRunMapper) {
+    public GenerationRunService(GenerationRunMapper generationRunMapper, MeterRegistry meterRegistry) {
         this.generationRunMapper = generationRunMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -101,6 +106,30 @@ public class GenerationRunService {
             run.setDurationMs(Duration.between(run.getStartedAt(), run.getFinishedAt()).toMillis());
         }
         update(run);
+        recordMetrics(run);
+    }
+
+    /**
+     * 生成指标打点：generation.duration / generation.total。失败仅 log.warn，不影响主流程。
+     */
+    private void recordMetrics(GenerationRun run) {
+        try {
+            String pipeline = tag(run.getPipelineType());
+            String mode = tag(run.getFinalMode());
+            String status = tag(run.getStatus());
+            Counter.builder("generation.total").tags("status", status, "pipeline", pipeline, "mode", mode)
+                    .register(meterRegistry).increment();
+            if (run.getDurationMs() != null) {
+                Timer.builder("generation.duration").tags("status", status, "pipeline", pipeline, "mode", mode)
+                        .register(meterRegistry).record(Duration.ofMillis(run.getDurationMs()));
+            }
+        } catch (Exception e) {
+            log.warn("生成指标打点失败 generationId={}: {}", run.getGenerationId(), e.getMessage());
+        }
+    }
+
+    private String tag(String value) {
+        return value == null || value.isBlank() ? "unknown" : value;
     }
 
     private void update(GenerationRun run) {

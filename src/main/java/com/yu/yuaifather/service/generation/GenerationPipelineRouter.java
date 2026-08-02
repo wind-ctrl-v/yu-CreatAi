@@ -11,7 +11,10 @@ import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.model.enums.PipelineType;
 import com.yu.yuaifather.orchestrator.GenerationOrchestrator;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -54,18 +57,21 @@ public class GenerationPipelineRouter {
     private final GenerationModeResolver modeResolver;
     private final GenerationRunService generationRunService;
     private final QuotaService quotaService;
+    private final MeterRegistry meterRegistry;
 
     @Autowired
     public GenerationPipelineRouter(GenerationOrchestrator generationOrchestrator,
                                     AiCodeGeneratorFacade aiCodeGeneratorFacade,
                                     GenerationModeResolver modeResolver,
                                     GenerationRunService generationRunService,
-                                    QuotaService quotaService) {
+                                    QuotaService quotaService,
+                                    MeterRegistry meterRegistry) {
         this.generationOrchestrator = generationOrchestrator;
         this.aiCodeGeneratorFacade = aiCodeGeneratorFacade;
         this.modeResolver = modeResolver;
         this.generationRunService = generationRunService;
         this.quotaService = quotaService;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -87,6 +93,9 @@ public class GenerationPipelineRouter {
         // 本次生成的全局追踪 ID（贯穿各 attempt）
         String generationId = "gen_" + UUID.randomUUID().toString().replace("-", "");
         Long userId = loginUser == null ? null : loginUser.getId();
+        // 日志串联：generationId / appId 入 MDC（reactive 流内跨线程不保证传播，尽力而为）
+        MDC.put("generationId", generationId);
+        MDC.put("appId", String.valueOf(appId));
 
         // 开始记录（容错，失败不阻断）
         GenerationRun run = generationRunService.start(generationId, appId, userId, requestedMode,
@@ -118,6 +127,12 @@ public class GenerationPipelineRouter {
                 if (policy.isAllowClassicFallback()) {
                     fallbackOccurred.set(true);
                     generationRunService.fallback(run, PipelineType.V2, PipelineType.CLASSIC, e.getMessage());
+                    try {
+                        Counter.builder("generation.fallback").tags("from", PipelineType.V2.name(), "to", PipelineType.CLASSIC.name())
+                                .register(meterRegistry).increment();
+                    } catch (Exception ex) {
+                        log.warn("降级指标打点失败: {}", ex.getMessage());
+                    }
                     return Flux.concat(
                             Flux.just(fallbackPayload(PipelineType.V2, PipelineType.CLASSIC, e.getMessage())), classic);
                 }
@@ -139,7 +154,12 @@ public class GenerationPipelineRouter {
                     generationRunService.success(run, activePipeline.get(), fallbackOccurred.get());
                     quotaService.recordUsage(loginUser, policy.getGenerationMode());
                 })
-                .doOnError(e -> generationRunService.fail(run, e.getMessage()));
+                .doOnError(e -> generationRunService.fail(run, e.getMessage()))
+                // 流终止时清理 MDC，避免污染复用线程
+                .doFinally(signal -> {
+                    MDC.remove("generationId");
+                    MDC.remove("appId");
+                });
     }
 
     /**

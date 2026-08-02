@@ -8,6 +8,8 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -28,10 +30,13 @@ public class CompressingChatMemoryStore implements ChatMemoryStore {
 
     private final RedisChatMemoryStore delegate;
     private final ChatMemoryCompressor compressor;
+    private final MeterRegistry meterRegistry;
 
-    public CompressingChatMemoryStore(RedisChatMemoryStore delegate, ChatMemoryCompressor compressor) {
+    public CompressingChatMemoryStore(RedisChatMemoryStore delegate, ChatMemoryCompressor compressor,
+                                      MeterRegistry meterRegistry) {
         this.delegate = delegate;
         this.compressor = compressor;
+        this.meterRegistry = meterRegistry;
     }
 
     @Override
@@ -46,6 +51,15 @@ public class CompressingChatMemoryStore implements ChatMemoryStore {
         int afterChars = totalChars(compressed);
         if (afterChars < beforeChars) {
             log.info("记忆压缩 memoryId={} {}→{} 字符", memoryId, beforeChars, afterChars);
+        }
+        // 指标：memory.compress.chars{phase=before/after}，用于观测压缩率
+        try {
+            DistributionSummary.builder("memory.compress.chars").tags("phase", "before")
+                    .register(meterRegistry).record(beforeChars);
+            DistributionSummary.builder("memory.compress.chars").tags("phase", "after")
+                    .register(meterRegistry).record(afterChars);
+        } catch (Exception e) {
+            log.warn("压缩指标打点失败: {}", e.getMessage());
         }
         delegate.updateMessages(memoryId, compressed);
     }
