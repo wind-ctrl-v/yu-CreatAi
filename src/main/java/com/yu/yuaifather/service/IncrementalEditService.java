@@ -1,6 +1,9 @@
 package com.yu.yuaifather.service;
 
 import cn.hutool.json.JSONUtil;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.yu.yuaifather.codegen.memory.CompressingChatMemoryStore;
 import com.yu.yuaifather.codegen.tools.*;
 import com.yu.yuaifather.codegen.stream.model.AiResponseMessage;
 import com.yu.yuaifather.codegen.stream.model.ToolExecutedMessage;
@@ -33,16 +36,36 @@ public class IncrementalEditService {
     private final ChatModel chatModel;
     private final StreamingChatModel reasoningStreamingChatModel;
     private final ToolManager toolManager;
+    private final CompressingChatMemoryStore compressingChatMemoryStore;
 
     @Value("${agent.memory.max-messages:100}")
     private int maxMessages;
 
+    /**
+     * AI 服务实例缓存（仿 AiCodeGeneratorServiceFactory）：避免每请求重建实例与重复绑定工具。
+     * 记忆接入与主链路同一个 CompressingChatMemoryStore，共享 appId 记忆，
+     * 使连续可视化修改能看到"上一次改了什么"。
+     */
+    private final Cache<Long, IncrementalEditAi> editAiCache = Caffeine.newBuilder()
+            .maximumSize(1000)
+            .expireAfterWrite(Duration.ofMinutes(30))
+            .expireAfterAccess(Duration.ofMinutes(10))
+            .build();
+
+    private final Cache<Long, IncrementalEditStreamAi> editStreamAiCache = Caffeine.newBuilder()
+            .maximumSize(1000)
+            .expireAfterWrite(Duration.ofMinutes(30))
+            .expireAfterAccess(Duration.ofMinutes(10))
+            .build();
+
     public IncrementalEditService(ChatModel chatModel,
                                    StreamingChatModel reasoningStreamingChatModel,
-                                   ToolManager toolManager) {
+                                   ToolManager toolManager,
+                                   CompressingChatMemoryStore compressingChatMemoryStore) {
         this.chatModel = chatModel;
         this.reasoningStreamingChatModel = reasoningStreamingChatModel;
         this.toolManager = toolManager;
+        this.compressingChatMemoryStore = compressingChatMemoryStore;
     }
 
     /**
@@ -96,14 +119,7 @@ public class IncrementalEditService {
             return "项目目录不存在，请先生成代码";
         }
 
-        IncrementalEditAi ai = AiServices.builder(IncrementalEditAi.class)
-                .chatModel(chatModel)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(maxMessages)
-                        .build())
-                .tools((Object[]) toolManager.getAllTools())
-                .build();
+        IncrementalEditAi ai = getEditAi(appId);
 
         try {
             String result = ai.edit(appId, instruction);
@@ -113,6 +129,46 @@ public class IncrementalEditService {
             log.error("增量编辑失败 appId={}", appId, e);
             return "编辑失败: " + e.getMessage();
         }
+    }
+
+    /**
+     * 按 appId 获取同步增量编辑 AI 实例（带缓存）
+     */
+    private IncrementalEditAi getEditAi(Long appId) {
+        return editAiCache.get(appId, this::createEditAi);
+    }
+
+    private IncrementalEditAi createEditAi(Long appId) {
+        MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
+                .id(appId)
+                .maxMessages(maxMessages)
+                .chatMemoryStore(compressingChatMemoryStore)
+                .build();
+        return AiServices.builder(IncrementalEditAi.class)
+                .chatModel(chatModel)
+                .chatMemoryProvider(memoryId -> chatMemory)
+                .tools((Object[]) toolManager.getAllTools())
+                .build();
+    }
+
+    /**
+     * 按 appId 获取流式增量编辑 AI 实例（带缓存）
+     */
+    private IncrementalEditStreamAi getEditStreamAi(Long appId) {
+        return editStreamAiCache.get(appId, this::createEditStreamAi);
+    }
+
+    private IncrementalEditStreamAi createEditStreamAi(Long appId) {
+        MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
+                .id(appId)
+                .maxMessages(maxMessages)
+                .chatMemoryStore(compressingChatMemoryStore)
+                .build();
+        return AiServices.builder(IncrementalEditStreamAi.class)
+                .streamingChatModel(reasoningStreamingChatModel)
+                .chatMemoryProvider(memoryId -> chatMemory)
+                .tools((Object[]) toolManager.getAllTools())
+                .build();
     }
 
     /**
@@ -126,14 +182,7 @@ public class IncrementalEditService {
             return Flux.just("{\"type\":\"error\",\"message\":\"项目目录不存在，请先生成代码\"}");
         }
 
-        IncrementalEditStreamAi ai = AiServices.builder(IncrementalEditStreamAi.class)
-                .streamingChatModel(reasoningStreamingChatModel)
-                .chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
-                        .id(memoryId)
-                        .maxMessages(maxMessages)
-                        .build())
-                .tools((Object[]) toolManager.getAllTools())
-                .build();
+        IncrementalEditStreamAi ai = getEditStreamAi(appId);
 
         try {
             TokenStream tokenStream = ai.editStream(appId, instruction);

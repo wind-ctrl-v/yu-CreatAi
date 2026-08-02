@@ -1,6 +1,7 @@
 package com.yu.yuaifather.codegen.service;
 
 import cn.hutool.json.JSONUtil;
+import com.yu.yuaifather.codegen.memory.CompressingChatMemoryStore;
 import com.yu.yuaifather.service.design.ImagePlaceholderReplacer;
 import com.yu.yuaifather.codegen.parser.CodeParserExecutor;
 import com.yu.yuaifather.codegen.saver.CodeFileSaverExecutor;
@@ -35,8 +36,14 @@ public class AiCodeGeneratorFacade {
     @Resource
     private ImagePlaceholderReplacer imagePlaceholderReplacer;
 
+    @Resource
+    private CompressingChatMemoryStore compressingChatMemoryStore;
+
     /**
      * 统一入口：根据类型生成并保存代码（流式，使用 appId）
+     *
+     * <p>超限自愈：捕获 context_length_exceeded 时清空该 appId 记忆，带当前消息重试一次，
+     * 避免长会话撞上限后用户卡死（记忆压缩后极少触发，此为兜底）。</p>
      *
      * @param userMessage     用户提示词
      * @param codeGenTypeEnum 生成类型
@@ -46,6 +53,43 @@ public class AiCodeGeneratorFacade {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
+        return Flux.defer(() -> doGenerateAndSaveCodeStream(userMessage, codeGenTypeEnum, appId))
+                .onErrorResume(error -> {
+                    if (!isContextLengthExceeded(error)) {
+                        return Flux.error(error);
+                    }
+                    log.warn("检测到上下文超限，清空记忆后重试一次 appId={} err={}", appId, error.getMessage());
+                    try {
+                        compressingChatMemoryStore.deleteMessages(appId);
+                    } catch (Exception e) {
+                        log.warn("清空对话记忆失败 appId={} err={}", appId, e.getMessage());
+                    }
+                    return Flux.defer(() -> doGenerateAndSaveCodeStream(userMessage, codeGenTypeEnum, appId));
+                });
+    }
+
+    /**
+     * 判断异常链中是否存在上下文超限错误（OpenAI / DeepSeek 兼容协议的错误形态）
+     */
+    private boolean isContextLengthExceeded(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase();
+                if (lower.contains("context_length_exceeded") || lower.contains("maximum context length")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    /**
+     * 实际执行生成并保存代码（流式）
+     */
+    private Flux<String> doGenerateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
         // 根据 appId 获取对应的 AI 服务实例
         AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId,codeGenTypeEnum);
         return switch (codeGenTypeEnum) {

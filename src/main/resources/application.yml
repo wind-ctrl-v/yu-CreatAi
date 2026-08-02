@@ -118,6 +118,17 @@ agent:
     vector:
       enabled: ${AGENT_RETRIEVE_VECTOR_ENABLED:false}
       min-similarity: ${AGENT_RETRIEVE_VECTOR_MIN_SIMILARITY:0.7}
+  # 对话记忆治理：窗口 + 冷启动加载 + 记忆压缩（记忆里只存索引摘要，全文在 MySQL / 磁盘）
+  memory:
+    # 记忆窗口最大消息条数（压缩后单条 ~300 字符，上下文总量不随轮次增长）
+    max-messages: 100
+    # 冷启动从 MySQL 加载的历史条数（跳过最新 1 条本轮用户消息）
+    load-count: 20
+    compress:
+      # 单条消息超过该字符数才触发压缩，短消息原样保留
+      threshold: 1500
+      # 代码块外解释文字保留的最大字符数
+      explain-max-chars: 500
 
 # 生成体系：链路 / 模式 / 套餐。由 GenerationModeResolver 消费产出 GenerationPolicy。
 # 未配置项由 GenerationProperties 内置默认值兜底；model 键暂未被编排器消费（后续接入）。

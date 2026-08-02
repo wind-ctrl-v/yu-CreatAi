@@ -57,9 +57,8 @@ public class JsonMessageStreamHandler {
                     chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
                 })
                 .doOnError(error -> {
-                    // 如果AI回复失败，也要记录错误消息
-                    String errorMessage = "AI回复失败: " + error.getMessage();
-                    chatHistoryService.addChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                    // 错误消息不写入对话历史，避免污染后续上下文；仅落日志，前端通过 SSE 错误事件感知
+                    log.error("AI 回复失败 appId={} err={}", appId, error.getMessage(), error);
                 });
     }
 

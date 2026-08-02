@@ -14,9 +14,11 @@ import com.yu.yuaifather.model.entity.ChatHistory;
 import com.yu.yuaifather.mapper.ChatHistoryMapper;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.enums.ChatHistoryMessageTypeEnum;
+import com.yu.yuaifather.codegen.memory.ChatMemoryCompressor;
 import com.yu.yuaifather.service.AppService;
 import com.yu.yuaifather.service.ChatHistoryService;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import jakarta.annotation.Resource;
@@ -25,6 +27,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -39,6 +42,9 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     @Resource
     @Lazy
     private AppService appService;
+
+    @Resource
+    private ChatMemoryCompressor chatMemoryCompressor;
 
 
     @Override
@@ -146,18 +152,25 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
             }
             // 反转列表，确保按时间正序（老的在前，新的在后）
             historyList = historyList.reversed();
-            // 按时间顺序添加到记忆中
-            int loadedCount = 0;
-            // 先清理历史缓存，防止重复加载
-            chatMemory.clear();
+            // 先构建消息列表
+            List<ChatMessage> messages = new ArrayList<>(historyList.size());
             for (ChatHistory history : historyList) {
                 if (ChatHistoryMessageTypeEnum.USER.getValue().equals(history.getMessageType())) {
-                    chatMemory.add(UserMessage.from(history.getMessage()));
-                    loadedCount++;
+                    messages.add(UserMessage.from(history.getMessage()));
                 } else if (ChatHistoryMessageTypeEnum.AI.getValue().equals(history.getMessageType())) {
-                    chatMemory.add(AiMessage.from(history.getMessage()));
-                    loadedCount++;
+                    messages.add(AiMessage.from(history.getMessage()));
                 }
+            }
+            // 冷启动拦截点：加载时过压缩器（保留最新一条 AI 全文，与运行时压缩形态对齐），
+            // 使 Caffeine 过期重建后的冷实例与热实例行为一致
+            List<ChatMessage> compressedMessages = chatMemoryCompressor.compressAll(messages);
+            // 先清理历史缓存，防止重复加载
+            chatMemory.clear();
+            // 按时间顺序添加到记忆中
+            int loadedCount = 0;
+            for (ChatMessage message : compressedMessages) {
+                chatMemory.add(message);
+                loadedCount++;
             }
             log.info("成功为 appId: {} 加载了 {} 条历史对话", appId, loadedCount);
             return loadedCount;
