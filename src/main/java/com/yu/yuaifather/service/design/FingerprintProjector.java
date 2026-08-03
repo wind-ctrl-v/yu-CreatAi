@@ -19,16 +19,28 @@ public class FingerprintProjector {
     private static final int FINGERPRINT_BASE_PRIORITY = 30;
 
     public DesignSpec project(DesignFingerprintDTO dto, String sourceId) {
+        return project(dto, sourceId, "EXTRACTED_FINGERPRINT", FINGERPRINT_BASE_PRIORITY,
+                dto == null ? null : dto.getConfidence());
+    }
+
+    /**
+     * 参数化投影（覆盖度优化 阶段二）：允许调用方指定来源类型 / 优先级 / 置信度。
+     * <p>
+     * 用于动态合成规范（{@code DYNAMIC_SYNTHESIS}）等非常规来源的投影，
+     * 使其可以人为压低 confidence 与 priority，避免在排序中排到真实提炼指纹之前。
+     */
+    public DesignSpec project(DesignFingerprintDTO dto, String sourceId,
+                              String sourceType, Integer priority, Double confidence) {
         if (dto == null) {
             return null;
         }
         return DesignSpec.builder()
                 .schemaVersion(StrUtil.blankToDefault(dto.getSchemaVersion(), "v1"))
                 .styleProfile(dto.getStyleProfile())
-                .sourceType("EXTRACTED_FINGERPRINT")
+                .sourceType(StrUtil.blankToDefault(sourceType, "EXTRACTED_FINGERPRINT"))
                 .sourceId(StrUtil.blankToDefault(sourceId, dto.getSourceId()))
-                .confidence(dto.getConfidence())
-                .priority(FINGERPRINT_BASE_PRIORITY)
+                .confidence(confidence)
+                .priority(priority == null ? FINGERPRINT_BASE_PRIORITY : priority)
                 .tone(dto.getTone() == null ? new ArrayList<>() : new ArrayList<>(dto.getTone()))
                 .tokenGroups(projectTokens(dto.getTokens()))
                 .layoutPatterns(projectLayout(dto.getLayout()))

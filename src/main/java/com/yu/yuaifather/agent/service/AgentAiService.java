@@ -48,4 +48,11 @@ public interface AgentAiService {
      */
     @SystemMessage(fromResource = "prompt/agent-extractor-system-prompt.txt")
     String generateFingerprint(String extractorInput);
+
+    /**
+     * DesignSynthesisAgent（覆盖度优化 阶段二）：知识库 miss 时，仅根据需求描述
+     * 动态合成六层设计规范 JSON（DYNAMIC_SYNTHESIS），入库候选需人工审核后参与召回。
+     */
+    @SystemMessage(fromResource = "prompt/agent-design-synthesis-system-prompt.txt")
+    String synthesizeDesignSpec(String synthesisInput);
 }

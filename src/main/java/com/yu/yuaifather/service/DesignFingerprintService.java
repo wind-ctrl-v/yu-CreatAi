@@ -29,6 +29,21 @@ public interface DesignFingerprintService extends IService<DesignFingerprint> {
     DesignFingerprint saveCandidate(DesignFingerprintDTO dto, boolean selfGenerated);
 
     /**
+     * 将一条 LLM 动态合成的设计规范作为候选入库（覆盖度优化 阶段二）。
+     * <p>
+     * 与 {@link #saveCandidate} 的差异：
+     * <ul>
+     *   <li>{@code sourceType} 固定为 {@code DYNAMIC_SYNTHESIS}；</li>
+     *   <li>confidence 人为压低（合成无页面证据支撑），不参与客观公式计算；</li>
+     *   <li>schema 校验 / signature 去重 / CANDIDATE 门禁完全一致，人工审核 APPROVED 后才参与召回。</li>
+     * </ul>
+     *
+     * @param dto 动态合成的六层规范
+     * @return 入库后的实体；schema 不合法或命中重复时返回 {@code null}
+     */
+    DesignFingerprint saveSynthesizedCandidate(DesignFingerprintDTO dto);
+
+    /**
      * 审核通过：CANDIDATE → APPROVED。
      * <p>对自产反哺指纹会校验多样性配额（每个 profile 中自产占比上限），超限则拒绝晋升。
      *

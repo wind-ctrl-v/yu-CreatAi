@@ -124,6 +124,15 @@ agent:
   deploy:
     # 是否在流水线末尾自动执行 DeployTool（构建并上传 COS）
     enabled: ${AGENT_DEPLOY_ENABLED:false}
+  # 指纹爬取（覆盖度优化 阶段三）
+  fingerprint:
+    # 外部种子页面爬取：从配置的优秀设计站点抓取并提炼指纹，打破内部自复制闭环，默认关闭
+    external-crawl:
+      enabled: ${AGENT_FINGERPRINT_EXTERNAL_CRAWL_ENABLED:false}
+      interval-ms: ${AGENT_FINGERPRINT_EXTERNAL_CRAWL_INTERVAL_MS:86400000}
+      urls: ${AGENT_FINGERPRINT_EXTERNAL_CRAWL_URLS:}
+      render-enabled: ${AGENT_FINGERPRINT_EXTERNAL_CRAWL_RENDER_ENABLED:true}
+      request-interval-ms: ${AGENT_FINGERPRINT_EXTERNAL_CRAWL_REQUEST_INTERVAL_MS:5000}
   # 阶段三：运行时召回（默认关闭，启用需 design_fingerprint 表就绪；关闭时仅用阶段一静态规范）
   retrieve:
     enabled: ${AGENT_RETRIEVE_ENABLED:false}
@@ -133,6 +142,11 @@ agent:
     vector:
       enabled: ${AGENT_RETRIEVE_VECTOR_ENABLED:false}
       min-similarity: ${AGENT_RETRIEVE_VECTOR_MIN_SIMILARITY:0.7}
+    # 动态合成兜底（覆盖度优化 阶段二）：检索 miss 达阈值时 LLM 现场合成设计规范，
+    # 产物入库 CANDIDATE 待人工审核；默认关闭
+    synth:
+      enabled: ${AGENT_RETRIEVE_SYNTH_ENABLED:false}
+      miss-threshold: ${AGENT_RETRIEVE_SYNTH_MISS_THRESHOLD:2}
   # 对话记忆治理：窗口 + 冷启动加载 + 记忆压缩（记忆里只存索引摘要，全文在 MySQL / 磁盘）
   memory:
     # 记忆窗口最大消息条数（压缩后单条 ~300 字符，上下文总量不随轮次增长）

@@ -10,7 +10,9 @@ import com.yu.yuaifather.model.dto.agent.GenerationPlan;
 import com.yu.yuaifather.model.dto.agent.RequirementDoc;
 import com.yu.yuaifather.model.dto.agent.UserDesignContext;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
+import com.yu.yuaifather.model.entity.DesignMissLog;
 import com.yu.yuaifather.service.DesignFingerprintService;
+import com.yu.yuaifather.service.DesignMissLogService;
 import com.yu.yuaifather.repository.DesignFingerprintVectorRepository;
 import com.yu.yuaifather.service.PersonalizedQueryBuilder;
 import com.yu.yuaifather.service.UserPreferenceService;
@@ -23,6 +25,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -40,12 +43,17 @@ public class DesignKnowledgeIndex {
 
     private static final int MAX_TOP_K = 3;
 
+    /** 覆盖度优化（阶段一）：召回候选中与目标 profile 一致的证据加分（profile 由硬过滤改为加权项）。 */
+    private static final int PROFILE_MATCH_BONUS = 2;
+
     private final DesignFingerprintService fingerprintService;
     private final FingerprintProjector fingerprintProjector;
     private final DesignFingerprintVectorRepository vectorRepo;
     private final EmbeddingService embeddingService;
     private final PersonalizedQueryBuilder queryBuilder;
     private final UserPreferenceService userPreferenceService;
+    private final DesignMissLogService missLogService;
+    private final DynamicSpecSynthesizer synthesizer;
 
     @Value("${agent.retrieve.vector.enabled:false}")
     private boolean vectorEnabled;
@@ -59,18 +67,30 @@ public class DesignKnowledgeIndex {
     @Value("${agent.retrieve.curated-min-ratio:0.3}")
     private double curatedMinRatio;
 
+    /** 动态合成兜底开关（覆盖度优化 阶段二，默认关闭）。 */
+    @Value("${agent.retrieve.synth.enabled:false}")
+    private boolean synthEnabled;
+
+    /** 动态合成触发阈值：同一 profile 的 miss 次数达到该值才触发合成（默认 2，防一次性长尾浪费）。 */
+    @Value("${agent.retrieve.synth.miss-threshold:2}")
+    private int synthMissThreshold;
+
     public DesignKnowledgeIndex(DesignFingerprintService fingerprintService,
                                 FingerprintProjector fingerprintProjector,
                                 DesignFingerprintVectorRepository vectorRepo,
                                 @Autowired(required = false) EmbeddingService embeddingService,
                                 @Autowired(required = false) PersonalizedQueryBuilder queryBuilder,
-                                @Autowired(required = false) UserPreferenceService userPreferenceService) {
+                                @Autowired(required = false) UserPreferenceService userPreferenceService,
+                                @Autowired(required = false) DesignMissLogService missLogService,
+                                @Autowired(required = false) DynamicSpecSynthesizer synthesizer) {
         this.fingerprintService = fingerprintService;
         this.fingerprintProjector = fingerprintProjector;
         this.vectorRepo = vectorRepo;
         this.embeddingService = embeddingService;
         this.queryBuilder = queryBuilder;
         this.userPreferenceService = userPreferenceService;
+        this.missLogService = missLogService;
+        this.synthesizer = synthesizer;
     }
 
     public DesignEvidence retrieve(String styleProfile, List<String> queryTags, DesignSpec staticSpec, int topK) {
@@ -100,16 +120,8 @@ public class DesignKnowledgeIndex {
             try {
                 // 无用户上下文的重载入口，出于权限安全（修复计划 02）仅传 null，
                 // listApproved 在 currentUserId=null 时只返回公共指纹，不会误召回私有指纹。
-                List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9), null);
-                if (CollUtil.isNotEmpty(fps)) {
+                if (appendStructuralCandidates(styleProfile, queryTags, k, null, ranked)) {
                     channel = "STRUCTURAL_3A";
-                    for (DesignFingerprint fp : fps) {
-                        DesignEvidence.Item item = fingerprintToItem(fp);
-                        if (item != null) {
-                            int matchScore = softMatchScore(item, queryTags);
-                            ranked.add(toRanked(item, fp.getUpdateTime(), matchScore));
-                        }
-                    }
                 }
             } catch (Exception e) {
                 log.warn("结构化召回失败，降级为仅静态规范 profile={} msg={}", styleProfile, e.getMessage());
@@ -130,10 +142,20 @@ public class DesignKnowledgeIndex {
         for (int i = 0; i < ranked.size() && items.size() < k; i++) {
             items.add(ranked.get(i).item);
         }
+        String queryText = embeddingService != null ? embeddingService.buildQueryText(styleProfile, queryTags) : null;
+        // 覆盖度优化（阶段一/二）：无指纹证据命中 → 记 miss；达阈值 → 动态合成（第四档降级）
+        if (items.stream().noneMatch(this::isFingerprintSource)) {
+            recordMiss(styleProfile, queryTags, channel, queryText, null);
+            DesignSpec synthesized = tryDynamicSynthesize(styleProfile, queryTags, null, null);
+            if (synthesized != null) {
+                items.add(0, specToItem(synthesized, DynamicSpecSynthesizer.SOURCE_TYPE));
+                channel = "DYNAMIC_SYNTH";
+            }
+        }
         return DesignEvidence.builder()
                 .styleProfile(styleProfile)
                 .channel(channel)
-                .queryText(embeddingService != null ? embeddingService.buildQueryText(styleProfile, queryTags) : null)
+                .queryText(queryText)
                 .items(items)
                 .build();
     }
@@ -170,16 +192,8 @@ public class DesignKnowledgeIndex {
             try {
                 // 结构化降级通道仅按当前用户上下文过滤，杜绝跨用户私有指纹越权（修复计划 02）
                 Long currentUserId = (userContext != null) ? userContext.getUserId() : null;
-                List<DesignFingerprint> fps = fingerprintService.listApproved(styleProfile, Math.max(k * 3, 9), currentUserId);
-                if (CollUtil.isNotEmpty(fps)) {
+                if (appendStructuralCandidates(styleProfile, queryTags, k, currentUserId, ranked)) {
                     channel = "STRUCTURAL_3A";
-                    for (DesignFingerprint fp : fps) {
-                        DesignEvidence.Item item = fingerprintToItem(fp);
-                        if (item != null) {
-                            int matchScore = softMatchScore(item, queryTags);
-                            ranked.add(toRanked(item, fp.getUpdateTime(), matchScore));
-                        }
-                    }
                 }
             } catch (Exception e) {
                 log.warn("结构化召回失败，降级为仅静态规范 profile={} msg={}", styleProfile, e.getMessage());
@@ -210,6 +224,16 @@ public class DesignKnowledgeIndex {
         String queryText = queryTextHolder[0];
         if ((queryText == null || queryText.isBlank()) && embeddingService != null) {
             queryText = embeddingService.buildQueryText(styleProfile, queryTags);
+        }
+        // 覆盖度优化（阶段一/二）：无指纹证据命中 → 记 miss；达阈值 → 动态合成（第四档降级）
+        if (items.stream().noneMatch(this::isFingerprintSource)) {
+            Long missUserId = (userContext != null) ? userContext.getUserId() : null;
+            recordMiss(styleProfile, queryTags, channel, queryText, missUserId);
+            DesignSpec synthesized = tryDynamicSynthesize(styleProfile, queryTags, requirement, plan);
+            if (synthesized != null) {
+                items.add(0, specToItem(synthesized, DynamicSpecSynthesizer.SOURCE_TYPE));
+                channel = "DYNAMIC_SYNTH";
+            }
         }
         return DesignEvidence.builder()
                 .styleProfile(styleProfile)
@@ -247,8 +271,10 @@ public class DesignKnowledgeIndex {
         if (queryEmbedding.length == 0) {
             return false;
         }
+        // 覆盖度优化（阶段一）：styleProfile 传 null 解除硬过滤，全局语义召回（min-similarity 兜底），
+        // profile 一致性改由 addRankedItem 加分表达
         List<DesignFingerprintVector> vResults =
-                vectorRepo.search(queryEmbedding, styleProfile, k * 2, minSimilarity, queryUserId);
+                vectorRepo.search(queryEmbedding, null, k * 3, minSimilarity, queryUserId);
         if (CollUtil.isEmpty(vResults)) {
             return false;
         }
@@ -256,9 +282,7 @@ public class DesignKnowledgeIndex {
         for (DesignFingerprintVector vr : vResults) {
             DesignFingerprint fp = fingerprintService.getById(vr.getFingerprintId());
             if (fp == null) continue;
-            DesignEvidence.Item item = fingerprintToItem(fp);
-            if (item != null) {
-                ranked.add(toRanked(item, fp.getUpdateTime(), softMatchScore(item, queryTags)));
+            if (addRankedItem(fp, styleProfile, queryTags, ranked)) {
                 added++;
             }
         }
@@ -280,8 +304,9 @@ public class DesignKnowledgeIndex {
         if (queryEmbedding.length == 0) {
             return false;
         }
+        // 覆盖度优化（阶段一）：styleProfile 传 null 解除硬过滤，全局语义召回（min-similarity 兜底）
         List<DesignFingerprintVector> vResults =
-                vectorRepo.search(queryEmbedding, styleProfile, k * 2, minSimilarity);
+                vectorRepo.search(queryEmbedding, null, k * 3, minSimilarity);
         if (CollUtil.isEmpty(vResults)) {
             return false;
         }
@@ -289,9 +314,7 @@ public class DesignKnowledgeIndex {
         for (DesignFingerprintVector vr : vResults) {
             DesignFingerprint fp = fingerprintService.getById(vr.getFingerprintId());
             if (fp == null) continue;
-            DesignEvidence.Item item = fingerprintToItem(fp);
-            if (item != null) {
-                ranked.add(toRanked(item, fp.getUpdateTime(), softMatchScore(item, queryTags)));
+            if (addRankedItem(fp, styleProfile, queryTags, ranked)) {
                 added++;
             }
         }
@@ -334,6 +357,125 @@ public class DesignKnowledgeIndex {
                 .interactionPatterns(safe(spec.getInteractionPatterns()))
                 .forbiddenPatterns(safe(spec.getForbiddenPatterns()))
                 .build();
+    }
+
+    /**
+     * 结构化降级召回（覆盖度优化 阶段一：profile 从硬过滤改为加权）。
+     * <p>
+     * 先按目标 profile 召回（一致者加分）；不足 k 条时全局补充跨类目 APPROVED 指纹
+     * （不加分），交由 softMatchScore 与统一排序竞争。
+     * 权限过滤（visibility / ownerUserId）在 listApproved 内保持不变。
+     *
+     * @return 是否召回了至少一条候选
+     */
+    private boolean appendStructuralCandidates(String styleProfile, List<String> queryTags, int k,
+                                               Long currentUserId, List<Ranked> ranked) {
+        int limit = Math.max(k * 3, 9);
+        Set<Long> seen = new HashSet<>();
+        int added = 0;
+        List<DesignFingerprint> sameProfile = fingerprintService.listApproved(styleProfile, limit, currentUserId);
+        for (DesignFingerprint fp : sameProfile) {
+            if (addRankedItem(fp, styleProfile, queryTags, ranked)) {
+                if (fp.getId() != null) {
+                    seen.add(fp.getId());
+                }
+                added++;
+            }
+        }
+        // 覆盖度优化：同类目不足时跨类目补充（profile 仅作加分项，不作准入门槛）
+        if (added < k) {
+            List<DesignFingerprint> global = fingerprintService.listApproved(null, limit, currentUserId);
+            for (DesignFingerprint fp : global) {
+                if (fp.getId() != null && seen.contains(fp.getId())) {
+                    continue;
+                }
+                if (addRankedItem(fp, styleProfile, queryTags, ranked)) {
+                    added++;
+                }
+            }
+        }
+        return added > 0;
+    }
+
+    /**
+     * 指纹转证据并加入候选集；与目标 profile 一致时附加 {@link #PROFILE_MATCH_BONUS}。
+     *
+     * @return 是否成功加入（投影失败返回 false）
+     */
+    private boolean addRankedItem(DesignFingerprint fp, String styleProfile,
+                                  List<String> queryTags, List<Ranked> ranked) {
+        DesignEvidence.Item item = fingerprintToItem(fp);
+        if (item == null) {
+            return false;
+        }
+        int matchScore = softMatchScore(item, queryTags);
+        if (StrUtil.isNotBlank(styleProfile) && styleProfile.equalsIgnoreCase(fp.getStyleProfile())) {
+            matchScore += PROFILE_MATCH_BONUS;
+        }
+        ranked.add(toRanked(item, fp.getUpdateTime(), matchScore));
+        return true;
+    }
+
+    /**
+     * 第四档降级（覆盖度优化 阶段二）：同一 profile 的 miss 次数达到阈值时，
+     * 调用 LLM 动态合成六层设计规范；产物同步入库 CANDIDATE（signature 去重，
+     * 人工审核 APPROVED 后才进入向量召回池，未审核不污染召回）。
+     */
+    private DesignSpec tryDynamicSynthesize(String styleProfile, List<String> queryTags,
+                                            RequirementDoc requirement, GenerationPlan plan) {
+        if (!synthEnabled || synthesizer == null || missLogService == null) {
+            return null;
+        }
+        String profile = StrUtil.blankToDefault(styleProfile, "default");
+        // missCount 含本次 miss（recordMiss 先于本方法执行），达到阈值即触发
+        long missCount = missLogService.countMissByProfile(profile);
+        if (missCount < synthMissThreshold) {
+            log.info("动态合成未触发：miss 次数不足 profile={} missCount={} threshold={}",
+                    profile, missCount, synthMissThreshold);
+            return null;
+        }
+        try {
+            DesignFingerprintDTO dto = synthesizer.synthesizeDto(profile, queryTags, requirement, plan);
+            if (dto == null) {
+                return null;
+            }
+            // 入库候选（命中重复签名返回 null 不影响本次生成使用）
+            fingerprintService.saveSynthesizedCandidate(dto);
+            return fingerprintProjector.project(dto, dto.getSourceId(),
+                    DynamicSpecSynthesizer.SOURCE_TYPE,
+                    DynamicSpecSynthesizer.SYNTHESIZED_PRIORITY,
+                    DynamicSpecSynthesizer.SYNTHESIZED_CONFIDENCE);
+        } catch (Exception e) {
+            log.warn("动态合成异常，降级静态规范 profile={} msg={}", profile, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 记录检索 miss 现场（阶段一埋点；写入失败不影响检索主链路，由 service 内部兜底）。
+     */
+    private void recordMiss(String styleProfile, List<String> queryTags, String channel,
+                            String queryText, Long userId) {
+        if (missLogService == null) {
+            return;
+        }
+        String tags = (queryTags == null) ? null
+                : String.join(",", queryTags.stream().limit(20).toList());
+        missLogService.recordMiss(DesignMissLog.builder()
+                .styleProfile(StrUtil.blankToDefault(styleProfile, "default"))
+                .queryText(queryText)
+                .queryTags(tags)
+                .channel(channel)
+                .userId(userId)
+                .build());
+    }
+
+    /**
+     * 判断证据条目是否来自指纹库（区别于静态规范 / 内置默认 / 动态合成）。
+     */
+    private boolean isFingerprintSource(DesignEvidence.Item item) {
+        String st = item.getSourceType();
+        return "EXTRACTED_FINGERPRINT".equals(st) || "SELF_FED_FINGERPRINT".equals(st);
     }
 
     private int softMatchScore(DesignEvidence.Item item, List<String> queryTags) {

@@ -34,9 +34,16 @@ public class DesignFingerprintServiceImpl
     private static final String SOURCE_CURATED = "EXTRACTED_FINGERPRINT";
     /** 系统自产页面反哺来源。 */
     private static final String SOURCE_SELF_FED = "SELF_FED_FINGERPRINT";
+    /** LLM 动态合成规范来源（覆盖度优化 阶段二）。 */
+    private static final String SOURCE_DYNAMIC_SYNTHESIS = "DYNAMIC_SYNTHESIS";
 
     /** 置信度门槛：低于此值不得晋升 APPROVED（不参与召回，见 2.5）。 */
     private static final double CONFIDENCE_GATE = 0.7;
+    /** 动态合成规范的置信度门槛（覆盖度优化 阶段二）：合成 confidence 人为压低（0.35），
+     *  沿用 0.7 门槛将永远无法晋升，故对 DYNAMIC_SYNTHESIS 单独放宽——质量由人工审核把关。 */
+    private static final double SYNTH_CONFIDENCE_GATE = 0.3;
+    /** 动态合成规范的固定置信度（无页面证据支撑，人为压低，见 DynamicSpecSynthesizer）。 */
+    private static final double SYNTHESIZED_CONFIDENCE = 0.35;
     /** 每个 profile 中自产反哺指纹在 APPROVED 池的占比上限（多样性防同质化，见 2.5 / 评审 #7）。 */
     private static final double MAX_SELF_FED_RATIO = 0.3;
     /** 指纹默认优先级（低于人工静态规范基线 50）。 */
@@ -57,6 +64,25 @@ public class DesignFingerprintServiceImpl
         if (dto == null) {
             return null;
         }
+        // 置信度（自产反哺来源可信度低）
+        double confidence = fingerprintParser.computeConfidence(dto, !selfGenerated);
+        String sourceType = selfGenerated ? SOURCE_SELF_FED : SOURCE_CURATED;
+        return doSaveCandidate(dto, sourceType, confidence);
+    }
+
+    @Override
+    public DesignFingerprint saveSynthesizedCandidate(DesignFingerprintDTO dto) {
+        // 动态合成规范：confidence 人为压低（无页面证据支撑），其余防线与提炼指纹一致
+        return doSaveCandidate(dto, SOURCE_DYNAMIC_SYNTHESIS, SYNTHESIZED_CONFIDENCE);
+    }
+
+    /**
+     * 候选入库公共防线：schema 校验 → signature 去重 → CANDIDATE 落库。
+     */
+    private DesignFingerprint doSaveCandidate(DesignFingerprintDTO dto, String sourceType, double confidence) {
+        if (dto == null) {
+            return null;
+        }
         // 版本路由：无法识别的高版本跳过，不报错（呼应 2.2.1）
         if (!fingerprintParser.isSupportedVersion(dto)) {
             log.warn("指纹 schema 版本不支持，跳过入库 version={}", dto.getSchemaVersion());
@@ -68,8 +94,6 @@ public class DesignFingerprintServiceImpl
             log.warn("指纹 schema 校验不通过，拒绝入库 errors={}", validation.getErrors());
             return null;
         }
-        // 置信度（自产反哺来源可信度低）
-        double confidence = fingerprintParser.computeConfidence(dto, !selfGenerated);
         String signature = fingerprintParser.signature(dto);
 
         // 去重：相同签名且未被拒绝/归档的视为重复
@@ -78,7 +102,6 @@ public class DesignFingerprintServiceImpl
             return null;
         }
 
-        String sourceType = selfGenerated ? SOURCE_SELF_FED : SOURCE_CURATED;
         LocalDateTime now = LocalDateTime.now();
         DesignFingerprint entity = DesignFingerprint.builder()
                 .styleProfile(dto.getStyleProfile())
@@ -96,8 +119,8 @@ public class DesignFingerprintServiceImpl
                 .isDelete(0)
                 .build();
         this.save(entity);
-        log.info("指纹入库为候选 id={} profile={} confidence={} selfGenerated={}",
-                entity.getId(), entity.getStyleProfile(), confidence, selfGenerated);
+        log.info("指纹入库为候选 id={} profile={} confidence={} sourceType={}",
+                entity.getId(), entity.getStyleProfile(), confidence, sourceType);
         return entity;
     }
 
@@ -107,8 +130,13 @@ public class DesignFingerprintServiceImpl
         if (fp == null) {
             return false;
         }
-        if (fp.getConfidence() != null && fp.getConfidence() < CONFIDENCE_GATE) {
-            log.warn("指纹置信度低于门槛，拒绝晋升 APPROVED id={} confidence={}", id, fp.getConfidence());
+        // 覆盖度优化（阶段二）：动态合成规范 confidence 人为压低（0.35），沿用 0.7 门槛将永远无法晋升，
+        // 对 DYNAMIC_SYNTHESIS 单独放宽门槛——质量由人工审核把关
+        double confidenceGate = SOURCE_DYNAMIC_SYNTHESIS.equals(fp.getSourceType())
+                ? SYNTH_CONFIDENCE_GATE : CONFIDENCE_GATE;
+        if (fp.getConfidence() != null && fp.getConfidence() < confidenceGate) {
+            log.warn("指纹置信度低于门槛，拒绝晋升 APPROVED id={} confidence={} gate={}",
+                    id, fp.getConfidence(), confidenceGate);
             return false;
         }
         // 自产反哺配额校验：晋升后自产占比不得超过上限
