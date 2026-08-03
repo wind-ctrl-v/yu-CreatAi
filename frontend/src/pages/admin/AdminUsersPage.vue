@@ -1,31 +1,45 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, h } from 'vue'
-import { message, Modal } from 'ant-design-vue'
-import { PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons-vue'
+import { onMounted, reactive, ref } from 'vue'
 import {
-  adminListUserByPage,
   adminAddUser,
-  adminUpdateUser,
   adminDeleteUser,
+  adminListUserByPage,
+  adminUpdateUser,
 } from '../../api/admin'
-import type { UserVO, UserQueryRequest, UserAddRequest, UserUpdateRequest } from '../../types'
+import CAvatar from '../../components/ui/CAvatar.vue'
+import CButton from '../../components/ui/CButton.vue'
+import CField from '../../components/ui/CField.vue'
+import CInput from '../../components/ui/CInput.vue'
+import CModal from '../../components/ui/CModal.vue'
+import CPagination from '../../components/ui/CPagination.vue'
+import CSelect from '../../components/ui/CSelect.vue'
+import CTable, { type TableColumn } from '../../components/ui/CTable.vue'
+import CTag from '../../components/ui/CTag.vue'
+import CTextarea from '../../components/ui/CTextarea.vue'
+import { confirm } from '../../components/ui/confirm'
+import { message } from '../../components/ui/toast'
+import type {
+  UserAddRequest,
+  UserQueryRequest,
+  UserUpdateRequest,
+  UserVO,
+} from '../../types'
 
-// ======== 列表状态 ========
+/* ── 列表状态 ── */
 const loading = ref(false)
 const tableData = ref<UserVO[]>([])
 const total = ref(0)
 const current = ref(1)
 const pageSize = ref(10)
 
-// ======== 搜索条件 ========
 const searchForm = reactive<UserQueryRequest>({
   userAccount: '',
   userName: '',
-  userRole: undefined,
+  userRole: '',
 })
 
-// ======== 对话框状态 ========
-const dialogVisible = ref(false)
+/* ── 弹窗状态 ── */
+const dialogOpen = ref(false)
 const dialogMode = ref<'add' | 'edit'>('add')
 const formLoading = ref(false)
 const formData = reactive<UserAddRequest & { id?: string }>({
@@ -37,24 +51,57 @@ const formData = reactive<UserAddRequest & { id?: string }>({
   planType: 'FREE',
 })
 
-// ======== 表格列定义 ========
-const columns = [
-  { title: 'ID', dataIndex: 'id', width: 80, ellipsis: true },
-  { title: '账号', dataIndex: 'userAccount', width: 120 },
-  { title: '昵称', dataIndex: 'userName', width: 120 },
-  { title: '角色', dataIndex: 'userRole', width: 90 },
-  { title: '套餐', dataIndex: 'planType', width: 100 },
-  { title: '简介', dataIndex: 'userProfile', ellipsis: true },
-  { title: '注册时间', dataIndex: 'createTime', width: 170 },
-  { title: '操作', key: 'action', width: 120, fixed: 'right' },
+const roleOptions = [
+  { value: '', label: '全部角色' },
+  { value: 'user', label: '普通用户' },
+  { value: 'admin', label: '管理员' },
 ]
 
-// ======== 数据加载 ========
+const roleFormOptions = [
+  { value: 'user', label: '普通用户' },
+  { value: 'admin', label: '管理员' },
+]
+
+const planOptions = [
+  { value: 'FREE', label: '免费用户' },
+  { value: 'PRO', label: '普通会员' },
+  { value: 'PREMIUM', label: '高级会员' },
+  { value: 'ENTERPRISE', label: '企业版' },
+  { value: 'ADMIN', label: '管理员' },
+]
+
+const columns: TableColumn[] = [
+  { key: 'userAccount', title: '账号', minWidth: '180px' },
+  { key: 'userName', title: '昵称', width: '130px', ellipsis: true },
+  { key: 'userRole', title: '角色', width: '110px' },
+  { key: 'planType', title: '套餐', width: '110px' },
+  { key: 'userProfile', title: '简介', minWidth: '180px', ellipsis: true },
+  { key: 'createTime', title: '注册时间', width: '170px' },
+  { key: 'action', title: '操作', width: '150px', align: 'right' },
+]
+
+const PLAN_LABELS: Record<string, string> = {
+  FREE: '免费',
+  PRO: '会员',
+  PREMIUM: '高级',
+  ENTERPRISE: '企业',
+  ADMIN: '管理员',
+}
+
+const PLAN_TONES: Record<string, 'neutral' | 'info' | 'violet' | 'warning' | 'spark'> = {
+  FREE: 'neutral',
+  PRO: 'info',
+  PREMIUM: 'violet',
+  ENTERPRISE: 'warning',
+  ADMIN: 'spark',
+}
+
 async function loadData() {
   loading.value = true
   try {
     const res = await adminListUserByPage({
       ...searchForm,
+      userRole: searchForm.userRole || undefined,
       pageNum: current.value,
       pageSize: pageSize.value,
     })
@@ -67,46 +114,51 @@ async function loadData() {
   }
 }
 
-onMounted(loadData)
-
 function handleSearch() {
   current.value = 1
   loadData()
 }
 
-function handleTableChange(pagination: any) {
-  current.value = pagination.current
-  pageSize.value = pagination.pageSize
+function goPage(page: number) {
+  current.value = page
   loadData()
 }
 
-// ======== 新增 ========
+function resetSearch() {
+  searchForm.userAccount = ''
+  searchForm.userName = ''
+  searchForm.userRole = undefined
+  handleSearch()
+}
+
 function openAddDialog() {
   dialogMode.value = 'add'
-  formData.id = undefined
-  formData.userAccount = ''
-  formData.userName = ''
-  formData.userAvatar = ''
-  formData.userProfile = ''
-  formData.userRole = 'user'
-  formData.planType = 'FREE'
-  dialogVisible.value = true
+  Object.assign(formData, {
+    id: undefined,
+    userAccount: '',
+    userName: '',
+    userAvatar: '',
+    userProfile: '',
+    userRole: 'user',
+    planType: 'FREE',
+  })
+  dialogOpen.value = true
 }
 
-// ======== 编辑 ========
 function openEditDialog(row: UserVO) {
   dialogMode.value = 'edit'
-  formData.id = row.id
-  formData.userAccount = row.userAccount
-  formData.userName = row.userName || ''
-  formData.userAvatar = row.userAvatar || ''
-  formData.userProfile = row.userProfile || ''
-  formData.userRole = row.userRole
-  formData.planType = row.planType || 'FREE'
-  dialogVisible.value = true
+  Object.assign(formData, {
+    id: row.id,
+    userAccount: row.userAccount,
+    userName: row.userName || '',
+    userAvatar: row.userAvatar || '',
+    userProfile: row.userProfile || '',
+    userRole: row.userRole,
+    planType: row.planType || 'FREE',
+  })
+  dialogOpen.value = true
 }
 
-// ======== 保存 ========
 async function handleSave() {
   if (!formData.userAccount && dialogMode.value === 'add') {
     message.warning('账号不能为空')
@@ -114,29 +166,27 @@ async function handleSave() {
   }
   formLoading.value = true
   try {
-    let res
-    if (dialogMode.value === 'add') {
-      res = await adminAddUser({
-        userAccount: formData.userAccount,
-        userName:    formData.userName,
-        userAvatar:  formData.userAvatar,
-        userProfile: formData.userProfile,
-        userRole:    formData.userRole,
-        planType:    formData.planType,
-      } as UserAddRequest)
-    } else {
-      res = await adminUpdateUser({
-        id:          formData.id!,
-        userName:    formData.userName,
-        userAvatar:  formData.userAvatar,
-        userProfile: formData.userProfile,
-        userRole:    formData.userRole,
-        planType:    formData.planType,
-      } as UserUpdateRequest)
-    }
+    const res =
+      dialogMode.value === 'add'
+        ? await adminAddUser({
+            userAccount: formData.userAccount,
+            userName: formData.userName,
+            userAvatar: formData.userAvatar,
+            userProfile: formData.userProfile,
+            userRole: formData.userRole,
+            planType: formData.planType,
+          } as UserAddRequest)
+        : await adminUpdateUser({
+            id: formData.id!,
+            userName: formData.userName,
+            userAvatar: formData.userAvatar,
+            userProfile: formData.userProfile,
+            userRole: formData.userRole,
+            planType: formData.planType,
+          } as UserUpdateRequest)
     if (res?.code === 0) {
       message.success(dialogMode.value === 'add' ? '新增成功' : '更新成功')
-      dialogVisible.value = false
+      dialogOpen.value = false
       loadData()
     }
   } finally {
@@ -144,202 +194,238 @@ async function handleSave() {
   }
 }
 
-// ======== 删除 ========
-function handleDelete(row: UserVO) {
-  Modal.confirm({
-    title: `确认删除用户「${row.userAccount}」？`,
-    content: '删除后不可恢复，请谨慎操作。',
-    okType: 'danger',
-    okText: '删除',
-    cancelText: '取消',
-    onOk: async () => {
-      const res = await adminDeleteUser({ id: row.id })
-      if (res?.code === 0) {
-        message.success('删除成功')
-        loadData()
-      }
-    },
+async function handleDelete(row: UserVO) {
+  const ok = await confirm({
+    title: `删除用户「${row.userAccount}」`,
+    content: '删除后不可恢复，该用户的数据将无法访问。',
+    okText: '确认删除',
+    danger: true,
+    icon: 'trash',
   })
+  if (!ok) return
+  const res = await adminDeleteUser({ id: row.id }).catch(() => null)
+  if (res?.code === 0) {
+    message.success('删除成功')
+    loadData()
+  }
 }
 
-function roleColor(role: string) {
-  return role === 'admin' ? 'red' : 'blue'
-}
-function roleLabel(role: string) {
-  return role === 'admin' ? '管理员' : '普通用户'
-}
-const planLabels: Record<string, string> = {
-  FREE: '免费', PRO: '会员', PREMIUM: '高级', ENTERPRISE: '企业', ADMIN: '管理员',
-}
-const planColors: Record<string, string> = {
-  FREE: 'default', PRO: 'blue', PREMIUM: 'purple', ENTERPRISE: 'orange', ADMIN: 'red',
-}
+onMounted(loadData)
 </script>
 
 <template>
-  <div class="user-manage">
-    <!-- 搜索栏 -->
-    <div class="toolbar">
-      <div class="search-group">
-        <a-input
-          v-model:value="searchForm.userAccount"
-          placeholder="搜索账号"
-          allow-clear
-          style="width: 160px;"
-          @press-enter="handleSearch"
-        />
-        <a-input
-          v-model:value="searchForm.userName"
-          placeholder="搜索昵称"
-          allow-clear
-          style="width: 160px;"
-          @press-enter="handleSearch"
-        />
-        <a-select
-          v-model:value="searchForm.userRole"
-          placeholder="角色筛选"
-          allow-clear
-          style="width: 120px;"
-        >
-          <a-select-option value="user">普通用户</a-select-option>
-          <a-select-option value="admin">管理员</a-select-option>
-        </a-select>
-        <a-button type="primary" :icon="h(SearchOutlined)" @click="handleSearch">搜索</a-button>
+  <div class="admin-page">
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Users</p>
+        <h1 class="page-title">用户管理</h1>
+        <p class="page-subtitle">共 {{ total }} 位注册用户。</p>
       </div>
-      <a-button type="primary" danger :icon="h(PlusOutlined)" @click="openAddDialog">新增用户</a-button>
+      <CButton variant="primary" icon="plus" @click="openAddDialog">新增用户</CButton>
+    </header>
+
+    <!-- 筛选 -->
+    <div class="filters">
+      <CInput
+        v-model="searchForm.userAccount"
+        size="sm"
+        icon="search"
+        placeholder="搜索账号"
+        clearable
+        @enter="handleSearch"
+      />
+      <CInput
+        v-model="searchForm.userName"
+        size="sm"
+        icon="user"
+        placeholder="搜索昵称"
+        clearable
+        @enter="handleSearch"
+      />
+      <CSelect
+        v-model="searchForm.userRole"
+        size="sm"
+        :options="roleOptions"
+        placeholder="角色筛选"
+        width="130px"
+        @change="handleSearch"
+      />
+      <CButton variant="primary" size="sm" icon="search" @click="handleSearch">搜索</CButton>
+      <CButton variant="ghost" size="sm" icon="refresh" @click="resetSearch">重置</CButton>
     </div>
 
     <!-- 表格 -->
-    <div class="table-wrap">
-      <a-table
-        :columns="columns"
-        :data-source="tableData"
-        :loading="loading"
-        row-key="id"
-        :scroll="{ x: 800 }"
-        :pagination="{
-          current,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          showTotal: (t: number) => `共 ${t} 条`,
-        }"
-        @change="handleTableChange"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.dataIndex === 'userAccount'">
-            <div class="cell-user">
-              <a-avatar :src="record.userAvatar" :size="24">
-                <template #icon><UserOutlined /></template>
-              </a-avatar>
-              <span>{{ record.userAccount }}</span>
-            </div>
-          </template>
+    <CTable
+      :columns="columns"
+      :data="tableData"
+      :loading="loading"
+      row-key="id"
+      min-width="1020px"
+      empty-text="没有符合条件的用户"
+    >
+      <template #cell:userAccount="{ record }">
+        <div class="cell-user">
+          <CAvatar :src="record.userAvatar" :name="record.userName || record.userAccount" :size="26" />
+          <div class="cell-user__body">
+            <span class="cell-user__account">{{ record.userAccount }}</span>
+            <span class="cell-user__id mono">#{{ record.id }}</span>
+          </div>
+        </div>
+      </template>
 
-          <template v-else-if="column.dataIndex === 'userRole'">
-            <a-tag :color="roleColor(record.userRole)" style="border-radius:4px;">
-              {{ roleLabel(record.userRole) }}
-            </a-tag>
-          </template>
+      <template #cell:userRole="{ record }">
+        <CTag :tone="record.userRole === 'admin' ? 'spark' : 'neutral'" dot>
+          {{ record.userRole === 'admin' ? '管理员' : '普通用户' }}
+        </CTag>
+      </template>
 
-          <template v-else-if="column.dataIndex === 'planType'">
-            <a-tag v-if="record.planType" :color="planColors[record.planType] || 'default'" style="border-radius:4px;">
-              {{ planLabels[record.planType] || record.planType }}
-            </a-tag>
-          </template>
+      <template #cell:planType="{ record }">
+        <CTag v-if="record.planType" :tone="PLAN_TONES[record.planType] || 'neutral'">
+          {{ PLAN_LABELS[record.planType] || record.planType }}
+        </CTag>
+        <span v-else class="text-muted">—</span>
+      </template>
 
-          <template v-else-if="column.key === 'action'">
-            <a-space>
-              <a-button type="text" size="small" :icon="h(EditOutlined)" @click="openEditDialog(record)">
-                编辑
-              </a-button>
-              <a-button type="text" size="small" danger :icon="h(DeleteOutlined)" @click="handleDelete(record)">
-                删除
-              </a-button>
-            </a-space>
-          </template>
-        </template>
-      </a-table>
-    </div>
+      <template #cell:createTime="{ record }">
+        <span class="text-muted">{{ record.createTime || '—' }}</span>
+      </template>
 
-    <!-- 新增/编辑对话框 -->
-    <a-modal
-      v-model:open="dialogVisible"
+      <template #cell:action="{ record }">
+        <div class="cell-acts">
+          <CButton variant="ghost" size="xs" icon="pencil" @click="openEditDialog(record)">
+            编辑
+          </CButton>
+          <CButton variant="ghost" size="xs" icon="trash" danger @click="handleDelete(record)">
+            删除
+          </CButton>
+        </div>
+      </template>
+    </CTable>
+
+    <CPagination
+      v-if="total > 0"
+      :current="current"
+      :page-size="pageSize"
+      :total="total"
+      @change="goPage"
+    />
+
+    <!-- 新增 / 编辑 -->
+    <CModal
+      v-model:open="dialogOpen"
       :title="dialogMode === 'add' ? '新增用户' : '编辑用户'"
-      :confirm-loading="formLoading"
+      :icon="dialogMode === 'add' ? 'plus' : 'pencil'"
       ok-text="保存"
-      cancel-text="取消"
+      :ok-loading="formLoading"
+      width="520px"
       @ok="handleSave"
     >
-      <a-form layout="vertical" style="margin-top: 8px;">
-        <a-form-item label="账号" required>
-          <a-input
-            v-model:value="formData.userAccount"
+      <div class="form">
+        <CField label="账号" required input-id="u-account">
+          <CInput
+            id="u-account"
+            v-model="formData.userAccount"
             :disabled="dialogMode === 'edit'"
             placeholder="请输入账号"
           />
-        </a-form-item>
-        <a-form-item label="昵称">
-          <a-input v-model:value="formData.userName" placeholder="请输入昵称" />
-        </a-form-item>
-        <a-form-item label="头像 URL">
-          <a-input v-model:value="formData.userAvatar" placeholder="请输入头像 URL" />
-        </a-form-item>
-        <a-form-item label="简介">
-          <a-textarea v-model:value="formData.userProfile" placeholder="请输入简介" :rows="3" />
-        </a-form-item>
-        <a-form-item label="角色">
-          <a-select v-model:value="formData.userRole">
-            <a-select-option value="user">普通用户</a-select-option>
-            <a-select-option value="admin">管理员</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="套餐">
-          <a-select v-model:value="formData.planType">
-            <a-select-option value="FREE">免费用户</a-select-option>
-            <a-select-option value="PRO">普通会员</a-select-option>
-            <a-select-option value="PREMIUM">高级会员</a-select-option>
-            <a-select-option value="ENTERPRISE">企业版</a-select-option>
-            <a-select-option value="ADMIN">管理员</a-select-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
+        </CField>
+
+        <div class="form__row">
+          <CField label="昵称" input-id="u-name">
+            <CInput id="u-name" v-model="formData.userName" placeholder="请输入昵称" />
+          </CField>
+          <CField label="角色" input-id="u-role">
+            <CSelect id="u-role" v-model="formData.userRole" :options="roleFormOptions" />
+          </CField>
+        </div>
+
+        <div class="form__row">
+          <CField label="套餐" input-id="u-plan">
+            <CSelect id="u-plan" v-model="formData.planType" :options="planOptions" />
+          </CField>
+          <CField label="头像 URL" input-id="u-avatar">
+            <CInput id="u-avatar" v-model="formData.userAvatar" placeholder="https://" />
+          </CField>
+        </div>
+
+        <CField label="简介" input-id="u-profile">
+          <CTextarea
+            id="u-profile"
+            v-model="formData.userProfile"
+            :rows="3"
+            :maxlength="200"
+            placeholder="请输入简介"
+          />
+        </CField>
+      </div>
+    </CModal>
   </div>
 </template>
 
 <style scoped>
-.user-manage { display: flex; flex-direction: column; gap: 16px; }
-
-.toolbar {
-  background: var(--geist-white);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-border);
-  padding: 16px 20px;
+.admin-page {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--sp-4);
 }
 
-.search-group {
+.filters {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
 }
 
-.table-wrap {
-  background: var(--geist-white);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-border);
-  overflow: hidden;
-}
+.filters :deep(.c-input) { width: 170px; }
 
 .cell-user {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+}
+
+.cell-user__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cell-user__account {
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+.cell-user__id {
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+
+.cell-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-bottom: 4px;
+}
+
+.form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+
+@media (max-width: 620px) {
+  .form__row { grid-template-columns: 1fr; }
+  .filters :deep(.c-input) { width: 100%; }
 }
 </style>

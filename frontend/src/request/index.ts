@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosResponse } from 'axios'
-import { message as antMessage } from 'ant-design-vue'
+import { message } from '../components/ui/toast'
 
 /** 后端基址（开发期经 Vite 代理到 8123） */
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api'
@@ -35,14 +35,14 @@ request.interceptors.response.use(
         }
         return Promise.reject(new Error(res.message || '未登录'))
       }
-      antMessage.error(res.message || '请求失败')
+      message.error(res.message || '请求失败')
       return Promise.reject(new Error(res.message || '请求失败'))
     }
     return res
   },
   (error) => {
     console.error('请求异常：', error)
-    antMessage.error(error?.message || '网络异常，请稍后重试')
+    message.error(error?.message || '网络异常，请稍后重试')
     return Promise.reject(error)
   },
 )

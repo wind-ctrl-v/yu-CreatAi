@@ -1,112 +1,383 @@
 /* ============================================================
-   CreatAi × Vercel — 工程纯白设计系统
-   K24 Vercel + D01 宏观留白 + B09 发光按钮 + E05 弹性反馈
+   CreatAi Design System — "Soft Craft" Light
+   参考 lovable.dev 的空间感与排版节奏，去除大面积渐变，
+   以中性色阶 + 1px 描边 + 柔和阴影 + 大圆角构建质感。
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&display=swap');
 
 :root {
-  /* ── Core Palette (Vercel achromatic system) ── */
-  --geist-black:   #171717;
-  --geist-white:   #ffffff;
-  --gray-900:      #171717;
-  --gray-600:      #4d4d4d;
-  --gray-500:      #666666;
-  --gray-400:      #808080;
-  --gray-100:      #ebebeb;
-  --gray-50:       #fafafa;
+  /* ── 中性色阶（唯一主色系，暖调灰） ── */
+  --n-0:    #ffffff;
+  --n-25:   #fcfcfb;
+  --n-50:   #f8f8f7;
+  --n-100:  #f2f2f0;
+  --n-150:  #eaeae7;
+  --n-200:  #e0e0dc;
+  --n-300:  #cfcfc9;
+  --n-400:  #a6a6a0;
+  --n-500:  #82827c;
+  --n-600:  #5f5f5a;
+  --n-800:  #2a2a27;
+  --n-900:  #1a1a18;
+  --n-950:  #0f0f0e;
 
-  /* Accent — Vercel Develop Blue (唯一彩色) */
-  --accent:        #0a72ef;
-  --accent-subtle: rgba(10, 114, 239, 0.08);
-  --accent-ring:   rgba(10, 114, 239, 0.24);
+  /* ── 强调色：近黑（按钮/焦点主体） ── */
+  --accent:          var(--n-900);
+  --accent-hover:    var(--n-800);
+  --accent-active:   var(--n-950);
+  --accent-fg:       #ffffff;
+  --accent-ring:     rgba(26, 26, 24, 0.12);
 
-  /* ── Semantic Aliases ── */
-  --bg-page:       #fafafa;
-  --bg-sidebar:    #ffffff;
-  --bg-card:       #ffffff;
-  --text-primary:  var(--gray-900);
-  --text-secondary:var(--gray-600);
-  --text-muted:    var(--gray-400);
-  --border-subtle: var(--gray-100);
+  /* ── 小面积点缀色（仅用于状态、标签、图标） ── */
+  --spark:         #e0603c;
+  --spark-soft:    rgba(224, 96, 60, 0.10);
+  --spark-border:  rgba(224, 96, 60, 0.22);
+  --info:          #3b6fd4;
+  --info-soft:     rgba(59, 111, 212, 0.09);
+  --info-border:   rgba(59, 111, 212, 0.20);
+  --success:       #2f8560;
+  --success-soft:  rgba(47, 133, 96, 0.10);
+  --success-border:rgba(47, 133, 96, 0.20);
+  --warning:       #b07a1e;
+  --warning-soft:  rgba(176, 122, 30, 0.10);
+  --warning-border:rgba(176, 122, 30, 0.20);
+  --danger:        #c0402f;
+  --danger-soft:   rgba(192, 64, 47, 0.09);
+  --danger-border: rgba(192, 64, 47, 0.20);
+  --violet:        #6d55c9;
+  --violet-soft:   rgba(109, 85, 201, 0.09);
+  --violet-border: rgba(109, 85, 201, 0.20);
 
-  /* ── Shadow-as-Border (Vercel核心哲学) ── */
-  --shadow-border: rgba(0,0,0,0.08) 0px 0px 0px 1px;
-  --shadow-ring:   rgb(235,235,235) 0px 0px 0px 1px;
-  --shadow-card:
-    rgba(0,0,0,0.08) 0px 0px 0px 1px,
-    rgba(0,0,0,0.04) 0px 2px 2px,
-    rgba(0,0,0,0.04) 0px 8px 8px -8px,
-    #fafafa 0px 0px 0px 1px;
-  --shadow-card-hover:
-    rgba(0,0,0,0.12) 0px 0px 0px 1px,
-    rgba(0,0,0,0.06) 0px 4px 8px,
-    rgba(0,0,0,0.06) 0px 16px 24px -8px,
-    #fafafa 0px 0px 0px 1px;
+  /* ── 语义别名 ── */
+  --bg-page:       var(--n-50);
+  --bg-surface:    var(--n-0);
+  --bg-hover:      var(--n-100);
+  --bg-active:     var(--n-150);
+  --bg-sidebar:    var(--n-25);
+  --bg-card:       var(--n-0);
+  --bg-overlay:    rgba(26, 26, 24, 0.32);
 
-  /* ── Typography ── */
-  --tracking-display: -2.4px;
-  --tracking-heading: -1.28px;
-  --tracking-sub:     -0.96px;
-  --tracking-label:   -0.32px;
+  --text-strong:   var(--n-950);
+  --text-primary:  var(--n-900);
+  --text-secondary:var(--n-600);
+  --text-muted:    var(--n-500);
+  --text-faint:    var(--n-400);
 
-  /* ── Radius Scale ── */
-  --r-micro:  2px;
-  --r-subtle: 4px;
-  --r-base:   6px;
-  --r-card:   8px;
-  --r-image:  12px;
-  --r-lg:     16px;
-  --r-pill:   9999px;
+  --border:        var(--n-200);
+  --border-subtle: var(--n-150);
+  --border-strong: var(--n-300);
 
-  /* 兼容别名（特定场景使用） */
-  --radius-lg: var(--r-lg);
-  --shadow-md: var(--shadow-card);
+  /* ── 阴影：柔和、多层、低透明度 ── */
+  --shadow-xs:  0 1px 2px rgba(26, 26, 24, 0.05);
+  --shadow-sm:  0 1px 2px rgba(26, 26, 24, 0.05), 0 2px 6px -2px rgba(26, 26, 24, 0.06);
+  --shadow-md:  0 2px 4px rgba(26, 26, 24, 0.04), 0 8px 20px -6px rgba(26, 26, 24, 0.10);
+  --shadow-lg:  0 4px 8px rgba(26, 26, 24, 0.04), 0 18px 40px -12px rgba(26, 26, 24, 0.14);
+  --shadow-xl:  0 8px 16px rgba(26, 26, 24, 0.05), 0 32px 64px -16px rgba(26, 26, 24, 0.18);
 
-  /* ── Motion (E05 超弹力果冻) ── */
-  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --smooth: cubic-bezier(0.16, 1, 0.30, 1);
-  --duration-fast: 0.18s;
-  --duration-base: 0.24s;
+  /* ── 圆角：Lovable 式偏大 ── */
+  --r-xs:   6px;
+  --r-sm:   8px;
+  --r-md:   10px;
+  --r-lg:   14px;
+  --r-xl:   18px;
+  --r-2xl:  24px;
+  --r-pill: 9999px;
 
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-feature-settings: 'liga' 1, 'kern' 1;
+  /* ── 间距节奏 ── */
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+  --sp-20: 80px;
+  --sp-24: 96px;
+
+  /* ── 排版 ── */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  --fs-display: clamp(40px, 6.2vw, 68px);
+  --fs-h1: clamp(30px, 3.4vw, 40px);
+  --fs-h2: 26px;
+  --fs-h3: 20px;
+  --fs-lg: 17px;
+  --fs-base: 15px;
+  --fs-sm: 13.5px;
+  --fs-xs: 12.5px;
+  --fs-2xs: 11.5px;
+
+  --lh-tight: 1.08;
+  --lh-snug: 1.3;
+  --lh-base: 1.6;
+
+  --tracking-display: -0.03em;
+  --tracking-heading: -0.022em;
+  --tracking-tight: -0.012em;
+  --tracking-wide: 0.06em;
+
+  /* ── 动效 ── */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --t-fast: 0.14s;
+  --t-base: 0.22s;
+  --t-slow: 0.36s;
+
+  /* ── 布局尺度 ── */
+  --container: 1200px;
+  --container-wide: 1440px;
+  --header-h: 60px;
+  --z-sticky: 100;
+  --z-dropdown: 900;
+  --z-modal: 1000;
+  --z-message: 1100;
+
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
   color: var(--text-primary);
+  font-feature-settings: 'liga' 1, 'kern' 1, 'cv11' 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-* { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
-html, body, #app {
+html,
+body,
+#app {
   margin: 0;
   padding: 0;
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
   background-color: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  overflow-wrap: break-word;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-strong);
+  letter-spacing: var(--tracking-heading);
+  line-height: var(--lh-snug);
+}
+
+p { margin: 0; }
+
+ul, ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 a {
-  color: var(--accent);
+  color: var(--text-primary);
   text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  transition: color var(--t-fast) var(--ease-out);
 }
 
-/* ── 滚动条 (极细，Vercel 风) ── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-thumb {
-  background: var(--gray-100);
-  border-radius: 2px;
+a:hover { color: var(--text-strong); }
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--gray-400); }
+
+img,
+svg,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+code, pre, kbd {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: var(--sp-6) 0;
+}
+
+/* ── 焦点可见性（无障碍） ── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ── 滚动条 ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--n-300) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* ── 全局选中色 ── */
+::-webkit-scrollbar-thumb {
+  background: var(--n-300);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--n-400);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner { background: transparent; }
+
 ::selection {
-  background: rgba(10,114,239,0.15);
-  color: var(--geist-black);
+  background: var(--n-900);
+  color: var(--n-0);
+}
+
+/* ============================================================
+   工具类
+   ============================================================ */
+.container {
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 var(--sp-6);
+}
+
+/* 极细网格底纹：替代大面积渐变，提供空间感 */
+.surface-grid {
+  background-image:
+    linear-gradient(to right, var(--border-subtle) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border-subtle) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* 点阵底纹 */
+.surface-dots {
+  background-image: radial-gradient(var(--n-200) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
+.mono { font-family: var(--font-mono); }
+
+.eyebrow {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── 通用页面头部 ── */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-6);
+}
+
+.page-title {
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  letter-spacing: var(--tracking-heading);
+  color: var(--text-strong);
+}
+
+.page-subtitle {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+/* ── 通用卡片 ── */
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ── 动画 ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--n-100) 25%, var(--n-150) 37%, var(--n-100) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--r-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .container { padding: 0 var(--sp-4); }
+  .page-head { align-items: flex-start; }
 }

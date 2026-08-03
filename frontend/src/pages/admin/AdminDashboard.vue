@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  UserOutlined,
-  AppstoreOutlined,
-  MessageOutlined,
-  RiseOutlined,
-  SafetyOutlined,
-} from '@ant-design/icons-vue'
-import { adminListUserByPage, adminListAppByPage, adminListChatHistory, adminListFingerprintByPage } from '../../api/admin'
+  adminListAppByPage,
+  adminListChatHistory,
+  adminListFingerprintByPage,
+  adminListUserByPage,
+} from '../../api/admin'
+import CIcon from '../../components/ui/CIcon.vue'
 
 const router = useRouter()
 
@@ -20,6 +19,64 @@ const stats = ref({
 })
 const loading = ref(true)
 
+const cards = [
+  {
+    key: 'users',
+    label: '注册用户',
+    icon: 'users',
+    path: '/admin/users',
+    getValue: () => stats.value.totalUsers,
+  },
+  {
+    key: 'apps',
+    label: '创建应用',
+    icon: 'grid',
+    path: '/admin/apps',
+    getValue: () => stats.value.totalApps,
+  },
+  {
+    key: 'chats',
+    label: '对话次数',
+    icon: 'message-square',
+    path: '/admin/chats',
+    getValue: () => stats.value.totalChats,
+  },
+  {
+    key: 'fingerprints',
+    label: '设计指纹',
+    icon: 'fingerprint',
+    path: '/admin/fingerprints',
+    getValue: () => stats.value.totalFingerprints,
+  },
+]
+
+const quickLinks = [
+  {
+    icon: 'users',
+    label: '用户管理',
+    desc: '查看、编辑用户信息及权限',
+    path: '/admin/users',
+  },
+  {
+    icon: 'grid',
+    label: '应用管理',
+    desc: '管理所有应用，支持删除与更新',
+    path: '/admin/apps',
+  },
+  {
+    icon: 'message-square',
+    label: '对话历史',
+    desc: '查看全平台用户的对话记录',
+    path: '/admin/chats',
+  },
+  {
+    icon: 'fingerprint',
+    label: '设计指纹',
+    desc: '审核 AI 提取的设计指纹，纳入知识库',
+    path: '/admin/fingerprints',
+  },
+]
+
 onMounted(async () => {
   try {
     const [usersRes, appsRes, chatsRes, fingerprintsRes] = await Promise.all([
@@ -29,250 +86,222 @@ onMounted(async () => {
       adminListFingerprintByPage({ pageNum: 1, pageSize: 1 }).catch(() => ({ code: -1 })),
     ])
     if (usersRes?.code === 0) stats.value.totalUsers = usersRes.data?.totalRow ?? 0
-    if (appsRes?.code === 0)  stats.value.totalApps  = appsRes.data?.totalRow ?? 0
+    if (appsRes?.code === 0) stats.value.totalApps = appsRes.data?.totalRow ?? 0
     if (chatsRes?.code === 0) stats.value.totalChats = chatsRes.data?.totalRow ?? 0
-    if (fingerprintsRes?.code === 0) stats.value.totalFingerprints = (fingerprintsRes as any).data?.totalRow ?? 0
+    if (fingerprintsRes?.code === 0)
+      stats.value.totalFingerprints = (fingerprintsRes as any).data?.totalRow ?? 0
   } finally {
     loading.value = false
   }
 })
-
-const cards = [
-  {
-    key: 'users',
-    label: '注册用户',
-    icon: 'user',
-    color: '#5b6cff',
-    bg: '#f0f1ff',
-    path: '/admin/users',
-    getValue: () => stats.value.totalUsers,
-  },
-  {
-    key: 'apps',
-    label: '创建应用',
-    icon: 'app',
-    color: '#0a72ef',
-    bg: '#f0f6ff',
-    path: '/admin/apps',
-    getValue: () => stats.value.totalApps,
-  },
-  {
-    key: 'chats',
-    label: '对话次数',
-    icon: 'message',
-    color: '#38a169',
-    bg: '#f0fff4',
-    path: '/admin/chats',
-    getValue: () => stats.value.totalChats,
-  },
-  {
-    key: 'fingerprints',
-    label: '设计指纹',
-    icon: 'safety',
-    color: '#e8733a',
-    bg: '#fff8f3',
-    path: '/admin/fingerprints',
-    getValue: () => stats.value.totalFingerprints,
-  },
-]
 </script>
 
 <template>
-  <div class="dashboard">
-    <div class="dashboard-welcome">
-      <h1 class="welcome-title">欢迎回来，管理员</h1>
-      <p class="welcome-sub">以下是平台整体数据概览</p>
-    </div>
+  <div class="dash">
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Overview</p>
+        <h1 class="page-title">平台概览</h1>
+        <p class="page-subtitle">下面是当前平台的整体运行数据。</p>
+      </div>
+    </header>
 
-    <!-- 统计卡片 -->
-    <div class="stat-grid">
-      <div
+    <!-- 统计 -->
+    <div class="stats">
+      <button
         v-for="card in cards"
         :key="card.key"
-        class="stat-card"
+        class="stat"
+        type="button"
         @click="router.push(card.path)"
       >
-        <div class="stat-icon-wrap" :style="{ background: card.bg }">
-          <UserOutlined     v-if="card.icon === 'user'"    :style="{ color: card.color, fontSize: '20px' }" />
-          <AppstoreOutlined v-else-if="card.icon === 'app'" :style="{ color: card.color, fontSize: '20px' }" />
-          <MessageOutlined  v-else-if="card.icon === 'message'" :style="{ color: card.color, fontSize: '20px' }" />
-          <SafetyOutlined   v-else-if="card.icon === 'safety'" :style="{ color: card.color, fontSize: '20px' }" />
-        </div>
-        <div class="stat-content">
-          <div class="stat-label">{{ card.label }}</div>
-          <div class="stat-value">
-            <a-spin v-if="loading" size="small" />
-            <span v-else>{{ card.getValue().toLocaleString() }}</span>
-          </div>
-        </div>
-        <RiseOutlined class="stat-arrow" />
-      </div>
+        <span class="stat__top">
+          <span class="stat__icon"><CIcon :name="card.icon" :size="16" /></span>
+          <span class="stat__label">{{ card.label }}</span>
+          <CIcon name="arrow-right" :size="14" class="stat__go" />
+        </span>
+        <span class="stat__value">
+          <span v-if="loading" class="skeleton stat__skeleton" />
+          <template v-else>{{ card.getValue().toLocaleString() }}</template>
+        </span>
+      </button>
     </div>
 
-    <!-- 快捷操作 -->
-    <div class="quick-section">
-      <h2 class="section-title">快捷管理</h2>
-      <div class="quick-grid">
-        <div class="quick-card" @click="router.push('/admin/users')">
-          <UserOutlined class="quick-icon" />
-          <span class="quick-label">用户管理</span>
-          <span class="quick-desc">查看、编辑用户信息及权限</span>
-        </div>
-        <div class="quick-card" @click="router.push('/admin/apps')">
-          <AppstoreOutlined class="quick-icon" />
-          <span class="quick-label">应用管理</span>
-          <span class="quick-desc">管理所有应用，支持删除、更新</span>
-        </div>
-        <div class="quick-card" @click="router.push('/admin/chats')">
-          <MessageOutlined class="quick-icon" />
-          <span class="quick-label">对话历史</span>
-          <span class="quick-desc">查看全平台用户的对话记录</span>
-        </div>
-        <div class="quick-card" @click="router.push('/admin/fingerprints')">
-          <SafetyOutlined class="quick-icon" />
-          <span class="quick-label">设计指纹</span>
-          <span class="quick-desc">审核 AI 提取的设计指纹，纳入知识库</span>
-        </div>
+    <!-- 快捷入口 -->
+    <section class="quick">
+      <h2 class="quick__title">快捷管理</h2>
+      <div class="quick__grid">
+        <button
+          v-for="q in quickLinks"
+          :key="q.path"
+          class="qcard"
+          type="button"
+          @click="router.push(q.path)"
+        >
+          <span class="qcard__icon"><CIcon :name="q.icon" :size="17" /></span>
+          <span class="qcard__label">{{ q.label }}</span>
+          <span class="qcard__desc">{{ q.desc }}</span>
+          <CIcon name="arrow-right" :size="14" class="qcard__go" />
+        </button>
       </div>
-    </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.dashboard {
-  max-width: 960px;
-}
+.dash { max-width: 1080px; }
 
-.dashboard-welcome {
-  margin-bottom: 28px;
-}
-
-.welcome-title {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--geist-black);
-  margin: 0 0 6px;
-}
-
-.welcome-sub {
-  font-size: 14px;
-  color: var(--gray-500);
-  margin: 0;
-}
-
-/* 统计卡片 */
-.stat-grid {
+/* ── 统计卡 ── */
+.stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 32px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3);
 }
 
-@media (max-width: 1000px) {
-  .stat-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 700px) {
-  .stat-grid { grid-template-columns: 1fr; }
-}
-
-.stat-card {
-  background: var(--geist-white);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-border);
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  cursor: pointer;
-  transition: box-shadow var(--duration-fast) ease, transform var(--duration-fast) ease;
-}
-.stat-card:hover {
-  box-shadow: var(--shadow-card);
-  transform: translateY(-2px);
-}
-
-.stat-icon-wrap {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--r-base);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.stat-content { flex: 1; min-width: 0; }
-
-.stat-label {
-  font-size: 13px;
-  color: var(--gray-500);
-  margin-bottom: 4px;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--geist-black);
-  line-height: 1.2;
-}
-
-.stat-arrow {
-  font-size: 16px;
-  color: var(--gray-300);
-}
-
-/* 快捷操作 */
-.section-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--geist-black);
-  margin: 0 0 14px;
-}
-
-.quick-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-}
-
-@media (max-width: 1000px) {
-  .quick-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 700px) {
-  .quick-grid { grid-template-columns: 1fr; }
-}
-
-.quick-card {
-  background: var(--geist-white);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-border);
-  padding: 20px;
+.stat {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-xs);
   cursor: pointer;
-  transition: box-shadow var(--duration-fast) ease, transform var(--duration-fast) ease;
+  text-align: left;
+  transition: all var(--t-base) var(--ease-out);
 }
-.quick-card:hover {
-  box-shadow: var(--shadow-card);
+
+.stat:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
 
-.quick-icon {
-  font-size: 20px;
-  color: #5b6cff;
-  margin-bottom: 4px;
+.stat__top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
 
-.quick-label {
-  font-size: 14px;
+.stat__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--n-100);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.stat__label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.stat__go {
+  margin-left: auto;
+  color: var(--n-300);
+  transition: color var(--t-fast) var(--ease-out);
+}
+
+.stat:hover .stat__go { color: var(--text-primary); }
+
+.stat__value {
+  font-size: 30px;
   font-weight: 600;
-  color: var(--geist-black);
+  line-height: 1.1;
+  letter-spacing: var(--tracking-heading);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
 }
 
-.quick-desc {
-  font-size: 12px;
-  color: var(--gray-500);
-  line-height: 1.5;
+.stat__skeleton {
+  display: inline-block;
+  width: 64px;
+  height: 26px;
+}
+
+/* ── 快捷入口 ── */
+.quick { margin-top: var(--sp-10); }
+
+.quick__title {
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.quick__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+
+.qcard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 18px 44px 18px 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-xs);
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--t-base) var(--ease-out);
+}
+
+.qcard:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.qcard__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 6px;
+  border-radius: var(--r-sm);
+  background: var(--n-100);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.qcard__label {
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text-strong);
+}
+
+.qcard__desc {
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.qcard__go {
+  position: absolute;
+  top: 20px;
+  right: 18px;
+  color: var(--n-300);
+  transition: color var(--t-fast) var(--ease-out);
+}
+
+.qcard:hover .qcard__go { color: var(--text-primary); }
+
+@media (max-width: 1000px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .stats,
+  .quick__grid { grid-template-columns: 1fr; }
 }
 </style>

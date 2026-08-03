@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
 import {
   buildDownloadUrl,
   buildPreviewUrl,
@@ -10,6 +9,15 @@ import {
 } from '../api/app'
 import { listAppChatHistory } from '../api/chatHistory'
 import { getPlanCapabilities } from '../api/user'
+import CAvatar from '../components/ui/CAvatar.vue'
+import CButton from '../components/ui/CButton.vue'
+import CEmpty from '../components/ui/CEmpty.vue'
+import CIcon from '../components/ui/CIcon.vue'
+import CModal from '../components/ui/CModal.vue'
+import CSelect from '../components/ui/CSelect.vue'
+import CTag from '../components/ui/CTag.vue'
+import CTextarea from '../components/ui/CTextarea.vue'
+import { message } from '../components/ui/toast'
 import { connectChatSSE, connectIncrementalEditSSE } from '../utils/sse'
 import {
   attachElementPicker,
@@ -17,7 +25,7 @@ import {
   type PickedElement,
 } from '../utils/visualEditor'
 import type { AppVO } from '../types'
-import { PLAN_LABELS, type PlanCapabilities } from '../types'
+import { type PlanCapabilities } from '../types'
 import { dislike, recordNegativeEvent } from '../api/preference'
 import DislikeFeedbackModal from '../components/app-chat/DislikeFeedbackModal.vue'
 
@@ -27,21 +35,22 @@ interface ChatMessage {
   content: string
 }
 
-/** 工具调用图标 */
+/** 工具调用中文名 */
 const TOOL_LABELS: Record<string, string> = {
-  readDir: '📂',
-  readFile: '📄',
-  modifyFile: '✏️',
-  writeFile: '📝',
-  deleteFile: '🗑️',
+  readDir: '读取目录',
+  readFile: '读取文件',
+  modifyFile: '修改文件',
+  writeFile: '写入文件',
+  deleteFile: '删除文件',
 }
-const TOOL_DONE_LABELS: Record<string, string> = {
-  readDir: '📂',
-  readFile: '📄',
-  modifyFile: '✅',
-  writeFile: '✅',
-  deleteFile: '🗑️',
+function toolLabel(name: string): string {
+  return TOOL_LABELS[name] || name
 }
+/** 消息内文本行前缀 */
+const P_TEXT = '· '
+const P_RUNNING = '▸ '
+const P_DONE = '✓ '
+const P_WARN = '! '
 
 /** 生成模式 → 中文文案（与模式选择器 options 文案统一） */
 const MODE_LABELS: Record<string, string> = {
@@ -89,15 +98,16 @@ const planCaps = ref<PlanCapabilities | null>(null)
 const genModeOptions = computed(() => {
   const available = planCaps.value?.availableModes || ['low_cost', 'standard', 'high_quality']
   const allModes = [
-    { value: 'low_cost', label: '快速生成', rank: 1 },
-    { value: 'standard', label: '标准生成', rank: 2 },
-    { value: 'high_quality', label: '高质量生成', rank: 3 },
+    { value: 'low_cost', label: '快速生成', icon: 'activity' },
+    { value: 'standard', label: '标准生成', icon: 'layers' },
+    { value: 'high_quality', label: '高质量生成', icon: 'sparkles' },
   ]
-  return allModes.map(m => ({
-    ...m,
+  return allModes.map((m) => ({
+    value: m.value,
+    label: m.label,
+    icon: m.icon,
     disabled: !available.includes(m.value),
-    // 不可用时追加说明
-    label: available.includes(m.value) ? m.label : `${m.label}（需升级套餐）`,
+    desc: available.includes(m.value) ? undefined : '需升级套餐',
   }))
 })
 
@@ -298,17 +308,17 @@ function sendMessage(content: string, displayText?: string) {
       generating.value = false
       // 会话失效：提示并引导重新登录
       if (code === 40100) {
-        messages.value[aiIndex].content = '⚠️ 登录已失效，请重新登录后重试。'
+        messages.value[aiIndex].content = `${P_WARN}登录已失效，请重新登录后重试。`
         message.error('登录已失效，请重新登录')
         return
       }
       // 限流：提醒等待后重试
       if (code === 42900) {
-        messages.value[aiIndex].content = '⚠️ 请求过于频繁，请稍等片刻后重试（每60秒最多5次）。'
+        messages.value[aiIndex].content = `${P_WARN}请求过于频繁，请稍等片刻后重试（每 60 秒最多 5 次）。`
         message.warning('AI 对话请求过于频繁，请稍后再试')
         return
       }
-      messages.value[aiIndex].content = `⚠️ ${errMsg}`
+      messages.value[aiIndex].content = `${P_WARN}${errMsg}`
       message.error(errMsg)
     },
     onReconnecting: (retriesLeft, delayMs) => {
@@ -325,7 +335,7 @@ function sendMessage(content: string, displayText?: string) {
       reconnectHint.value = ''
       generating.value = false
       if (!messages.value[aiIndex].content) {
-        messages.value[aiIndex].content = '⚠️ 生成中断，请重试。'
+        messages.value[aiIndex].content = `${P_WARN}生成中断，请重试。`
       }
     },
     },
@@ -358,26 +368,25 @@ function doIncrementalEdit(instruction: string, userDisplay?: string) {
     instruction,
     {
       onText: (text) => {
-        if (toolLines[toolLines.length - 1]?.startsWith('💬 ')) {
-          toolLines[toolLines.length - 1] = '💬 ' + (toolLines[toolLines.length - 1].slice(3) + text)
+        if (toolLines[toolLines.length - 1]?.startsWith(P_TEXT)) {
+          toolLines[toolLines.length - 1] =
+            P_TEXT + (toolLines[toolLines.length - 1].slice(P_TEXT.length) + text)
         } else {
-          toolLines.push('💬 ' + text)
+          toolLines.push(P_TEXT + text)
         }
         messages.value[aiIndex].content = toolLines.join('\n')
         scrollToBottom()
       },
       onToolCall: (_id, toolName) => {
-        const label = TOOL_LABELS[toolName] || '🔧'
-        toolLines.push(`${label} 调用 ${toolName}`)
+        toolLines.push(`${P_RUNNING}${toolLabel(toolName)}…`)
         messages.value[aiIndex].content = toolLines.join('\n')
         scrollToBottom()
       },
       onToolExecuted: (_id, toolName, _args, result) => {
-        const label = TOOL_DONE_LABELS[toolName] || '✅'
         const shortResult = result.length > 120 ? result.slice(0, 120) + '...' : result
         for (let i = toolLines.length - 1; i >= 0; i--) {
-          if (toolLines[i].includes(`调用 ${toolName}`)) {
-            toolLines[i] = `${label} ${toolName} → ${shortResult}`
+          if (toolLines[i].includes(toolLabel(toolName))) {
+            toolLines[i] = `${P_DONE}${toolLabel(toolName)} → ${shortResult}`
             break
           }
         }
@@ -386,13 +395,13 @@ function doIncrementalEdit(instruction: string, userDisplay?: string) {
       },
       onError: (msg) => {
         hasError = true
-        toolLines.push(`⚠️ ${msg}`)
+        toolLines.push(`${P_WARN}${msg}`)
         messages.value[aiIndex].content = toolLines.join('\n')
       },
       onDone: () => {
         generating.value = false
         if (!hasError) {
-          toolLines.push('✅ 修改完成')
+          toolLines.push(`${P_DONE}修改完成`)
         }
         messages.value[aiIndex].content = toolLines.join('\n')
         refreshPreview()
@@ -410,7 +419,7 @@ async function handleSend() {
     // 偏好提取由后端 PromptPreferenceExtractor 统一处理（2026-07-04 重构）
     const target = picked.value
     const instruction = userText || '请优化这个元素的样式与交互体验'
-    const display = `🎯 已选中 <${target.tagName}>${
+    const display = `${PICK_PREFIX}<${target.tagName}>${
       target.text ? ` "${target.text.slice(0, 20)}"` : ''
     }\n${instruction}`
     clearPicked()
@@ -424,10 +433,8 @@ async function handleSend() {
   }
 }
 
-/** 走原有完整生成流水线 */
-async function sendFullGeneration(userText: string) {
-  sendMessage(userText)
-}
+/** 部署成功弹窗 */
+const deployedOpen = ref(false)
 
 async function handleDeploy() {
   deploying.value = true
@@ -435,33 +442,21 @@ async function handleDeploy() {
   deploying.value = false
   if (res && res.code === 0) {
     deployUrl.value = res.data
-    Modal.success({
-      title: '部署成功 🎉',
-      content: h('div', { style: 'display:flex;flex-direction:column;gap:12px;' }, [
-        h('div', { style: 'word-break:break-all;font-size:13px;color:var(--gray-600);' }, [
-          h('span', '访问地址：'),
-          h('a', { href: deployUrl.value, target: '_blank', style: 'color:var(--accent);' }, deployUrl.value),
-        ]),
-        h(
-          'a-button',
-          {
-            type: 'default',
-            size: 'small',
-            onClick: async () => {
-              try {
-                await navigator.clipboard.writeText(deployUrl.value)
-                message.success('已复制到剪贴板')
-              } catch {
-                message.error('复制失败，请手动选中复制')
-              }
-            },
-          },
-          () => '📋 复制链接',
-        ),
-      ]),
-    })
+    deployedOpen.value = true
   }
 }
+
+async function copyDeployUrl() {
+  try {
+    await navigator.clipboard.writeText(deployUrl.value)
+    message.success('已复制到剪贴板')
+  } catch {
+    message.error('复制失败，请手动选中复制')
+  }
+}
+
+/** 选中元素的展示前缀 */
+const PICK_PREFIX = '已选中 '
 
 function handleDownload() {
   window.open(buildDownloadUrl(appId.value), '_blank')
@@ -534,153 +529,199 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="chat-page">
-    <div class="toolbar">
-      <div class="left">
-        <a-button type="text" @click="router.push('/')">← 返回</a-button>
-        <span class="app-name">{{ appName }}</span>
-        <a-tag v-if="app" color="blue">{{ app.codeGenType }}</a-tag>
-        <a-tag v-if="runInfo" color="purple">
+  <div class="chat">
+    <!-- ── 顶部工具条 ── -->
+    <header class="bar">
+      <div class="bar__left">
+        <CButton
+          variant="ghost"
+          size="sm"
+          icon="arrow-left"
+          aria-label="返回首页"
+          @click="router.push('/')"
+        />
+        <h1 class="bar__name" :title="appName">{{ appName }}</h1>
+        <CTag v-if="app" tone="neutral" icon="code">{{ app.codeGenType }}</CTag>
+        <CTag v-if="runInfo" tone="info" dot>
           {{ modeLabel(runInfo.mode) }} · {{ runInfo.pipeline }}
-        </a-tag>
+        </CTag>
       </div>
-      <div class="right">
-        <a-button v-if="hasEdited" @click="handleRevert">↩ 还原</a-button>
-        <a-button @click="handleDownload">下载代码</a-button>
-        <a-button type="primary" :loading="deploying" @click="handleDeploy">
+
+      <div class="bar__right">
+        <CButton v-if="hasEdited" variant="ghost" size="sm" icon="undo" @click="handleRevert">
+          还原
+        </CButton>
+        <CButton variant="secondary" size="sm" icon="download" @click="handleDownload">
+          下载代码
+        </CButton>
+        <CButton
+          variant="primary"
+          size="sm"
+          icon="rocket"
+          :loading="deploying"
+          @click="handleDeploy"
+        >
           部署
-        </a-button>
+        </CButton>
       </div>
-    </div>
+    </header>
 
     <div class="body">
-      <!-- 左：对话区 -->
-      <section class="chat-panel">
-        <div ref="chatListRef" class="chat-list">
-          <div v-if="runInfo?.fallbackText" class="fallback-bar">
-            <span class="fallback-icon">⚠️</span>
-            <span class="fallback-text">{{ runInfo.fallbackText }}</span>
+      <!-- ── 左：对话 ── -->
+      <section class="panel conv">
+        <div ref="chatListRef" class="conv__list">
+          <div v-if="runInfo?.fallbackText" class="notice">
+            <CIcon name="alert-triangle" :size="14" />
+            <span>{{ runInfo.fallbackText }}</span>
           </div>
-          <div
-            v-for="m in messages"
-            :key="m.id"
-            class="msg-row"
-            :class="m.type"
-          >
-            <a-avatar
-              class="avatar"
-              :style="{
-                background:
-                  m.type === 'ai'
-                    ? 'linear-gradient(135deg, #5b6cff, #7c5cff)'
-                    : 'linear-gradient(135deg, #36cfc9, #52c41a)',
-              }"
-            >
-              {{ m.type === 'ai' ? 'AI' : '我' }}
-            </a-avatar>
-            <div class="bubble">
+
+          <div v-for="m in messages" :key="m.id" class="msg" :class="`is-${m.type}`">
+            <div class="msg__head">
+              <CAvatar
+                v-if="m.type === 'ai'"
+                icon="sparkles"
+                :size="24"
+                square
+                class="msg__avatar"
+              />
+              <span class="msg__who">{{ m.type === 'ai' ? 'CreatAi' : '我' }}</span>
+            </div>
+
+            <div class="msg__bubble">
               <pre v-if="m.content">{{ m.content }}</pre>
-              <span v-else-if="m.type === 'ai' && generating" class="typing"
-                >正在生成<i></i><i></i><i></i></span
-              >
+              <span v-else-if="m.type === 'ai' && generating" class="typing">
+                正在生成<i /><i /><i />
+              </span>
             </div>
-            <div
-              v-if="m.type === 'ai' && m.content && !generating"
-              class="msg-actions"
-            >
-              <a-button size="small" type="text" @click="handleDislike">
-                👎 点踩
-              </a-button>
-              <a-button size="small" type="text" @click="handleReject">
-                🔄 换一批
-              </a-button>
+
+            <div v-if="m.type === 'ai' && m.content && !generating" class="msg__acts">
+              <CButton variant="ghost" size="xs" icon="thumbs-down" @click="handleDislike">
+                不满意
+              </CButton>
+              <CButton variant="ghost" size="xs" icon="refresh" @click="handleReject">
+                换一批
+              </CButton>
             </div>
           </div>
-          <a-empty
+
+          <CEmpty
             v-if="!messages.length"
-            description="开始你的第一句需求描述吧"
+            icon="message-square"
+            description="开始你的第一句需求描述"
+            hint="例如「把首页主色改成米白，并加一个联系我们区块」。"
           />
         </div>
 
-        <div class="chat-input">
-          <div v-if="picked" class="picked-bar">
-            <span class="picked-tag">🎯 {{ picked.tagName }}</span>
-            <span class="picked-text">{{
-              picked.text || picked.selector
-            }}</span>
-            <a-button type="text" size="small" @click="clearPicked">✕</a-button>
+        <!-- 输入区 -->
+        <div class="composer">
+          <div v-if="picked" class="picked">
+            <CIcon name="wand" :size="13" class="picked__icon" />
+            <span class="picked__tag">{{ picked.tagName }}</span>
+            <span class="picked__text truncate">{{ picked.text || picked.selector }}</span>
+            <CButton variant="ghost" size="xs" icon="x" aria-label="取消选中" @click="clearPicked" />
           </div>
-          <div v-if="reconnecting" class="reconnect-bar">
-            {{ reconnectHint }}
+
+          <div v-if="reconnecting" class="notice is-center">
+            <CIcon name="refresh" :size="13" spin />
+            <span>{{ reconnectHint }}</span>
           </div>
-          <div class="chat-input-row">
-            <a-select
-              v-model:value="genMode"
-              size="small"
-              :disabled="generating"
-              class="gen-mode-select"
-              :options="genModeOptions"
-            />
-            <a-textarea
-              v-model:value="input"
-              :auto-size="{ minRows: 1, maxRows: 4 }"
-              :placeholder="
-                picked
-                  ? '描述如何修改选中的元素，回车发送'
-                  : '继续描述需求，回车发送'
-              "
-              :disabled="generating"
-              @keydown.enter.exact.prevent="handleSend"
-            />
-            <a-button
-              type="primary"
+
+          <CTextarea
+            v-model="input"
+            bare
+            autosize
+            :rows="1"
+            :max-rows="6"
+            :disabled="generating"
+            :placeholder="
+              picked ? '描述如何修改选中的元素…' : '继续描述你的需求，例如调整配色或新增模块…'
+            "
+            @submit="handleSend"
+          />
+
+          <div class="composer__bar">
+            <div class="composer__left">
+              <CSelect
+                v-model="genMode"
+                :options="genModeOptions"
+                :disabled="generating"
+                bare
+                size="sm"
+                width="132px"
+              />
+              <CButton
+                variant="ghost"
+                size="sm"
+                :icon="selecting ? 'check' : 'wand'"
+                :disabled="!canPreview"
+                @click="toggleSelecting"
+              >
+                {{ selecting ? '选择中' : '选元素改' }}
+              </CButton>
+            </div>
+
+            <CButton
+              variant="primary"
+              size="sm"
+              icon-right="arrow-up"
+              pill
               :loading="generating"
               :disabled="!input.trim() && !picked"
               @click="handleSend"
             >
               发送
-            </a-button>
+            </CButton>
           </div>
         </div>
       </section>
 
-      <!-- 右：预览区 -->
-      <section class="preview-panel">
-        <div class="preview-head">
-          <span class="preview-title">实时预览</span>
-          <div class="preview-tools">
-            <a-button
-              :type="selecting ? 'primary' : 'default'"
-              size="small"
+      <!-- ── 右：预览 ── -->
+      <section class="panel preview">
+        <div class="preview__bar">
+          <span class="preview__dots" aria-hidden="true"><i /><i /><i /></span>
+          <span class="preview__label">实时预览</span>
+          <div class="preview__tools">
+            <CButton
+              variant="ghost"
+              size="xs"
+              icon="refresh"
               :disabled="!canPreview"
-              @click="toggleSelecting"
-            >
-              {{ selecting ? '✓ 选择中…点击页面元素' : '🎯 选择元素修改' }}
-            </a-button>
-            <a-button
-              type="link"
-              size="small"
+              aria-label="刷新预览"
+              @click="refreshPreview"
+            />
+            <CButton
+              variant="ghost"
+              size="xs"
+              icon-right="external-link"
               :disabled="!canPreview"
               @click="openPreviewInNewTab"
             >
-              在新窗口打开
-            </a-button>
+              新窗口
+            </CButton>
           </div>
         </div>
-        <div class="preview-body" :class="{ selecting }">
+
+        <div class="preview__stage" :class="{ 'is-selecting': selecting }">
           <iframe
             v-if="canPreview"
             ref="previewIframeRef"
             :key="previewKey"
             :src="previewUrl"
             sandbox="allow-scripts allow-forms"
+            title="应用预览"
             @load="onIframeLoad"
           />
-          <div v-else class="preview-empty">
-            生成完成后，这里将实时展示你的网站
+          <div v-else class="preview__empty surface-grid">
+            <CEmpty
+              icon="monitor"
+              description="等待生成"
+              hint="生成完成后，这里会实时展示你的网站。"
+            />
           </div>
-          <div v-if="selecting" class="selecting-hint">
-            选择模式已开启：将鼠标移到页面上，点击你想修改的元素
+
+          <div v-if="selecting" class="preview__hint">
+            <CIcon name="wand" :size="13" />
+            将鼠标移到页面上，点击你想修改的元素
           </div>
         </div>
       </section>
@@ -691,260 +732,379 @@ onBeforeUnmount(() => {
       v-model:reason="dislikeReason"
       @confirm="confirmDislike"
     />
+
+    <!-- 部署成功 -->
+    <CModal
+      v-model:open="deployedOpen"
+      title="部署成功"
+      description="应用已上线，可以把链接分享给任何人。"
+      icon="rocket"
+      width="480px"
+      hide-footer
+    >
+      <div class="deployed">
+        <a
+          :href="deployUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="deployed__url mono"
+        >
+          {{ deployUrl }}
+        </a>
+        <div class="deployed__acts">
+          <CButton variant="secondary" size="sm" icon="copy" @click="copyDeployUrl">
+            复制链接
+          </CButton>
+          <CButton
+            variant="primary"
+            size="sm"
+            icon-right="external-link"
+            :href="deployUrl"
+            target="_blank"
+          >
+            访问站点
+          </CButton>
+        </div>
+      </div>
+    </CModal>
   </div>
 </template>
 
 <style scoped>
-.chat-page {
-  flex: 1;
+.chat {
   display: flex;
   flex-direction: column;
+  height: calc(100vh - var(--header-h));
+  max-height: calc(100vh - var(--header-h));
   min-height: 0;
+  overflow: hidden;
 }
 
-.toolbar {
+/* ── 工具条 ── */
+.bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(20, 22, 40, 0.06);
-}
-.toolbar .left {
-  display: flex;
-  align-items: center;
   gap: 12px;
-}
-.app-name {
-  font-size: 16px;
-  font-weight: 600;
-}
-.toolbar .right {
-  display: flex;
-  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  flex: none;
 }
 
+.bar__left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.bar__name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-strong);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar__right {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+}
+
+/* ── 主体 ── */
 .body {
   flex: 1;
   display: flex;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
   min-height: 0;
-  gap: 16px;
-  padding: 16px 24px;
 }
 
-.chat-panel,
-.preview-panel {
-  flex: 1;
+.panel {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
+  min-height: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-xs);
   overflow: hidden;
 }
 
-.chat-list {
+.conv {
+  width: 420px;
+  flex: none;
+}
+
+.preview { flex: 1; }
+
+/* ── 消息列表 ── */
+.conv__list {
   flex: 1;
   overflow-y: auto;
-  padding: 18px;
+  padding: var(--sp-5);
 }
-.fallback-bar {
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--r-md);
+  background: var(--warning-soft);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--warning);
+}
+
+.notice.is-center {
+  justify-content: center;
+  align-items: center;
+  margin: 0 0 8px;
+}
+
+.msg {
+  margin-bottom: var(--sp-5);
+}
+
+.msg__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  padding: 8px 12px;
-  background: rgba(250, 173, 20, 0.1);
-  border: 1px solid rgba(250, 173, 20, 0.35);
-  border-radius: 10px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  gap: 7px;
+  margin-bottom: 6px;
 }
-.fallback-icon {
-  flex-shrink: 0;
+
+.msg__avatar { color: var(--text-primary); }
+
+.msg__who {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
-.fallback-text {
-  flex: 1;
-  min-width: 0;
+
+.msg.is-user .msg__head { justify-content: flex-end; }
+
+.msg__bubble {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--text-primary);
 }
-.msg-row {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 18px;
+
+.msg.is-user .msg__bubble {
+  padding: 10px 13px;
+  margin-left: auto;
+  max-width: 92%;
+  width: fit-content;
+  background: var(--n-100);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
 }
-.msg-row.user {
-  flex-direction: row-reverse;
-}
-.avatar {
-  flex-shrink: 0;
-  color: #fff;
-  font-size: 12px;
-}
-.bubble {
-  max-width: 78%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: #f5f7fa;
-  font-size: 14px;
-  line-height: 1.6;
-}
-.msg-row.user .bubble {
-  background: rgba(91, 108, 255, 0.1);
-}
-.bubble pre {
+
+.msg__bubble pre {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-family: inherit;
+  font-size: inherit;
 }
 
-.msg-actions {
+.msg__acts {
   display: flex;
   gap: 4px;
-  margin-top: 4px;
-  padding-left: 42px;
+  margin-top: 7px;
 }
-.msg-actions :deep(.ant-btn) {
-  font-size: 12px;
-  color: var(--text-secondary, #999);
-  padding: 2px 8px;
-  height: auto;
-  line-height: 1.5;
-}
-.msg-actions :deep(.ant-btn:hover) {
-  color: var(--text-primary, #333);
+
+.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
 }
 
 .typing i {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-left: 3px;
+  width: 4px;
+  height: 4px;
+  margin-left: 2px;
   border-radius: 50%;
-  background: var(--brand-primary);
-  animation: blink 1.2s infinite both;
-}
-.typing i:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.typing i:nth-child(3) {
-  animation-delay: 0.4s;
-}
-@keyframes blink {
-  0%,
-  80%,
-  100% {
-    opacity: 0.2;
-  }
-  40% {
-    opacity: 1;
-  }
+  background: var(--text-faint);
+  animation: pulse-soft 1.2s infinite both;
 }
 
-.chat-input {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+.typing i:nth-child(2) { animation-delay: 0.18s; }
+.typing i:nth-child(3) { animation-delay: 0.36s; }
+
+/* ── 输入区 ── */
+.composer {
+  flex: none;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--n-25);
 }
-.reconnect-bar {
-  padding: 6px 14px;
-  font-size: 12px;
-  color: #8c6d00;
-  background: rgba(250, 173, 20, 0.1);
-  border-bottom: 1px solid rgba(250, 173, 20, 0.25);
-  text-align: center;
-}
-.chat-input-row {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-}
-.picked-bar {
+
+.composer__bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 12px;
-  background: rgba(124, 92, 255, 0.08);
-  border: 1px solid rgba(124, 92, 255, 0.25);
-  border-radius: 10px;
-  font-size: 12px;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
 }
-.picked-tag {
-  flex-shrink: 0;
+
+.composer__left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.picked {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px 5px 10px;
+  margin-bottom: 9px;
+  border: 1px solid var(--spark-border);
+  border-radius: var(--r-md);
+  background: var(--spark-soft);
+  font-size: var(--fs-2xs);
+}
+
+.picked__icon { color: var(--spark); flex: none; }
+
+.picked__tag {
+  font-family: var(--font-mono);
   font-weight: 600;
-  color: #7c5cff;
+  color: var(--spark);
+  flex: none;
 }
-.picked-text {
+
+.picked__text {
   flex: 1;
   min-width: 0;
   color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.preview-tools {
+/* ── 预览 ── */
+.preview__bar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
+  height: 42px;
+  padding: 0 12px;
+  flex: none;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--n-25);
 }
-.preview-body {
+
+.preview__dots { display: inline-flex; gap: 5px; }
+
+.preview__dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--n-200);
+}
+
+.preview__label {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.preview__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.preview__stage {
   position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--n-50);
 }
-.preview-body.selecting iframe {
-  outline: 2px solid #7c5cff;
+
+.preview__stage iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.preview__stage.is-selecting iframe {
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.selecting-hint {
+
+.preview__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background-color: var(--n-50);
+}
+
+.preview__hint {
   position: absolute;
   left: 50%;
-  bottom: 16px;
+  bottom: 18px;
   transform: translateX(-50%);
-  padding: 6px 14px;
-  border-radius: 20px;
-  background: rgba(124, 92, 255, 0.92);
-  color: #fff;
-  font-size: 12px;
-  box-shadow: 0 6px 20px rgba(124, 92, 255, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: var(--fs-xs);
+  box-shadow: var(--shadow-lg);
   pointer-events: none;
   white-space: nowrap;
 }
 
-.preview-head {
+/* ── 部署弹窗 ── */
+.deployed {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  font-size: 14px;
-  font-weight: 500;
-}
-.preview-body {
-  flex: 1;
-  min-height: 0;
-  background: #fafafa;
-}
-.preview-body iframe {
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-.preview-empty {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-  font-size: 14px;
+  flex-direction: column;
+  gap: 14px;
 }
 
-@media (max-width: 900px) {
-  .body {
-    flex-direction: column;
-  }
+.deployed__url {
+  padding: 11px 13px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--n-50);
+  font-size: var(--fs-xs);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.deployed__url:hover { border-color: var(--border-strong); }
+
+.deployed__acts {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 1000px) {
+  .chat { height: auto; }
+  .body { flex-direction: column; padding: var(--sp-3) var(--sp-4); }
+  .conv { width: auto; height: 62vh; }
+  .preview { height: 70vh; }
+  .bar { flex-wrap: wrap; }
+  .bar__name { max-width: 160px; }
 }
 </style>

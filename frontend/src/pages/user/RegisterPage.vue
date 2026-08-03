@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
 import { register } from '../../api/user'
+import CButton from '../../components/ui/CButton.vue'
+import CField from '../../components/ui/CField.vue'
+import CIcon from '../../components/ui/CIcon.vue'
+import CInput from '../../components/ui/CInput.vue'
+import { message } from '../../components/ui/toast'
 
 const router = useRouter()
 
@@ -13,6 +17,23 @@ const form = reactive({
 })
 
 const loading = ref(false)
+
+const mismatch = computed(
+  () => !!form.checkPassword && form.userPassword !== form.checkPassword,
+)
+
+/** 密码强度：0-3 */
+const strength = computed(() => {
+  const p = form.userPassword
+  if (!p) return 0
+  let score = 0
+  if (p.length >= 8) score++
+  if (/[A-Za-z]/.test(p) && /\d/.test(p)) score++
+  if (/[^A-Za-z0-9]/.test(p) || p.length >= 12) score++
+  return score
+})
+
+const strengthLabel = computed(() => ['', '较弱', '中等', '较强'][strength.value])
 
 async function handleSubmit() {
   if (!form.userAccount || !form.userPassword || !form.checkPassword) {
@@ -32,14 +53,13 @@ async function handleSubmit() {
   }
 }
 
-// 打字机：展示创意场景
+/* 打字机：展示创意场景 */
 const cases = [
   '打造你的第一个落地页',
   '用 AI 生成完整 Vue 项目',
   '一句话，变成真实产品',
   '和 AI 一起开始创作',
 ]
-const caseIdx = ref(0)
 const caseText = ref('')
 let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -52,423 +72,378 @@ function typeCase(idx: number) {
       caseText.value += target[i++]
       timer = setTimeout(tick, 52)
     } else {
-      timer = setTimeout(() => {
-        caseIdx.value = (idx + 1) % cases.length
-        typeCase(caseIdx.value)
-      }, 2600)
+      timer = setTimeout(() => typeCase((idx + 1) % cases.length), 2600)
     }
   }
   tick()
 }
 
+const steps = [
+  { icon: 'pencil', title: '描述需求', desc: '用一句话说清你想要的产品。' },
+  { icon: 'sparkles', title: 'AI 生成', desc: '自动产出完整代码与实时预览。' },
+  { icon: 'rocket', title: '发布上线', desc: '一键部署，或下载源码自行托管。' },
+]
+
 onMounted(() => typeCase(0))
-onUnmounted(() => { if (timer) clearTimeout(timer) })
+onUnmounted(() => {
+  if (timer) clearTimeout(timer)
+})
 </script>
 
 <template>
-  <div class="page">
-    <!-- 极淡点阵背景 -->
-    <div class="dot-bg" />
-
-    <!-- 顶部导航条 -->
-    <header class="top-nav">
-      <div class="nav-logo">
-        <div class="logo-icon">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-            <path d="M8 1L15 14H1L8 1Z" fill="currentColor"/>
+  <div class="auth">
+    <header class="auth__top">
+      <router-link to="/" class="brand">
+        <span class="brand__mark">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <path d="M8 1.5 14.5 14H1.5L8 1.5Z" fill="currentColor" />
           </svg>
-        </div>
-        <span class="logo-name">CreatAi</span>
-      </div>
-      <div class="nav-right">
-        <span class="nav-tip">已有账号？</span>
-        <router-link to="/user/login" class="nav-link">去登录 →</router-link>
+        </span>
+        <span class="brand__text">CreatAi</span>
+      </router-link>
+      <div class="auth__top-right">
+        <span class="auth__tip">已有账号？</span>
+        <router-link to="/user/login" class="auth__link">
+          直接登录
+          <CIcon name="arrow-right" :size="13" />
+        </router-link>
       </div>
     </header>
 
-    <!-- 主体区域 -->
-    <main class="main">
-      <div class="card">
-
-        <!-- 标题区 -->
-        <div class="card-head">
-          <h1 class="title">创建账号</h1>
-          <p class="subtitle">
-            注册即可——
-            <span class="typewriter">{{ caseText }}<span class="cursor" /></span>
+    <main class="auth__main">
+      <section class="pane">
+        <div class="card">
+          <h1 class="card__title">创建账号</h1>
+          <p class="card__sub">
+            开始免费使用
+            <span class="typer">{{ caseText }}<i class="typer__caret" /></span>
           </p>
+
+          <form class="form" @submit.prevent="handleSubmit">
+            <CField label="账号" hint="4 位以上，支持字母、数字与下划线" input-id="reg-account">
+              <CInput
+                id="reg-account"
+                v-model="form.userAccount"
+                size="lg"
+                icon="user"
+                placeholder="设置你的登录账号"
+                autocomplete="username"
+                clearable
+              />
+            </CField>
+
+            <CField label="密码" input-id="reg-password">
+              <CInput
+                id="reg-password"
+                v-model="form.userPassword"
+                type="password"
+                size="lg"
+                icon="lock"
+                placeholder="至少 8 位，建议字母加数字"
+                autocomplete="new-password"
+              />
+              <div v-if="form.userPassword" class="strength">
+                <span
+                  v-for="i in 3"
+                  :key="i"
+                  class="strength__bar"
+                  :class="{ 'is-on': i <= strength }"
+                />
+                <span class="strength__label">{{ strengthLabel }}</span>
+              </div>
+            </CField>
+
+            <CField
+              label="确认密码"
+              :error="mismatch ? '两次输入的密码不一致' : undefined"
+              input-id="reg-check"
+            >
+              <CInput
+                id="reg-check"
+                v-model="form.checkPassword"
+                type="password"
+                size="lg"
+                icon="lock"
+                placeholder="再次输入密码"
+                autocomplete="new-password"
+                :invalid="mismatch"
+                @enter="handleSubmit"
+              />
+            </CField>
+
+            <CButton
+              variant="primary"
+              size="lg"
+              block
+              icon-right="arrow-right"
+              :loading="loading"
+              :disabled="mismatch"
+              type="submit"
+            >
+              创建账号
+            </CButton>
+          </form>
+
+          <p class="card__foot">注册即表示同意服务条款与隐私政策</p>
         </div>
+      </section>
 
-        <!-- 分隔线 -->
-        <div class="divider" />
-
-        <!-- 表单 -->
-        <a-form layout="vertical" class="form" @submit.prevent="handleSubmit">
-          <a-form-item>
-            <template #label>
-              <span class="field-label">账号</span>
-            </template>
-            <a-input
-              v-model:value="form.userAccount"
-              size="large"
-              placeholder="请输入账号（至少 4 位）"
-              allow-clear
-              class="field-input"
-            />
-          </a-form-item>
-
-          <a-form-item>
-            <template #label>
-              <span class="field-label">密码</span>
-            </template>
-            <a-input-password
-              v-model:value="form.userPassword"
-              size="large"
-              placeholder="请输入密码（至少 8 位）"
-              class="field-input"
-            />
-          </a-form-item>
-
-          <a-form-item>
-            <template #label>
-              <span class="field-label">确认密码</span>
-            </template>
-            <a-input-password
-              v-model:value="form.checkPassword"
-              size="large"
-              placeholder="请再次输入密码"
-              class="field-input"
-              @keyup.enter="handleSubmit"
-            />
-          </a-form-item>
-
-          <button
-            class="submit-btn"
-            :class="{ loading }"
-            :disabled="loading"
-            type="button"
-            @click="handleSubmit"
-          >
-            <span v-if="!loading" class="btn-text">
-              免费注册
-              <span class="btn-arrow">→</span>
-            </span>
-            <span v-else class="btn-spinner" />
-          </button>
-        </a-form>
-
-        <!-- 底部 -->
-        <div class="card-foot">
-          <span class="foot-text">已有账号？</span>
-          <router-link to="/user/login" class="foot-link">立即登录</router-link>
+      <aside class="pane pane--aside">
+        <div class="aside surface-grid">
+          <p class="eyebrow">How it works</p>
+          <h2 class="aside__title">三步，从一句话到线上产品。</h2>
+          <ol class="steps">
+            <li v-for="(s, i) in steps" :key="s.title" class="step">
+              <span class="step__num">{{ i + 1 }}</span>
+              <span class="step__body">
+                <span class="step__title">
+                  <CIcon :name="s.icon" :size="14" />
+                  {{ s.title }}
+                </span>
+                <span class="step__desc">{{ s.desc }}</span>
+              </span>
+            </li>
+          </ol>
         </div>
-
-      </div>
-
-      <!-- 底部品牌小字 -->
-      <p class="page-foot">
-        CreatAi · 用一句话，创造属于你的产品
-      </p>
+      </aside>
     </main>
   </div>
 </template>
 
 <style scoped>
-/* ── 全局重置 ── */
-.page {
+.auth {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--geist-white);
-  position: relative;
-  overflow: hidden;
+  background: var(--bg-page);
 }
 
-/* 点阵背景（极淡，Vercel 质感） */
-.dot-bg {
-  position: fixed;
-  inset: 0;
-  background-image: radial-gradient(circle, rgba(0,0,0,0.07) 1px, transparent 1px);
-  background-size: 24px 24px;
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* ── 顶部导航 ── */
-.top-nav {
-  position: relative;
-  z-index: 10;
+.auth__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 40px;
-  border-bottom: 1px solid var(--gray-100);
-  background: rgba(255,255,255,0.9);
-  backdrop-filter: blur(8px);
+  height: var(--header-h);
+  padding: 0 var(--sp-6);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
 }
 
-.nav-logo {
-  display: flex;
+.brand {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  user-select: none;
-  text-decoration: none;
+  gap: 9px;
 }
-.logo-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--r-base);
-  background: var(--geist-black);
-  color: var(--geist-white);
+
+.brand__mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-.logo-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--geist-black);
-  letter-spacing: var(--tracking-label);
+  width: 25px;
+  height: 25px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
-.nav-right {
+.brand__text {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-heading);
+  color: var(--text-strong);
+}
+
+.auth__top-right {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.nav-tip {
-  font-size: 13px;
-  color: var(--gray-500);
-}
-.nav-link {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--geist-black);
-  text-decoration: none;
-  padding: 5px 12px;
-  border-radius: var(--r-base);
-  box-shadow: var(--shadow-ring);
-  transition: all var(--duration-fast) var(--spring);
-}
-.nav-link:hover {
-  background: var(--gray-50);
-  box-shadow: var(--shadow-border);
-  text-decoration: none;
-  transform: translateY(-1px);
+  font-size: var(--fs-sm);
 }
 
-/* ── 主体 ── */
-.main {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 24px 64px;
-}
+.auth__tip { color: var(--text-muted); }
 
-/* ── 注册卡片 ── */
-.card {
-  width: 100%;
-  max-width: 400px;
-  background: var(--geist-white);
-  border-radius: var(--r-image);
-  box-shadow: var(--shadow-card);
-  padding: 40px 36px 32px;
-  animation: card-in 0.5s var(--smooth) both;
-}
-@keyframes card-in {
-  from { opacity: 0; transform: translateY(16px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0)    scale(1); }
-}
-
-/* 标题区 */
-.card-head {
-  margin-bottom: 24px;
-}
-.title {
-  font-size: 26px;
-  font-weight: 600;
-  color: var(--geist-black);
-  margin: 0 0 10px;
-  letter-spacing: var(--tracking-heading);
-  line-height: 1.2;
-}
-.subtitle {
-  font-size: 13.5px;
-  color: var(--gray-500);
-  margin: 0;
-  line-height: 1.5;
-  display: flex;
+.auth__link {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
-}
-
-/* 打字机区域 */
-.typewriter {
-  color: var(--geist-black);
   font-weight: 500;
-  letter-spacing: var(--tracking-label);
-}
-.cursor {
-  display: inline-block;
-  width: 1.5px;
-  height: 13px;
-  background: var(--geist-black);
-  margin-left: 1px;
-  vertical-align: middle;
-  animation: blink 1s step-end infinite;
-}
-@keyframes blink { 50% { opacity: 0; } }
-
-.divider {
-  height: 1px;
-  background: var(--gray-100);
-  margin-bottom: 24px;
+  color: var(--text-strong);
 }
 
-/* 表单 */
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.field-label {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--geist-black);
-  letter-spacing: var(--tracking-label);
-}
-
-/* 覆盖 Ant Design 输入框 */
-.field-input :deep(.ant-input),
-.field-input :deep(.ant-input-affix-wrapper) {
-  border-radius: var(--r-card) !important;
-  border: none !important;
-  box-shadow: var(--shadow-border) !important;
-  font-size: 14px !important;
-  font-family: inherit !important;
-  color: var(--geist-black) !important;
-  background: var(--geist-white) !important;
-  height: 40px !important;
-  transition: box-shadow var(--duration-fast) ease !important;
-}
-.field-input :deep(.ant-input-affix-wrapper) {
-  height: 40px !important;
-  display: flex !important;
-  align-items: center !important;
-}
-.field-input :deep(.ant-input-affix-wrapper:hover),
-.field-input :deep(.ant-input:hover) {
-  box-shadow: rgba(0,0,0,0.12) 0px 0px 0px 1px !important;
-}
-.field-input :deep(.ant-input-affix-wrapper-focused),
-.field-input :deep(.ant-input:focus) {
-  box-shadow:
-    rgba(0,0,0,0.1) 0px 0px 0px 1px,
-    rgba(10,114,239,0.22) 0px 0px 0px 3px !important;
-}
-.field-input :deep(.ant-input::placeholder) {
-  color: var(--gray-400) !important;
-}
-
-/* 提交按钮 */
-.submit-btn {
-  width: 100%;
-  height: 40px;
-  border-radius: var(--r-base);
-  border: none;
-  background: var(--geist-black);
-  color: var(--geist-white);
-  font-size: 14px;
-  font-weight: 500;
-  font-family: inherit;
-  letter-spacing: var(--tracking-label);
-  cursor: pointer;
-  margin-top: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: all var(--duration-fast) var(--spring);
-}
-.submit-btn:hover:not(:disabled) {
-  background: #1a1a1a;
-  transform: translateY(-1px) scale(1.01);
-  box-shadow: rgba(0,0,0,0.2) 0px 6px 16px;
-}
-.submit-btn:active:not(:disabled) {
-  transform: scale(0.98);
-  transition-duration: 0.08s;
-}
-.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-text {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.btn-arrow {
-  font-size: 15px;
-  transition: transform var(--duration-fast) var(--spring);
-}
-.submit-btn:hover .btn-arrow { transform: translateX(3px); }
-
-.btn-spinner {
-  width: 15px;
-  height: 15px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.65s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* 底部登录链接 */
-.card-foot {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--gray-100);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-.foot-text {
-  font-size: 13px;
-  color: var(--gray-500);
-}
-.foot-link {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--geist-black);
-  text-decoration: none;
-  transition: color var(--duration-fast) ease;
-}
-.foot-link:hover {
-  color: var(--accent);
+.auth__link:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-/* 页面底部小字 */
-.page-foot {
-  margin-top: 32px;
-  font-size: 12px;
-  color: var(--gray-400);
-  text-align: center;
-  letter-spacing: 0.01em;
+.auth__main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-width: var(--container-wide);
+  width: 100%;
+  margin: 0 auto;
 }
 
-/* 响应式 */
-@media (max-width: 480px) {
-  .top-nav { padding: 16px 20px; }
-  .card { padding: 28px 20px 24px; }
-  .title { font-size: 22px; }
+.pane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-10) var(--sp-6);
+}
+
+.pane--aside {
+  border-left: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.card {
+  width: 100%;
+  max-width: 400px;
+}
+
+.card__title {
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  letter-spacing: var(--tracking-heading);
+  color: var(--text-strong);
+}
+
+.card__sub {
+  margin-top: 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  min-height: 22px;
+}
+
+.typer {
+  color: var(--text-primary);
+  font-weight: 450;
+}
+
+.typer__caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 13px;
+  margin-left: 2px;
+  background: var(--accent);
+  vertical-align: -2px;
+  animation: pulse-soft 1s steps(2) infinite;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  margin-top: var(--sp-6);
+}
+
+.form :deep(.c-btn) { margin-top: var(--sp-2); }
+
+.card__foot {
+  margin-top: var(--sp-5);
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* 密码强度 */
+.strength {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.strength__bar {
+  flex: 1;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--n-150);
+  transition: background-color var(--t-base) var(--ease-out);
+}
+
+.strength__bar.is-on { background: var(--accent); }
+
+.strength__label {
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  min-width: 26px;
+}
+
+/* 右侧 */
+.aside {
+  width: 100%;
+  max-width: 430px;
+  padding: var(--sp-8);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-2xl);
+  background-color: var(--n-25);
+}
+
+.aside__title {
+  margin-top: 10px;
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: var(--tracking-heading);
+  color: var(--text-strong);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--sp-6);
+}
+
+.step {
+  display: flex;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.step:last-child { border-bottom: none; }
+
+.step__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+
+.step__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.step__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text-strong);
+}
+
+.step__desc {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+@media (max-width: 960px) {
+  .auth__main { grid-template-columns: 1fr; }
+  .pane--aside { display: none; }
+  .pane { padding: var(--sp-8) var(--sp-4); }
+  .auth__top { padding: 0 var(--sp-4); }
 }
 </style>

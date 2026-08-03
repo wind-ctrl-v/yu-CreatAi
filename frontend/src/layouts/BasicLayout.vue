@@ -1,16 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
-import {
-  HomeOutlined,
-  AppstoreOutlined,
-  CompassOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  SettingOutlined,
-  UserOutlined,
-} from '@ant-design/icons-vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import CAvatar from '../components/ui/CAvatar.vue'
+import CButton from '../components/ui/CButton.vue'
+import CDropdown from '../components/ui/CDropdown.vue'
+import CDropdownItem from '../components/ui/CDropdownItem.vue'
+import CIcon from '../components/ui/CIcon.vue'
+import { confirm } from '../components/ui/confirm'
+import { message } from '../components/ui/toast'
 import { useLoginUserStore } from '../stores/loginUser'
 import { PLAN_LABELS } from '../types'
 
@@ -19,355 +16,414 @@ const route = useRoute()
 const store = useLoginUserStore()
 
 const loginUser = computed(() => store.loginUser)
-const sidebarCollapsed = ref(false)
-
-const planTag = computed(() => {
-  const pt = loginUser.value?.planType || ''
-  return { label: PLAN_LABELS[pt] || '会员', color: planColor(pt) }
-})
-function planColor(pt: string): string {
-  const colors: Record<string, string> = {
-    FREE: '#8c8c8c',
-    PRO: '#1677ff',
-    PREMIUM: '#722ed1',
-    ENTERPRISE: '#f5a623',
-    ADMIN: '#f5222d',
-  }
-  return colors[pt] || '#8c8c8c'
-}
-
-onMounted(() => {
-  if (!store.fetched) store.fetchLoginUser()
-})
-
-function goHome() { router.push('/') }
-
-function handleLogout() {
-  Modal.confirm({
-    title: '确认退出登录？',
-    okText: '退出',
-    cancelText: '取消',
-    onOk: async () => {
-      await store.logout()
-      message.success('已退出登录')
-      router.push('/user/login')
-    },
-  })
-}
+const mobileOpen = ref(false)
 
 const navItems = [
-  { key: 'home',    label: '首页',     icon: 'home',     path: '/' },
-  { key: 'myApps',  label: '我的作品',  icon: 'appstore', path: '/apps' },
-  { key: 'explore', label: '精选应用',  icon: 'compass',  path: '/explore' },
+  { key: 'home', label: '首页', icon: 'home', path: '/' },
+  { key: 'myApps', label: '我的作品', icon: 'grid', path: '/apps' },
+  { key: 'explore', label: '精选应用', icon: 'compass', path: '/explore' },
 ]
+
+const planLabel = computed(() => {
+  const pt = loginUser.value?.planType || ''
+  return pt ? PLAN_LABELS[pt] || '会员' : ''
+})
+
+const displayName = computed(
+  () => loginUser.value?.userName || loginUser.value?.userAccount || '未命名用户',
+)
 
 function isActive(path: string) {
   if (path === '/') return route.path === '/'
   return route.path.startsWith(path)
 }
-function navTo(path: string) { router.push(path) }
+
+function navTo(path: string) {
+  mobileOpen.value = false
+  router.push(path)
+}
+
+async function handleLogout() {
+  const ok = await confirm({
+    title: '退出登录',
+    content: '退出后需要重新登录才能继续创作。',
+    okText: '退出登录',
+    danger: true,
+    icon: 'log-out',
+  })
+  if (!ok) return
+  await store.logout()
+  message.success('已退出登录')
+  router.push('/user/login')
+}
+
+watch(() => route.path, () => (mobileOpen.value = false))
+
+onMounted(() => {
+  if (!store.fetched) store.fetchLoginUser()
+})
 </script>
 
 <template>
-  <div class="layout">
-    <!-- 侧边栏 -->
-    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
-      <!-- Logo -->
-      <div class="sidebar-logo" @click="goHome">
-        <div class="logo-mark">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M8 1L15 14H1L8 1Z" fill="currentColor"/>
-          </svg>
-        </div>
-        <transition name="fade-label">
-          <span v-if="!sidebarCollapsed" class="logo-text">CreatAi</span>
-        </transition>
-      </div>
-
-      <!-- 分隔线 -->
-      <div class="sidebar-divider" />
-
-      <!-- 导航 -->
-      <nav class="sidebar-nav">
-        <div
-          v-for="item in navItems"
-          :key="item.key"
-          class="nav-item"
-          :class="{ active: isActive(item.path) }"
-          @click="navTo(item.path)"
-        >
-          <span class="nav-icon">
-            <HomeOutlined     v-if="item.icon === 'home'" />
-            <AppstoreOutlined v-else-if="item.icon === 'appstore'" />
-            <CompassOutlined  v-else-if="item.icon === 'compass'" />
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar__inner">
+        <button class="brand" type="button" @click="navTo('/')">
+          <span class="brand__mark">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path d="M8 1.5 14.5 14H1.5L8 1.5Z" fill="currentColor" />
+            </svg>
           </span>
-          <transition name="fade-label">
-            <span v-if="!sidebarCollapsed" class="nav-label">{{ item.label }}</span>
-          </transition>
-        </div>
-      </nav>
+          <span class="brand__text">CreatAi</span>
+        </button>
 
-      <!-- 底部区域 -->
-      <div class="sidebar-footer">
-        <!-- 用户信息 -->
-        <template v-if="loginUser">
-          <a-dropdown placement="topRight">
-            <div class="user-row">
-              <a-avatar :src="loginUser.userAvatar" :size="26" class="user-avatar">
-                {{ (loginUser.userName || loginUser.userAccount || 'U').charAt(0) }}
-              </a-avatar>
-              <transition name="fade-label">
-                <span v-if="!sidebarCollapsed" class="user-name">
-                  {{ loginUser.userName || loginUser.userAccount }}
-                </span>
-              </transition>
-              <transition name="fade-label">
-                <span
-                  v-if="!sidebarCollapsed && loginUser.planType"
-                  class="plan-badge"
-                  :style="{ color: planTag.color, borderColor: planTag.color }"
-                >{{ planTag.label }}</span>
-              </transition>
-            </div>
-            <template #overlay>
-              <a-menu>
-                <a-menu-item key="profile" @click="router.push('/me')">
-                  <UserOutlined style="margin-right: 6px;" />个人中心
-                </a-menu-item>
-                <a-menu-item v-if="loginUser.userRole === 'admin'" key="admin" @click="router.push('/admin')">
-                  <SettingOutlined style="margin-right: 6px;" />管理后台
-                </a-menu-item>
-                <a-menu-item key="logout" @click="handleLogout">退出登录</a-menu-item>
-              </a-menu>
+        <nav class="nav" aria-label="主导航">
+          <button
+            v-for="item in navItems"
+            :key="item.key"
+            class="nav__item"
+            :class="{ 'is-active': isActive(item.path) }"
+            type="button"
+            @click="navTo(item.path)"
+          >
+            {{ item.label }}
+          </button>
+        </nav>
+
+        <div class="topbar__right">
+          <CButton
+            v-if="loginUser"
+            variant="ghost"
+            size="sm"
+            icon="plus"
+            class="hide-sm"
+            @click="navTo('/')"
+          >
+            新建应用
+          </CButton>
+
+          <CDropdown v-if="loginUser" align="right" width="216px">
+            <template #trigger>
+              <button class="user-chip" type="button" :aria-label="displayName">
+                <CAvatar :src="loginUser.userAvatar" :name="displayName" :size="26" />
+                <span class="user-chip__name">{{ displayName }}</span>
+                <CIcon name="chevron-down" :size="13" class="user-chip__arrow" />
+              </button>
             </template>
-          </a-dropdown>
-        </template>
-        <template v-else>
-          <div class="login-btn-wrap">
-            <a-button size="small" block @click="router.push('/user/login')" class="login-btn">
-              <span v-if="!sidebarCollapsed">登录</span>
-              <span v-else>→</span>
-            </a-button>
-          </div>
-        </template>
 
-        <!-- 折叠按钮 -->
-        <div class="collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed" :title="sidebarCollapsed ? '展开' : '折叠'">
-          <MenuFoldOutlined   v-if="!sidebarCollapsed" />
-          <MenuUnfoldOutlined v-else />
+            <div class="menu-head">
+              <p class="menu-head__name">{{ displayName }}</p>
+              <p class="menu-head__meta">
+                {{ planLabel || '未开通套餐' }}
+              </p>
+            </div>
+            <CDropdownItem icon="user" @click="navTo('/me')">个人中心</CDropdownItem>
+            <CDropdownItem icon="grid" @click="navTo('/apps')">我的作品</CDropdownItem>
+            <CDropdownItem
+              v-if="loginUser.userRole === 'admin'"
+              icon="settings"
+              @click="navTo('/admin')"
+            >
+              管理后台
+            </CDropdownItem>
+            <div class="menu-sep" />
+            <CDropdownItem icon="log-out" danger @click="handleLogout">退出登录</CDropdownItem>
+          </CDropdown>
+
+          <template v-else>
+            <CButton variant="text" size="sm" class="hide-sm" @click="navTo('/user/login')">
+              登录
+            </CButton>
+            <CButton variant="primary" size="sm" @click="navTo('/user/register')">
+              免费注册
+            </CButton>
+          </template>
+
+          <button
+            class="burger"
+            type="button"
+            :aria-expanded="mobileOpen"
+            aria-label="切换菜单"
+            @click="mobileOpen = !mobileOpen"
+          >
+            <CIcon :name="mobileOpen ? 'x' : 'menu'" :size="18" />
+          </button>
         </div>
       </div>
-    </aside>
 
-    <!-- 主内容区 -->
-    <main class="content" :style="{ marginLeft: sidebarCollapsed ? '56px' : '200px' }">
+      <Transition name="drawer">
+        <div v-if="mobileOpen" class="mobile-nav">
+          <button
+            v-for="item in navItems"
+            :key="item.key"
+            class="mobile-nav__item"
+            :class="{ 'is-active': isActive(item.path) }"
+            type="button"
+            @click="navTo(item.path)"
+          >
+            <CIcon :name="item.icon" :size="16" />
+            {{ item.label }}
+          </button>
+          <template v-if="loginUser">
+            <div class="menu-sep" />
+            <button class="mobile-nav__item" type="button" @click="navTo('/me')">
+              <CIcon name="user" :size="16" />个人中心
+            </button>
+            <button
+              v-if="loginUser.userRole === 'admin'"
+              class="mobile-nav__item"
+              type="button"
+              @click="navTo('/admin')"
+            >
+              <CIcon name="settings" :size="16" />管理后台
+            </button>
+          </template>
+          <template v-else>
+            <div class="menu-sep" />
+            <button class="mobile-nav__item" type="button" @click="navTo('/user/login')">
+              <CIcon name="log-in" :size="16" />登录
+            </button>
+          </template>
+        </div>
+      </Transition>
+    </header>
+
+    <main class="main">
       <router-view />
     </main>
   </div>
 </template>
 
 <style scoped>
-.layout {
+.shell {
   display: flex;
-  height: 100%;
+  flex-direction: column;
+  min-height: 100vh;
   background: var(--bg-page);
 }
 
-/* ======= 侧边栏 ======= */
-.sidebar {
-  position: fixed;
-  top: 0; left: 0; bottom: 0;
-  width: 200px;
-  background: var(--bg-sidebar);
-  box-shadow: var(--shadow-border);
-  display: flex;
-  flex-direction: column;
-  z-index: 200;
-  transition: width 0.22s var(--smooth);
-  overflow: hidden;
+/* ── 顶栏 ── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--border-subtle);
 }
-.sidebar.collapsed { width: 56px; }
 
-/* Logo */
-.sidebar-logo {
+.topbar__inner {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 18px 14px 16px;
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  overflow: hidden;
-  flex-shrink: 0;
+  gap: 20px;
+  height: var(--header-h);
+  max-width: var(--container-wide);
+  margin: 0 auto;
+  padding: 0 var(--sp-6);
 }
-.sidebar-logo:hover .logo-mark { background: var(--gray-900); }
 
-.logo-mark {
-  flex-shrink: 0;
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 6px 4px 4px;
+  margin-left: -4px;
+  border: none;
+  background: transparent;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out);
+}
+
+.brand:hover { background: var(--bg-hover); }
+
+.brand__mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--r-base);
-  background: var(--geist-black);
-  color: var(--geist-white);
-  transition: background var(--duration-fast) ease;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
-.logo-text {
+.brand__text {
   font-size: 15px;
   font-weight: 600;
-  color: var(--geist-black);
-  letter-spacing: var(--tracking-label);
-  white-space: nowrap;
+  letter-spacing: var(--tracking-heading);
+  color: var(--text-strong);
 }
 
-.sidebar-divider {
-  height: 1px;
-  background: var(--gray-100);
-  margin: 0 14px;
-  flex-shrink: 0;
-}
-
-/* 导航 */
-.sidebar-nav {
-  flex: 1;
-  padding: 8px 8px;
-  overflow: hidden;
-}
-
-.nav-item {
+.nav {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  border-radius: var(--r-card);
+  gap: 2px;
+}
+
+.nav__item {
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--fs-sm);
+  font-weight: 450;
+  color: var(--text-secondary);
+  letter-spacing: var(--tracking-tight);
   cursor: pointer;
-  color: var(--gray-600);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
-  white-space: nowrap;
-  overflow: hidden;
-  margin-bottom: 1px;
-}
-.nav-item:hover {
-  background: var(--gray-50);
-  color: var(--geist-black);
-}
-.nav-item.active {
-  background: var(--gray-50);
-  color: var(--geist-black);
-  font-weight: 600;
-  box-shadow: var(--shadow-border);
+  transition: all var(--t-fast) var(--ease-out);
 }
 
-.nav-icon {
-  flex-shrink: 0;
-  font-size: 14px;
+.nav__item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nav__item.is-active {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+  font-weight: 550;
+}
+
+.topbar__right {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 16px;
-  color: inherit;
-}
-.nav-label { white-space: nowrap; }
-
-/* 底部 */
-.sidebar-footer {
-  padding: 10px 8px 14px;
-  border-top: 1px solid var(--gray-100);
-  display: flex;
-  flex-direction: column;
   gap: 6px;
-  flex-shrink: 0;
+  margin-left: auto;
 }
 
-.user-row {
-  display: flex;
+.user-chip {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 6px;
-  border-radius: var(--r-card);
+  height: 34px;
+  padding: 0 9px 0 5px;
+  margin-left: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: transparent;
   cursor: pointer;
-  transition: background var(--duration-fast) ease;
-  overflow: hidden;
-  white-space: nowrap;
+  transition: all var(--t-fast) var(--ease-out);
 }
-.user-row:hover { background: var(--gray-50); }
 
-.user-avatar { flex-shrink: 0; }
+.user-chip::before {
+  content: '';
+  position: absolute;
+  width: 1px;
+  height: 18px;
+  margin-left: -16px;
+  background: var(--border);
+}
 
-.user-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--geist-black);
+.user-chip:hover {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-xs);
+}
+
+.user-chip__name {
+  font-size: var(--fs-sm);
+  font-weight: 450;
+  color: var(--text-primary);
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: var(--tracking-label);
-}
-
-.plan-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: var(--r-subtle);
-  border: 1px solid;
   white-space: nowrap;
-  line-height: 1.5;
-  opacity: 0.85;
-  flex-shrink: 0;
 }
 
-.login-btn-wrap { padding: 0 2px; }
-.login-btn {
-  border-radius: var(--r-base) !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  box-shadow: var(--shadow-ring) !important;
-  border: none !important;
-  color: var(--geist-black) !important;
-  background: var(--geist-white) !important;
-}
-.login-btn:hover {
-  background: var(--gray-50) !important;
-  box-shadow: var(--shadow-border) !important;
+.user-chip__arrow { color: var(--text-faint); }
+
+.menu-head {
+  padding: 9px 11px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
-.collapse-btn {
-  display: flex;
+.menu-head__name {
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-head__meta {
+  margin-top: 2px;
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px -1px;
+  background: var(--border-subtle);
+}
+
+.burger {
+  display: none;
   align-items: center;
   justify-content: center;
-  height: 30px;
-  border-radius: var(--r-card);
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
   cursor: pointer;
-  color: var(--gray-400);
-  font-size: 13px;
-  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
-}
-.collapse-btn:hover {
-  background: var(--gray-50);
-  color: var(--geist-black);
 }
 
-/* ======= 主内容区 ======= */
-.content {
+.mobile-nav {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px var(--sp-4) 14px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.mobile-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: none;
+  border-radius: var(--r-md);
+  background: transparent;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-nav__item.is-active,
+.mobile-nav__item:hover { background: var(--bg-hover); }
+
+.main {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  transition: margin-left 0.22s var(--smooth);
-  overflow: hidden;
 }
 
-/* label 动画 */
-.fade-label-enter-active, .fade-label-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
 }
-.fade-label-enter-from, .fade-label-leave-to {
+
+.drawer-enter-from,
+.drawer-leave-to {
   opacity: 0;
-  transform: translateX(-4px);
+  transform: translateY(-6px);
+}
+
+@media (max-width: 860px) {
+  .topbar__inner { padding: 0 var(--sp-4); gap: 12px; }
+  .nav { display: none; }
+  .burger { display: inline-flex; }
+  .mobile-nav { display: flex; }
+  .hide-sm { display: none !important; }
+  .user-chip__name { display: none; }
 }
 </style>
