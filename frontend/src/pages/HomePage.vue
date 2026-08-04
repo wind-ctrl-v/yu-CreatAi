@@ -124,6 +124,7 @@ onMounted(() => {
               bare
               size="sm"
               width="112px"
+              menu-width="248px"
               align="left"
             />
             <span class="composer__hint">
@@ -236,7 +237,8 @@ onMounted(() => {
   z-index: 0;
 }
 
-.hero > *:not(.hero__bg) { position: relative; z-index: 1; }
+/* 底纹之上的常规内容：不设 z-index，按文档顺序层叠 */
+.hero > *:not(.hero__bg) { position: relative; }
 
 .hero__badge {
   display: inline-flex;
@@ -285,6 +287,9 @@ onMounted(() => {
 
 /* ── Prompt 卡片 ── */
 .composer {
+  position: relative;
+  /* 高于下方的建议 chips，避免模式下拉被覆盖 */
+  z-index: 20;
   max-width: 680px;
   margin: var(--sp-10) auto 0;
   padding: 16px 16px 12px;

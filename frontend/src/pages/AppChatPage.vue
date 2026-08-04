@@ -648,6 +648,8 @@ onBeforeUnmount(() => {
                 bare
                 size="sm"
                 width="132px"
+                menu-width="240px"
+                placement="top"
               />
               <CButton
                 variant="ghost"

@@ -20,10 +20,21 @@ const props = withDefaults(
     allowClear?: boolean
     width?: string
     align?: 'left' | 'right'
+    /** 面板弹出方向，底部空间不足时用 top */
+    placement?: 'bottom' | 'top'
+    /** 面板最小宽度，选项含描述时建议放宽 */
+    menuWidth?: string
     bare?: boolean
     id?: string
   }>(),
-  { size: 'md', disabled: false, allowClear: false, align: 'left', bare: false },
+  {
+    size: 'md',
+    disabled: false,
+    allowClear: false,
+    align: 'left',
+    placement: 'bottom',
+    bare: false,
+  },
 )
 
 const emit = defineEmits<{
@@ -129,7 +140,13 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     </button>
 
     <Transition name="pop">
-      <ul v-if="open" class="c-select__menu" :class="`align-${align}`" role="listbox">
+      <ul
+        v-if="open"
+        class="c-select__menu"
+        :class="[`align-${align}`, `place-${placement}`]"
+        :style="menuWidth ? { minWidth: `max(100%, ${menuWidth})` } : undefined"
+        role="listbox"
+      >
         <li
           v-for="(opt, i) in options"
           :key="opt.value"
@@ -268,8 +285,10 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 /* ── 下拉面板 ── */
 .c-select__menu {
   position: absolute;
-  top: calc(100% + 6px);
+  /* 至少与触发器同宽，内容更宽时按内容展开，避免描述文字被挤成多行 */
   min-width: 100%;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 32px));
   max-height: 288px;
   overflow-y: auto;
   padding: 5px;
@@ -280,12 +299,15 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
   z-index: var(--z-dropdown);
 }
 
+.place-bottom { top: calc(100% + 6px); }
+.place-top { bottom: calc(100% + 6px); }
+
 .align-left { left: 0; }
 .align-right { right: 0; }
 
 .c-select__opt {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 9px;
   padding: 8px 10px;
   border-radius: var(--r-sm);
@@ -308,7 +330,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
   cursor: not-allowed;
 }
 
-.c-select__opt-icon { color: var(--text-secondary); flex: none; }
+.c-select__opt-icon {
+  color: var(--text-secondary);
+  flex: none;
+  margin-top: 2px;
+}
 
 .c-select__opt-body {
   flex: 1;
@@ -319,18 +345,22 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 }
 
 .c-select__opt-label {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .c-select__opt-desc {
   font-size: var(--fs-2xs);
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
-.c-select__tick { color: var(--text-primary); flex: none; }
+.c-select__tick {
+  color: var(--text-primary);
+  flex: none;
+  margin-top: 3px;
+}
 
 .c-select__empty {
   padding: 14px;
@@ -350,5 +380,10 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .pop-leave-to {
   opacity: 0;
   transform: translateY(-4px) scale(0.985);
+}
+
+.place-top.pop-enter-from,
+.place-top.pop-leave-to {
+  transform: translateY(4px) scale(0.985);
 }
 </style>
