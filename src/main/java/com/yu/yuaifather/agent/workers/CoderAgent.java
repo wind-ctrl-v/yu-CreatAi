@@ -169,6 +169,9 @@ public class CoderAgent implements Agent {
         // 上一轮质检未通过的问题清单
         appendCriticIssues(sb, criticReport);
 
+        // 文件写入铁律：记忆压缩标记绝不是文件真实内容
+        appendFileWritingRule(sb);
+
         return sb.toString();
     }
 
@@ -319,6 +322,17 @@ public class CoderAgent implements Agent {
             sb.append("\n");
         }
         sb.append("\n");
+    }
+
+    /**
+     * 文件写入铁律（纯正向引导，不给模型提供可复读的示例文本）：
+     * 所有写入内容必须基于 readFile 读到的磁盘真实内容，禁止写入任何系统说明或摘要性文本。
+     */
+    private void appendFileWritingRule(StringBuilder sb) {
+        sb.append("## 文件写入要求（必须遵守）\n");
+        sb.append("- 所有需要写入或修改的文件，必须先调用 readFile 读取该文件的当前磁盘内容，只能基于读到的真实内容进行修改。\n");
+        sb.append("- 每个 writeFile 调用都必须一次提供文件的完整最终内容，内容是可直接运行的真实代码，不得写空文件或残缺片段。\n");
+        sb.append("- 你只能在需要的时候生成自己的代码，不要输出任何与代码无关的解释性文本。\n\n");
     }
 
     private String nullToEmpty(String s) {

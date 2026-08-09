@@ -6,7 +6,7 @@ import com.mybatisflex.core.service.IService;
 import com.yu.yuaifather.model.dto.chathistory.ChatHistoryQueryRequest;
 import com.yu.yuaifather.model.entity.ChatHistory;
 import com.yu.yuaifather.model.entity.User;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.ChatMemory;
 
 import java.time.LocalDateTime;
 
@@ -65,5 +65,5 @@ public interface ChatHistoryService extends IService<ChatHistory> {
      * @param maxCount    最大数量
      * @return 加载数量
      */
-    int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount);
+    int loadChatHistoryToMemory(Long appId, ChatMemory chatMemory, int maxCount);
 }

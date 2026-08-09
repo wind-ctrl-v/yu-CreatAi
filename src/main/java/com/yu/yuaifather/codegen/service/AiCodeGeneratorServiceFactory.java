@@ -3,13 +3,14 @@ package com.yu.yuaifather.codegen.service;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.yu.yuaifather.codegen.memory.CompressingChatMemoryStore;
+import com.yu.yuaifather.codegen.memory.CompressingWindowChatMemory;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.codegen.tools.*;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.service.ChatHistoryService;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
@@ -109,13 +110,8 @@ public class AiCodeGeneratorServiceFactory {
      * 创建新的 AI 服务实例
      */
     private AiCodeGeneratorService createAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
-        // 根据 appId 构建独立的对话记忆（包装 store 在 updateMessages 时压缩，记忆只存索引摘要）
-        MessageWindowChatMemory chatMemory = MessageWindowChatMemory
-                .builder()
-                .id(appId)
-                .chatMemoryStore(compressingChatMemoryStore)
-                .maxMessages(maxMessages)
-                .build();
+        // 根据 appId 构建内存优先对话记忆：模型读内存未压缩消息，Redis 只做压缩快照持久化
+        ChatMemory chatMemory = new CompressingWindowChatMemory(appId, compressingChatMemoryStore, maxMessages);
         // 从数据库加载历史对话到记忆中（加载时过压缩器，保留最新一条 AI 全文）
         chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, historyLoadCount);
         // 根据代码生成类型选择不同的模型配置

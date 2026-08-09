@@ -345,7 +345,7 @@ public class ChatMemoryCompressor {
             if (TOOL_WRITE_FILE.equals(name)) {
                 String content = json.getStr("content");
                 if (content != null && content.length() > compressThreshold) {
-                    json.set("content", "[已省略, " + content.length() + "字符]");
+                    json.set("content", "[系统压缩省略(" + content.length() + "字符)，禁止作为文件内容写入，需修改请先 readFile]");
                 }
             } else {
                 // old→new 片段本身是变更语义的最佳载体，不完全省略
@@ -386,7 +386,7 @@ public class ChatMemoryCompressor {
         String replacement;
         if (TOOL_READ_FILE.equals(message.toolName())) {
             String path = readFilePaths.getOrDefault(message.id(), "未知文件");
-            replacement = "[已读取 " + path + "，" + text.length() + "字符，内容已省略]";
+            replacement = "[已读取 " + path + "，" + text.length() + "字符，内容已省略，需真实内容请再次 readFile]";
         } else {
             replacement = fallbackTruncate(text);
         }

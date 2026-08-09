@@ -14,13 +14,12 @@ import com.yu.yuaifather.model.entity.ChatHistory;
 import com.yu.yuaifather.mapper.ChatHistoryMapper;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.enums.ChatHistoryMessageTypeEnum;
-import com.yu.yuaifather.codegen.memory.ChatMemoryCompressor;
 import com.yu.yuaifather.service.AppService;
 import com.yu.yuaifather.service.ChatHistoryService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.ChatMemory;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -42,9 +41,6 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     @Resource
     @Lazy
     private AppService appService;
-
-    @Resource
-    private ChatMemoryCompressor chatMemoryCompressor;
 
 
     @Override
@@ -139,7 +135,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
 
 
     @Override
-    public int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount) {
+    public int loadChatHistoryToMemory(Long appId, ChatMemory chatMemory, int maxCount) {
         try {
             // 直接构造查询条件，起始点为 1 而不是 0，用于排除最新的用户消息
             QueryWrapper queryWrapper = QueryWrapper.create()
@@ -161,14 +157,13 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
                     messages.add(AiMessage.from(history.getMessage()));
                 }
             }
-            // 冷启动拦截点：加载时过压缩器（保留最新一条 AI 全文，与运行时压缩形态对齐），
-            // 使 Caffeine 过期重建后的冷实例与热实例行为一致
-            List<ChatMessage> compressedMessages = chatMemoryCompressor.compressAll(messages);
+            // 冷启动恢复：直接加载 MySQL 全文到内存记忆（CompressingWindowChatMemory 内存不压缩，
+            // Redis 压缩快照仅作备份、不再反向进入模型上下文），避免模型读到压缩占位符
             // 先清理历史缓存，防止重复加载
             chatMemory.clear();
             // 按时间顺序添加到记忆中
             int loadedCount = 0;
-            for (ChatMessage message : compressedMessages) {
+            for (ChatMessage message : messages) {
                 chatMemory.add(message);
                 loadedCount++;
             }

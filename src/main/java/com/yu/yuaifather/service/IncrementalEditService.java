@@ -4,6 +4,7 @@ import cn.hutool.json.JSONUtil;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.yu.yuaifather.codegen.memory.CompressingChatMemoryStore;
+import com.yu.yuaifather.codegen.memory.CompressingWindowChatMemory;
 import com.yu.yuaifather.codegen.tools.*;
 import com.yu.yuaifather.codegen.stream.model.AiResponseMessage;
 import com.yu.yuaifather.codegen.stream.model.ToolExecutedMessage;
@@ -12,7 +13,7 @@ import com.yu.yuaifather.constant.AppConstant;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.*;
@@ -139,11 +140,7 @@ public class IncrementalEditService {
     }
 
     private IncrementalEditAi createEditAi(Long appId) {
-        MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
-                .id(appId)
-                .maxMessages(maxMessages)
-                .chatMemoryStore(compressingChatMemoryStore)
-                .build();
+        ChatMemory chatMemory = new CompressingWindowChatMemory(appId, compressingChatMemoryStore, maxMessages);
         return AiServices.builder(IncrementalEditAi.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> chatMemory)
@@ -159,11 +156,7 @@ public class IncrementalEditService {
     }
 
     private IncrementalEditStreamAi createEditStreamAi(Long appId) {
-        MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
-                .id(appId)
-                .maxMessages(maxMessages)
-                .chatMemoryStore(compressingChatMemoryStore)
-                .build();
+        ChatMemory chatMemory = new CompressingWindowChatMemory(appId, compressingChatMemoryStore, maxMessages);
         return AiServices.builder(IncrementalEditStreamAi.class)
                 .streamingChatModel(reasoningStreamingChatModel)
                 .chatMemoryProvider(memoryId -> chatMemory)
