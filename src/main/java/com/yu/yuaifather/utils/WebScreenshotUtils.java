@@ -140,11 +140,20 @@ public class WebScreenshotUtils {
                 System.setProperty("webdriver.chrome.driver", CHROME_DRIVER_PATH);
             }
 
-            // 2) 配置 Chrome 选项，显式指定 Chrome 路径（不在 PATH 时 WebDriverManager 找不到）
+            //2) 配置 Chrome 选项，显式指定 Chrome 路径（不在 PATH 时WebDriverManager 找不到）
             ChromeOptions options = new ChromeOptions();
             String[] chromePaths = {
+                // Windows
                 "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-                "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+                "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+                // macOS
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                // Linux
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium"
             };
             for (String cp : chromePaths) {
                 if (new File(cp).exists()) {

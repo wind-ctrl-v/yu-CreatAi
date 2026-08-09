@@ -709,7 +709,7 @@ onBeforeUnmount(() => {
             ref="previewIframeRef"
             :key="previewKey"
             :src="previewUrl"
-            sandbox="allow-scripts allow-forms"
+            sandbox="allow-scripts allow-forms allow-same-origin"
             title="应用预览"
             @load="onIframeLoad"
           />

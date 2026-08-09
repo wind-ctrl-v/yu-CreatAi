@@ -55,7 +55,8 @@ export function attachElementPicker(
   }
 
   const onMessage = (event: MessageEvent) => {
-    if (event.source !== targetWindow || event.origin !== expectedOrigin) return
+    // 只校验消息来源是否为目标 iframe（origin在 allow-same-origin 前可能为 null，不强校验）
+    if (event.source !== targetWindow) return
     const message = event.data as { type?: unknown; payload?: unknown } | null
     if (!message || message.type !== 'creatai:element-picked' || !isPickedElement(message.payload)) return
     onPick(message.payload)
