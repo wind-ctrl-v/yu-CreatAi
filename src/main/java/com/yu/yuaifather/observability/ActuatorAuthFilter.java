@@ -3,12 +3,12 @@ package com.yu.yuaifather.observability;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.enums.UserRoleEnum;
 import com.yu.yuaifather.service.UserService;
-import jakarta.annotation.Resource;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -28,8 +28,15 @@ public class ActuatorAuthFilter extends OncePerRequestFilter {
     private static final String ACTUATOR_PATH = "/actuator/";
     private static final String HEALTH_PATH = "/actuator/health";
 
-    @Resource
-    private UserService userService;
+    /**
+     * 惰性获取 UserService：Filter Bean 在 Tomcat 启动阶段（早于普通单例初始化）即被创建，
+     * 直接注入会过早触发 Service → Mapper 依赖链，导致 sqlSessionFactory 尚未就绪而启动失败。
+     */
+    private final ObjectProvider<UserService> userServiceProvider;
+
+    public ActuatorAuthFilter(ObjectProvider<UserService> userServiceProvider) {
+        this.userServiceProvider = userServiceProvider;
+    }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -41,7 +48,7 @@ public class ActuatorAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         try {
-            User loginUser = userService.getLoginUser(request);
+            User loginUser = userServiceProvider.getObject().getLoginUser(request);
             UserRoleEnum userRoleEnum = UserRoleEnum.getEnumByValue(loginUser.getUserRole());
             if (UserRoleEnum.ADMIN.equals(userRoleEnum)) {
                 filterChain.doFilter(request, response);
