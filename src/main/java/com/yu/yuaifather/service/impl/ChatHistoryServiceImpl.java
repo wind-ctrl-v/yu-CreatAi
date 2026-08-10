@@ -14,6 +14,7 @@ import com.yu.yuaifather.model.entity.ChatHistory;
 import com.yu.yuaifather.mapper.ChatHistoryMapper;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.enums.ChatHistoryMessageTypeEnum;
+import com.yu.yuaifather.codegen.memory.CompressingWindowChatMemory;
 import com.yu.yuaifather.service.AppService;
 import com.yu.yuaifather.service.ChatHistoryService;
 import dev.langchain4j.data.message.AiMessage;
@@ -157,16 +158,17 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
                     messages.add(AiMessage.from(history.getMessage()));
                 }
             }
-            // 冷启动恢复：直接加载 MySQL 全文到内存记忆（CompressingWindowChatMemory 内存不压缩，
-            // Redis 压缩快照仅作备份、不再反向进入模型上下文），避免模型读到压缩占位符
-            // 先清理历史缓存，防止重复加载
-            chatMemory.clear();
-            // 按时间顺序添加到记忆中
-            int loadedCount = 0;
-            for (ChatMessage message : messages) {
-                chatMemory.add(message);
-                loadedCount++;
+            // 冷启动恢复：直接加载 MySQL 全文到内存记忆（内存窗口是模型上下文的事实源，
+            // Redis 压缩快照仅作备份、不反向进入模型上下文），避免模型读到压缩占位符
+            // 只清理内存窗口，保留 Redis 备份（备份是排障资产，不应随实例重建被删）
+            if (chatMemory instanceof CompressingWindowChatMemory memory) {
+                memory.clearMemoryOnly();
+            } else {
+                chatMemory.clear();
             }
+            // 批量按时间顺序添加：只触发一次快照，避免逐条引发全窗口压缩 + Redis 写
+            chatMemory.add(messages);
+            int loadedCount = messages.size();
             log.info("成功为 appId: {} 加载了 {} 条历史对话", appId, loadedCount);
             return loadedCount;
         } catch (Exception e) {

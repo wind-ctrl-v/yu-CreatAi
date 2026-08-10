@@ -3,8 +3,8 @@ package com.yu.yuaifather.service;
 import cn.hutool.json.JSONUtil;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.yu.yuaifather.codegen.memory.CompressingChatMemoryStore;
-import com.yu.yuaifather.codegen.memory.CompressingWindowChatMemory;
+import com.yu.yuaifather.codegen.memory.ChatMemoryFactory;
+import com.yu.yuaifather.codegen.memory.ChatMemoryIds;
 import com.yu.yuaifather.codegen.tools.*;
 import com.yu.yuaifather.codegen.stream.model.AiResponseMessage;
 import com.yu.yuaifather.codegen.stream.model.ToolExecutedMessage;
@@ -37,36 +37,43 @@ public class IncrementalEditService {
     private final ChatModel chatModel;
     private final StreamingChatModel reasoningStreamingChatModel;
     private final ToolManager toolManager;
-    private final CompressingChatMemoryStore compressingChatMemoryStore;
+    private final ChatMemoryFactory chatMemoryFactory;
+    private final ChatHistoryService chatHistoryService;
 
-    @Value("${agent.memory.max-messages:100}")
-    private int maxMessages;
+    /**
+     * 冷启动从 MySQL 加载的历史条数
+     */
+    @Value("${agent.memory.load-count:20}")
+    private int historyLoadCount;
 
     /**
      * AI 服务实例缓存（仿 AiCodeGeneratorServiceFactory）：避免每请求重建实例与重复绑定工具。
-     * 记忆接入与主链路同一个 CompressingChatMemoryStore，共享 appId 记忆，
-     * 使连续可视化修改能看到"上一次改了什么"。
+     * 记忆走独立的 {@code appId#edit} memoryId（避免与主链路互相覆盖 Redis 快照），
+     * 并在创建时从 MySQL 冷加载历史，使连续可视化修改能看到"上一次改了什么"。
+     * 每个实例持有一份全文消息窗口，缓存容量不宜过大。
      */
     private final Cache<Long, IncrementalEditAi> editAiCache = Caffeine.newBuilder()
-            .maximumSize(1000)
-            .expireAfterWrite(Duration.ofMinutes(30))
+            .maximumSize(200)
+            .expireAfterWrite(Duration.ofMinutes(15))
             .expireAfterAccess(Duration.ofMinutes(10))
             .build();
 
     private final Cache<Long, IncrementalEditStreamAi> editStreamAiCache = Caffeine.newBuilder()
-            .maximumSize(1000)
-            .expireAfterWrite(Duration.ofMinutes(30))
+            .maximumSize(200)
+            .expireAfterWrite(Duration.ofMinutes(15))
             .expireAfterAccess(Duration.ofMinutes(10))
             .build();
 
     public IncrementalEditService(ChatModel chatModel,
                                    StreamingChatModel reasoningStreamingChatModel,
                                    ToolManager toolManager,
-                                   CompressingChatMemoryStore compressingChatMemoryStore) {
+                                   ChatMemoryFactory chatMemoryFactory,
+                                   ChatHistoryService chatHistoryService) {
         this.chatModel = chatModel;
         this.reasoningStreamingChatModel = reasoningStreamingChatModel;
         this.toolManager = toolManager;
-        this.compressingChatMemoryStore = compressingChatMemoryStore;
+        this.chatMemoryFactory = chatMemoryFactory;
+        this.chatHistoryService = chatHistoryService;
     }
 
     /**
@@ -140,12 +147,21 @@ public class IncrementalEditService {
     }
 
     private IncrementalEditAi createEditAi(Long appId) {
-        ChatMemory chatMemory = new CompressingWindowChatMemory(appId, compressingChatMemoryStore, maxMessages);
+        ChatMemory chatMemory = createEditMemory(appId);
         return AiServices.builder(IncrementalEditAi.class)
                 .chatModel(chatModel)
                 .chatMemoryProvider(memoryId -> chatMemory)
                 .tools((Object[]) toolManager.getAllTools())
                 .build();
+    }
+
+    /**
+     * 创建增量编辑链路的对话记忆：独立 memoryId + MySQL 冷加载，保证跨请求能看到上一次的修改。
+     */
+    private ChatMemory createEditMemory(Long appId) {
+        ChatMemory chatMemory = chatMemoryFactory.create(ChatMemoryIds.forEdit(appId));
+        chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, historyLoadCount);
+        return chatMemory;
     }
 
     /**
@@ -156,7 +172,7 @@ public class IncrementalEditService {
     }
 
     private IncrementalEditStreamAi createEditStreamAi(Long appId) {
-        ChatMemory chatMemory = new CompressingWindowChatMemory(appId, compressingChatMemoryStore, maxMessages);
+        ChatMemory chatMemory = createEditMemory(appId);
         return AiServices.builder(IncrementalEditStreamAi.class)
                 .streamingChatModel(reasoningStreamingChatModel)
                 .chatMemoryProvider(memoryId -> chatMemory)

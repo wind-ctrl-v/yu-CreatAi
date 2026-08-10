@@ -306,3 +306,32 @@ VUE 链路在 MySQL 里是 `generateToolExecutedResult` 拼的文本。修改轮
 | `codegen/tools/FileModifyTool` | 参数含新旧片段 | 阶段一 R2 |
 | `service/IncrementalEditService` | 可视化修改，记忆未持久化 | 阶段二 |
 | `codegen/parser/MultiFileCodeParser` | 代码块正则切分，R1 可复用其思路 | 阶段一 R1 |
+
+---
+
+## 附录 A：形态变更（2026-08-10起生效）
+
+本计划落地时采用的是「Redis store 层压缩 + `MessageWindowChatMemory` 每轮回读」形态。该形态存在一个致命副作用：
+模型每轮读到的是**已压缩**的消息，`writeFile` 的 content 被替换为占位符后，模型会把占位符当成文件真实内容
+再写回磁盘，产出空文件 / 残缺文件。
+
+因此记忆形态已切换为「**内存全文 + 渲染时分层压缩**」：
+
+```
+JVM 内存窗口：未压缩的真实消息（本进程内的事实源）
+    ↓ CompressingWindowChatMemory#messages() 渲染
+最近 N 轮（按 UserMessage 边界）→ 原样全文
+更早历史 → 过 ChatMemoryCompressor
+    ↓ 字符预算裁剪（尾部优先 + 工具消息配对保护）
+LLM 上下文
+    ↘按间隔压缩后写 Redis（仅备份，不回读、不进入上下文）
+跨请求恢复 → MySQL 冷加载全文
+```
+
+对本文各章节的影响：
+
+- 第 5 章的压缩规则（R1 / R2 / R3）全部保留，只是**作用位置**从「写 Redis 前」变为「渲染远端历史时」；
+- 第 2.1 节的三层存储图中，Redis 不再是模型上下文的来源，降级为备份；
+- 第 9 章「Token 恒定性」的保障者从 `max-messages` 变为 `char-budget` + `full-text-turns`；
+- 新增的协议保护（SystemMessage 去重、工具消息配对淘汰）与参数含义见
+  `docs/chat-memory-inmemory-window-fix-plan.md`。

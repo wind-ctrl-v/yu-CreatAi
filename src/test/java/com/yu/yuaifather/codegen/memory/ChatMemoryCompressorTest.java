@@ -177,7 +177,8 @@ class ChatMemoryCompressorTest {
         // id / name 结构不变（工具调用与结果需配对校验）
         assertEquals("t1", compressedReq.id());
         assertEquals("writeFile", compressedReq.name());
-        assertEquals("[已省略, 2000字符]", JSONUtil.parseObj(compressedReq.arguments()).getStr("content"));
+        assertEquals("[系统压缩省略(2000字符)，禁止作为文件内容写入，需修改请先 readFile]",
+                JSONUtil.parseObj(compressedReq.arguments()).getStr("content"));
         assertEquals("index.html", JSONUtil.parseObj(compressedReq.arguments()).getStr("relativeFilePath"));
     }
 
@@ -233,7 +234,7 @@ class ChatMemoryCompressorTest {
                 AiMessage.from(List.of(readRequest)), readResult, AiMessage.from("完成")));
 
         ToolExecutionResultMessage compressed = (ToolExecutionResultMessage) result.get(1);
-        assertEquals("[已读取 src/App.vue，3000字符，内容已省略]", compressed.text());
+        assertEquals("[已读取 src/App.vue，3000字符，内容已省略，需真实内容请再次 readFile]", compressed.text());
         assertEquals("r1", compressed.id());
         assertEquals("readFile", compressed.toolName());
     }
@@ -270,7 +271,7 @@ class ChatMemoryCompressorTest {
 
         AiMessage last = (AiMessage) result.get(1);
         assertEquals(bigText, last.text());
-        assertEquals("[已省略, 2000字符]",
+        assertEquals("[系统压缩省略(2000字符)，禁止作为文件内容写入，需修改请先 readFile]",
                 JSONUtil.parseObj(last.toolExecutionRequests().get(0).arguments()).getStr("content"));
     }
 

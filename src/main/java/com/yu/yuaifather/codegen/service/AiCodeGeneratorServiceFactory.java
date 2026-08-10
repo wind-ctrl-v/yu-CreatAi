@@ -2,8 +2,8 @@ package com.yu.yuaifather.codegen.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.yu.yuaifather.codegen.memory.CompressingChatMemoryStore;
-import com.yu.yuaifather.codegen.memory.CompressingWindowChatMemory;
+import com.yu.yuaifather.codegen.memory.ChatMemoryFactory;
+import com.yu.yuaifather.codegen.memory.ChatMemoryIds;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.codegen.tools.*;
 import com.yu.yuaifather.exception.BusinessException;
@@ -36,19 +36,13 @@ public class AiCodeGeneratorServiceFactory {
     private  StreamingChatModel reasoningStreamingChatModel;
 
     @Resource
-    private CompressingChatMemoryStore compressingChatMemoryStore;
+    private ChatMemoryFactory chatMemoryFactory;
 
     @Resource
     private ChatHistoryService chatHistoryService;
 
     @Resource
     private ToolManager toolManager;
-
-    /**
-     * 记忆窗口最大消息条数（压缩后单条 ~300 字符，上下文总量恒定）
-     */
-    @Value("${agent.memory.max-messages:100}")
-    private int maxMessages;
 
     /**
      * 冷启动从 MySQL 加载的历史条数
@@ -69,13 +63,13 @@ public class AiCodeGeneratorServiceFactory {
     /**
      * AI 服务实例缓存
      * 缓存策略：
-     * - 最大缓存 1000 个实例
-     * - 写入后 30 分钟过期
+     * - 最大缓存 200 个实例（每个实例持有一份全文消息窗口，容量不宜过大）
+     * - 写入后 15 分钟过期
      * - 访问后 10 分钟过期
      */
     private final Cache<String, AiCodeGeneratorService> serviceCache = Caffeine.newBuilder()
-            .maximumSize(1000)
-            .expireAfterWrite(Duration.ofMinutes(30))
+            .maximumSize(200)
+            .expireAfterWrite(Duration.ofMinutes(15))
             .expireAfterAccess(Duration.ofMinutes(10))
             .removalListener((key, value, cause) -> {
                 log.debug("AI 服务实例被移除，缓存键: {}, 原因: {}", key, cause);
@@ -104,15 +98,29 @@ public class AiCodeGeneratorServiceFactory {
         return appId + "_" + codeGenType.getValue();
     }
 
+    /**
+     * 失效某个应用的全部 AI 服务实例。
+     *
+     * <p>模型上下文由实例内部的内存记忆窗口承载，因此「清空记忆」必须落到实例上：
+     * 实例失效后下次请求会重建并从 MySQL 冷加载（条数受 {@code agent.memory.load-count} 限制），
+     * 上下文规模必然小于触发超限时的窗口。仅删 Redis 快照对模型上下文没有任何作用。</p>
+     */
+    public void invalidate(long appId) {
+        for (CodeGenTypeEnum codeGenType : CodeGenTypeEnum.values()) {
+            serviceCache.invalidate(buildCacheKey(appId, codeGenType));
+        }
+        log.info("已失效应用的AI 服务实例与内存记忆 appId={}", appId);
+    }
 
 
     /**
      * 创建新的 AI 服务实例
      */
     private AiCodeGeneratorService createAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
-        // 根据 appId 构建内存优先对话记忆：模型读内存未压缩消息，Redis 只做压缩快照持久化
-        ChatMemory chatMemory = new CompressingWindowChatMemory(appId, compressingChatMemoryStore, maxMessages);
-        // 从数据库加载历史对话到记忆中（加载时过压缩器，保留最新一条 AI 全文）
+        // 内存优先对话记忆：模型读内存未压缩消息（渲染时按轮次分层压缩），Redis 只做快照备份
+        // memoryId 携带用途后缀，避免同一 appId 的多个实例互相覆盖 Redis 快照
+        ChatMemory chatMemory = chatMemoryFactory.create(ChatMemoryIds.forCodeGen(appId, codeGenType));
+        // 从 MySQL 加载历史对话全文到内存记忆（不过压缩器）
         chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, historyLoadCount);
         // 根据代码生成类型选择不同的模型配置
         return switch (codeGenType) {

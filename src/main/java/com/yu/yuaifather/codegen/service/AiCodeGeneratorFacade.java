@@ -1,6 +1,7 @@
 package com.yu.yuaifather.codegen.service;
 
 import cn.hutool.json.JSONUtil;
+import com.yu.yuaifather.codegen.memory.ChatMemoryIds;
 import com.yu.yuaifather.codegen.memory.CompressingChatMemoryStore;
 import com.yu.yuaifather.service.design.ImagePlaceholderReplacer;
 import com.yu.yuaifather.codegen.parser.CodeParserExecutor;
@@ -42,8 +43,8 @@ public class AiCodeGeneratorFacade {
     /**
      * 统一入口：根据类型生成并保存代码（流式，使用 appId）
      *
-     * <p>超限自愈：捕获 context_length_exceeded 时清空该 appId 记忆，带当前消息重试一次，
-     * 避免长会话撞上限后用户卡死（记忆压缩后极少触发，此为兜底）。</p>
+     * <p>超限自愈：捕获 context_length_exceeded 时重置该 appId 的记忆，带当前消息重试一次，
+     * 避免长会话撞上限后用户卡死（分层渲染后极少触发，此为兜底）。</p>
      *
      * @param userMessage     用户提示词
      * @param codeGenTypeEnum 生成类型
@@ -58,14 +59,35 @@ public class AiCodeGeneratorFacade {
                     if (!isContextLengthExceeded(error)) {
                         return Flux.error(error);
                     }
-                    log.warn("检测到上下文超限，清空记忆后重试一次 appId={} err={}", appId, error.getMessage());
-                    try {
-                        compressingChatMemoryStore.deleteMessages(appId);
-                    } catch (Exception e) {
-                        log.warn("清空对话记忆失败 appId={} err={}", appId, e.getMessage());
-                    }
+                    log.warn("检测到上下文超限，重置记忆后重试一次 appId={} err={}", appId, error.getMessage());
+                    resetMemory(appId);
                     return Flux.defer(() -> doGenerateAndSaveCodeStream(userMessage, codeGenTypeEnum, appId));
                 });
+    }
+
+    /**
+     * 重置某个应用的对话记忆。
+     *
+     * <p>模型上下文来自 AI 服务实例内部的内存记忆窗口，因此必须失效实例本身：
+     * 下次请求重建实例时从 MySQL 冷加载有限条数，上下文规模必然小于触发超限时的窗口。
+     * 只删 Redis 快照对模型上下文毫无作用（快照不回读），但顺带清掉已失真的备份是合理的。</p>
+     */
+    private void resetMemory(Long appId) {
+        if (appId == null) {
+            return;
+        }
+        try {
+            aiCodeGeneratorServiceFactory.invalidate(appId);
+        } catch (Exception e) {
+            log.warn("失效 AI 服务实例失败 appId={} err={}", appId, e.getMessage());
+        }
+        for (String memoryId : ChatMemoryIds.allOf(appId)) {
+            try {
+                compressingChatMemoryStore.deleteMessages(memoryId);
+            } catch (Exception e) {
+                log.warn("清空对话记忆快照失败 memoryId={} err={}", memoryId, e.getMessage());
+            }
+        }
     }
 
     /**

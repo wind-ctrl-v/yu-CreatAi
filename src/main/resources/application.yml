@@ -147,12 +147,24 @@ agent:
     synth:
       enabled: ${AGENT_RETRIEVE_SYNTH_ENABLED:false}
       miss-threshold: ${AGENT_RETRIEVE_SYNTH_MISS_THRESHOLD:2}
-  # 对话记忆治理：窗口 + 冷启动加载 + 记忆压缩（记忆里只存索引摘要，全文在 MySQL / 磁盘）
+  # 对话记忆治理：JVM 内存窗口存全文（模型上下文的事实源）+ 渲染时分层压缩 + 字符预算裁剪；
+  # Redis 只保存压缩快照作备份，不回读、不进入模型上下文；跨请求恢复走 MySQL 冷加载
   memory:
-    # 记忆窗口最大消息条数（压缩后单条 ~300 字符，上下文总量不随轮次增长）
-    max-messages: 100
+    # JVM 内存窗口最大消息条数（内存存全文，不可沿用压缩形态下的大值）
+    max-messages: ${AGENT_MEMORY_MAX_MESSAGES:60}
     # 冷启动从 MySQL 加载的历史条数（跳过最新 1 条本轮用户消息）
     load-count: 20
+    # 发给模型时保持全文的最近轮次数（以 UserMessage 为轮次边界，保证本轮 readFile/writeFile 内容真实）
+    full-text-turns: ${AGENT_MEMORY_FULL_TEXT_TURNS:2}
+    # 全文段条数兜底上限，防止单轮工具消息过多把预算吃光
+    full-text-max-messages: ${AGENT_MEMORY_FULL_TEXT_MAX_MESSAGES:24}
+    # 上下文字符预算，超出则从最早消息开始丢弃。混合内容保守按 2 字符/token 折算，
+    # 80000 ≈ 40K token，为 64K 上下文窗口与 8192 输出预留余量
+    char-budget: ${AGENT_MEMORY_CHAR_BUDGET:80000}
+    # 单条消息入内存前的硬截断上限，防止一次超大工具结果顶爆窗口
+    hard-max-message-chars: ${AGENT_MEMORY_HARD_MAX_MESSAGE_CHARS:200000}
+    # 每累积多少条消息向 Redis 落一次压缩快照（快照仅为备份）
+    snapshot-every: ${AGENT_MEMORY_SNAPSHOT_EVERY:5}
     compress:
       # 单条消息超过该字符数才触发压缩，短消息原样保留
       threshold: 1500
