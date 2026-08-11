@@ -39,8 +39,8 @@
     "radii": "8px 统一圆角",
     "shadow": "单层轻阴影"
   },
-  "layout": { "skeleton": "Hero + 3栏特性 + 定价", "whitespace": "宽松", "focus": "中间定价卡" },
-  "components": ["sticky-nav", "bordered-card", "restrained-cta"],
+  "layout": { "skeleton": "分屏导览 + 编辑式内容流 + 时间线案例", "whitespace": "疏密交替", "focus": "错位媒体与标题组合" },
+  "components": ["split-intro", "editorial-list", "timeline-story"],
   "interaction": { "motion": "克制", "transition": "200ms ease" },
   "antiPatterns": ["no-glassmorphism", "no-decorative-gradient", "no-hardcoded-px"],
   "tone": ["极简", "科技感"]
@@ -50,6 +50,7 @@
 ## 约束
 
 - styleProfile 只能取：startup / enterprise / ecommerce / portfolio / dashboard / landing / marketing / education / blog / default。
+- 示例只展示 JSON 结构，不代表推荐布局；所有指纹字段必须来自页面摘要证据，禁止照抄示例字段值。
 - 不要输出 confidence（置信度由系统按客观信号计算，不采纳 LLM 自报值）。
 - 不要编造摘要中不存在的细节；信息不足的层给出保守、可迁移的概括。
 - 只输出 JSON，可被 ObjectMapper.readValue 解析；禁止任何说明、思考过程、markdown 围栏。

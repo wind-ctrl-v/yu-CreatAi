@@ -161,7 +161,8 @@ public class GenerationOrchestrator {
                 .concatWith(runRuleCritic(ctx, tc, ruleHolder))
                 .concatWith(Flux.defer(() -> {
                     RuleCriticTool.RuleCriticResult r = ruleHolder.get();
-                    boolean needLlm = r != null && (r.missingRequiredFiles() || r.hasPlaceholders());
+                    boolean needLlm = r != null && (r.missingRequiredFiles()
+                            || r.hasPlaceholders() || r.hasDesignSimilarityIssues());
                     if (policy.isEnableLlmCritic() && needLlm && policy.getMaxCriticRounds() > 0) {
                         return Flux.just(AgentEvent.status(NAME, "规则检查未通过，启用 LLM Critic 修复"))
                                 .concatWith(runCriticLoop(ctx, policy.getMaxCriticRounds()));
@@ -211,6 +212,9 @@ public class GenerationOrchestrator {
                     }
                     if (dc.getDesignEvidence() != null) {
                         ctx.getBlackboard().putDesignEvidence(dc.getDesignEvidence());
+                    }
+                    if (dc.getPromptContext() != null) {
+                        ctx.getBlackboard().putPromptContext(dc.getPromptContext());
                     }
                     if (dc.getImageMap() != null) {
                         ctx.getBlackboard().putImageMap(dc.getImageMap());
@@ -291,7 +295,8 @@ public class GenerationOrchestrator {
                     // 按 issue 分类决定本轮修复分支
                     List<CriticReport.Issue> issues = report.getIssues();
                     boolean hasStyle = issues != null && issues.stream().anyMatch(i ->
-                            "style".equalsIgnoreCase(i.getCategory()));
+                            "style".equalsIgnoreCase(i.getCategory())
+                                    || "design_similarity".equalsIgnoreCase(i.getCategory()));
                     boolean hasCoder = issues == null || issues.isEmpty()
                             || issues.stream().anyMatch(i -> !"style".equalsIgnoreCase(i.getCategory()));
                     String thisBranch = (hasStyle && hasCoder) ? BRANCH_BOTH

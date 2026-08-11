@@ -18,6 +18,9 @@ const router = useRouter()
 const prompt = ref('')
 const creating = ref(false)
 const genMode = ref<string>('standard')
+const visualStyle = ref('brand')
+const layoutDirection = ref('adaptive')
+const noveltyLevel = ref('distinctive')
 
 const {
   records: goodApps,
@@ -36,6 +39,52 @@ const modeOptions = [
   { value: 'high_quality', label: '高质量', desc: '细节最完整，耗时更长', icon: 'sparkles' },
 ]
 
+const visualStyleOptions = [
+  { value: 'brand', label: '品牌驱动', desc: '从行业和品牌内容提炼专属视觉语言' },
+  { value: 'editorial', label: '编辑杂志', desc: '强调排版、内容节奏和视觉层级' },
+  { value: 'minimal', label: '精致克制', desc: '少装饰、强秩序与高质量留白' },
+  { value: 'digital', label: '数字实验', desc: '更鲜明的数字感、几何感和动效表达' },
+  { value: 'humanist', label: '复古人文', desc: '温暖、叙事化并带有手工质感' },
+]
+
+const layoutDirectionOptions = [
+  { value: 'adaptive', label: '智能布局', desc: '根据内容选择差异化页面骨架' },
+  { value: 'asymmetric', label: '非对称网格', desc: '错位构图和不等宽内容组织' },
+  { value: 'split', label: '分屏叙事', desc: '左右分屏并突出主要视觉焦点' },
+  { value: 'editorial', label: '编辑排版', desc: '目录、栏目和长短内容混排' },
+  { value: 'immersive', label: '沉浸媒体', desc: '以大图、视频感区域和场景切换为主' },
+  { value: 'data-story', label: '数据叙事', desc: '统计带、时间线和数据模块组合' },
+]
+
+const noveltyOptions = [
+  { value: 'safe', label: '稳妥', desc: '保持熟悉体验，同时避免模板化' },
+  { value: 'distinctive', label: '差异化', desc: '明显区别于常见同类网站' },
+  { value: 'experimental', label: '实验性', desc: '允许更大胆的构图和交互表达' },
+]
+
+const visualStyleBriefs: Record<string, string> = {
+  brand: '品牌驱动，从行业、受众和内容中提炼专属视觉语言',
+  editorial: '编辑杂志感，突出字体层级、栏目节奏和内容叙事',
+  minimal: '精致克制，减少装饰并通过留白和细节建立质感',
+  digital: '数字实验感，使用鲜明几何秩序与适度动态表达',
+  humanist: '复古人文感，强调温暖色调、故事性和手工质感',
+}
+
+const layoutBriefs: Record<string, string> = {
+  adaptive: '根据内容自适应选择骨架，避免固定 Hero 加三栏卡片结构',
+  asymmetric: '使用非对称网格和错位视觉重心',
+  split: '使用分屏叙事，并通过左右区域形成清晰焦点',
+  editorial: '采用编辑式排版，组合目录、栏目、长短内容和跨栏元素',
+  immersive: '采用沉浸式媒体布局，以大幅视觉区域组织浏览节奏',
+  'data-story': '采用数据叙事布局，组合统计带、时间线和信息模块',
+}
+
+const noveltyBriefs: Record<string, string> = {
+  safe: '稳妥创新，保留熟悉交互但不能照搬常见模板',
+  distinctive: '明显差异化，至少使用两种不同的信息组织方式并强化品牌辨识度',
+  experimental: '实验性表达，允许大胆构图与交互，但必须保证可读性和可用性',
+}
+
 const suggestions = [
   { text: '企业官网首页', icon: 'globe' },
   { text: '个人博客', icon: 'file' },
@@ -53,11 +102,17 @@ const capabilities = [
 ]
 
 async function handleCreate() {
-  const initPrompt = prompt.value.trim()
-  if (!initPrompt) {
+  const basePrompt = prompt.value.trim()
+  if (!basePrompt) {
     message.warning('请先描述你想要生成的网站')
     return
   }
+  const creativeBrief = [
+    visualStyleBriefs[visualStyle.value],
+    layoutBriefs[layoutDirection.value],
+    noveltyBriefs[noveltyLevel.value],
+  ].filter(Boolean).join('；')
+  const initPrompt = `${basePrompt}\n\n【创意方向】${creativeBrief}。请将这些要求落实到页面结构、排版、色彩、组件和媒体语言中。`
   creating.value = true
   const res = await addApp({ initPrompt }).catch(() => null)
   creating.value = false
@@ -115,6 +170,43 @@ onMounted(() => {
           placeholder="例如：帮我做一个现代风格的咖啡馆官网，包含首页、菜单和联系方式…"
           @submit="handleCreate"
         />
+
+        <div class="composer__controls" aria-label="创意方向">
+          <label class="composer__control">
+            <span>视觉风格</span>
+            <CSelect
+              v-model="visualStyle"
+              :options="visualStyleOptions"
+              size="sm"
+              width="100%"
+              menu-width="220px"
+              placement="top"
+            />
+          </label>
+          <label class="composer__control">
+            <span>布局方向</span>
+            <CSelect
+              v-model="layoutDirection"
+              :options="layoutDirectionOptions"
+              size="sm"
+              width="100%"
+              menu-width="220px"
+              placement="top"
+            />
+          </label>
+          <label class="composer__control">
+            <span>创意程度</span>
+            <CSelect
+              v-model="noveltyLevel"
+              :options="noveltyOptions"
+              size="sm"
+              width="100%"
+              menu-width="210px"
+              placement="top"
+              align="right"
+            />
+          </label>
+        </div>
 
         <div class="composer__bar">
           <div class="composer__left">
@@ -309,6 +401,28 @@ onMounted(() => {
   box-shadow: var(--shadow-lg);
 }
 
+.composer__controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.composer__control {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.composer__control > span {
+  padding-left: 2px;
+  font-size: var(--fs-2xs);
+  font-weight: 550;
+  color: var(--text-muted);
+}
+
 .composer__bar {
   display: flex;
   align-items: center;
@@ -481,6 +595,7 @@ onMounted(() => {
   .hero { padding: var(--sp-12) var(--sp-4) var(--sp-8); }
   .hero__sub { font-size: var(--fs-base); }
   .composer { padding: 14px 14px 10px; border-radius: var(--r-xl); }
+  .composer__controls { grid-template-columns: 1fr; }
   .composer__hint { display: none; }
   .grid { grid-template-columns: 1fr; }
   .section { margin-top: var(--sp-12); }

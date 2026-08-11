@@ -114,6 +114,11 @@ code:
 
 # 多 Agent 编排开关
 agent:
+  # 用户设计偏好与项目品牌画像默认参与生成，可通过环境变量独立关闭
+  personalization:
+    enabled: ${AGENT_PERSONALIZATION_ENABLED:true}
+  rerank:
+    enabled: ${AGENT_RERANK_ENABLED:true}
   orchestrator:
     # V2 多 Agent 流水线唯一开关（仅 VUE_PROJECT 生效，默认关闭）
     v2:

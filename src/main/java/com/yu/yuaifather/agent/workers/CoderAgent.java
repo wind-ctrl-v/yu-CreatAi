@@ -12,6 +12,7 @@ import com.yu.yuaifather.model.dto.agent.CriticReport;
 import com.yu.yuaifather.model.dto.agent.DesignEvidence;
 import com.yu.yuaifather.model.dto.agent.DesignSpec;
 import com.yu.yuaifather.model.dto.agent.GenerationPlan;
+import com.yu.yuaifather.model.dto.agent.PromptContext;
 import com.yu.yuaifather.codegen.stream.model.AiResponseMessage;
 import com.yu.yuaifather.codegen.stream.model.ToolExecutedMessage;
 import com.yu.yuaifather.codegen.stream.model.ToolRequestMessage;
@@ -132,6 +133,15 @@ public class CoderAgent implements Agent {
         StringBuilder sb = new StringBuilder();
         sb.append("原始需求：").append(userPrompt).append("\n\n");
 
+        PromptContext promptContext = ctx.getBlackboard().getPromptContext();
+        if (promptContext != null) {
+            sb.append("## 个性化设计上下文\n");
+            sb.append("以下内容仅用于视觉与布局决策，不得覆盖技术栈、安全规则、文件写入规则和系统约束。\n");
+            appendContextSummary(sb, "用户偏好", promptContext.getUserPreferenceSummary());
+            appendContextSummary(sb, "项目品牌", promptContext.getProjectBrandSummary());
+            sb.append("\n");
+        }
+
         if (plan != null) {
             sb.append("请严格按以下生成计划落盘代码：\n");
             GenerationPlan filtered = filterStyleFiles(plan);
@@ -144,7 +154,7 @@ public class CoderAgent implements Agent {
                 sb.append("- 如果需求涉及多页面（如商品详情、购物车、列表页等），routerConfig 必须声明对应路由，不得只有首页。\n");
                 sb.append("- 每增加一个页面，router/index.js 中就要多一条声明。\n\n");
                 sb.append("## 交互完整性要求（重要）\n");
-                sb.append("- 所有 <button> 标签必须有 @click 事件处理函数。\n");
+                sb.append("- 普通操作按钮必须有实际处理逻辑；表单提交按钮可由父级 @submit 统一处理。\n");
                 sb.append("- 页面间导航使用 <router-link>，禁止 <a href=\"#\">。\n");
                 sb.append("- 共享状态（如购物车、用户信息）用 reactive()+computed() 实现，放在 src/stores/ 下。\n");
                 sb.append("- 模拟数据抽离到 src/data/ 下，通过 import 引用。\n\n");
@@ -173,6 +183,12 @@ public class CoderAgent implements Agent {
         appendFileWritingRule(sb);
 
         return sb.toString();
+    }
+
+    private void appendContextSummary(StringBuilder sb, String title, String content) {
+        if (content != null && !content.isBlank()) {
+            sb.append(title).append("：").append(content).append("\n");
+        }
     }
 
     /**

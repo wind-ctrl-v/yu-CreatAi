@@ -68,10 +68,17 @@ public class UserDesignContext {
      * 是否有效（用户有实际偏好数据）。
      */
     public boolean hasPreferences() {
-        return (preferredStyles != null && !preferredStyles.isEmpty())
-                || (preferredColors != null && !preferredColors.isEmpty())
-                || (preferredComponents != null && !preferredComponents.isEmpty())
+        return (profileSummary != null && !profileSummary.isBlank())
+                || hasValues(preferredStyles) || hasValues(dislikedStyles)
+                || hasValues(preferredColors) || hasValues(dislikedColors)
+                || hasValues(preferredLayouts) || hasValues(dislikedLayouts)
+                || hasValues(preferredComponents) || hasValues(dislikedComponents)
+                || hasValues(preferredInteractions) || hasValues(dislikedInteractions)
                 || (preferenceWeights != null && !preferenceWeights.isEmpty());
+    }
+
+    private boolean hasValues(List<String> values) {
+        return values != null && !values.isEmpty();
     }
 
     /** 空上下文工厂方法。 */

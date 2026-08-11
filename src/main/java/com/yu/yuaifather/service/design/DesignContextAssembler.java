@@ -99,8 +99,10 @@ public class DesignContextAssembler {
         if (designRetrieveTool != null) {
             try {
                 List<String> queryTags = buildQueryTags(plan, designSpec);
+                int evidenceLimit = input.getMaxEvidenceCount() > 0
+                        ? Math.min(input.getMaxEvidenceCount(), 3) : 3;
                 DesignRetrieveTool.RetrieveInput retrieveInput = new DesignRetrieveTool.RetrieveInput(
-                        styleProfile, queryTags, designSpec, requirement, plan, userContext, 3);
+                        styleProfile, queryTags, designSpec, requirement, plan, userContext, evidenceLimit);
                 rawEvidence = designRetrieveTool.execute(retrieveInput, toolContext);
             } catch (Exception e) {
                 log.warn("DesignRetrieveTool 失败，降级为空证据", e);

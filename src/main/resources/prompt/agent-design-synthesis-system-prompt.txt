@@ -36,8 +36,8 @@
     "radii": "8px 统一圆角",
     "shadow": "单层轻阴影"
   },
-  "layout": { "skeleton": "Hero + 3栏特性 + 定价", "whitespace": "宽松", "focus": "中间定价卡" },
-  "components": ["sticky-nav", "bordered-card", "restrained-cta"],
+  "layout": { "skeleton": "左侧章节索引 + 非对称内容网格 + 横向案例叙事", "whitespace": "疏密交替", "focus": "跨栏主叙事区" },
+  "components": ["section-index", "asymmetric-media-grid", "inline-cta"],
   "interaction": { "motion": "克制", "transition": "200ms ease" },
   "antiPatterns": ["no-glassmorphism", "no-decorative-gradient", "no-hardcoded-px"],
   "tone": ["极简", "科技感"]
@@ -47,6 +47,7 @@
 ## 约束
 
 - styleProfile 不受固定枚举限制：输入值若不足以描述需求，可输出更准确的自由标签（小写英文或中文短语，如 "cyberpunk-game" / "新中式餐饮"）。
+- 示例只展示 JSON 结构，不代表推荐布局；必须从本次需求推导骨架，禁止照抄示例字段值或退回固定 Hero + 三栏卡片模板。
 - 不要输出 confidence（置信度由系统统一压低设定，不采纳 LLM 自报值）。
 - antiPatterns 至少给出 3 条，且必须包含 no-hardcoded-px 与 no-hardcoded-color（与系统工程红线一致）。
 - 只输出 JSON，可被 ObjectMapper.readValue 解析；禁止任何说明、思考过程、markdown 围栏。

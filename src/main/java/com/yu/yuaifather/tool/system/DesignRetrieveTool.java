@@ -108,7 +108,7 @@ public class DesignRetrieveTool implements Agent, SystemTool<DesignRetrieveTool.
      */
     @Override
     public DesignEvidence execute(RetrieveInput input, ToolContext context) {
-        if (input == null) {
+        if (!retrieveEnabled || input == null) {
             return DesignEvidence.empty();
         }
         try {

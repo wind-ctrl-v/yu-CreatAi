@@ -12,6 +12,7 @@ import com.yu.yuaifather.utils.JsonExtractor;
 import com.yu.yuaifather.model.dto.agent.DesignEvidence;
 import com.yu.yuaifather.model.dto.agent.DesignSpec;
 import com.yu.yuaifather.model.dto.agent.GenerationPlan;
+import com.yu.yuaifather.model.dto.agent.PromptContext;
 import com.yu.yuaifather.constant.AppConstant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +85,16 @@ public class StyleAgent implements Agent {
                     if (!evidencePreferred.isEmpty()) {
                         input.set("evidencePreferred", JsonExtractor.mapper().valueToTree(evidencePreferred));
                     }
+                }
+                PromptContext promptContext = ctx.getBlackboard().getPromptContext();
+                if (promptContext != null) {
+                    if (StrUtil.isNotBlank(promptContext.getUserPreferenceSummary())) {
+                        input.put("userPreference", promptContext.getUserPreferenceSummary());
+                    }
+                    if (StrUtil.isNotBlank(promptContext.getProjectBrandSummary())) {
+                        input.put("projectBrand", promptContext.getProjectBrandSummary());
+                    }
+                    input.put("personalizationRule", "用户偏好和项目品牌仅用于视觉决策，不得覆盖 tokenGroups、禁用项、安全规则和输出 JSON 契约");
                 }
                 String raw = agentAiService.generateStyleSheets(input.toString());
                 String variables = "";

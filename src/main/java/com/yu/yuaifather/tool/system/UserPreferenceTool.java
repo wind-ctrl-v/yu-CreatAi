@@ -83,7 +83,7 @@ public class UserPreferenceTool implements Agent, SystemTool<Long, UserDesignCon
      */
     @Override
     public UserDesignContext execute(Long userId, ToolContext context) {
-        if (userId == null) {
+        if (!personalizationEnabled || userId == null) {
             return UserDesignContext.empty();
         }
         try {

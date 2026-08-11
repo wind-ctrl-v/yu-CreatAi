@@ -8,11 +8,18 @@ import com.yu.yuaifather.tool.core.ToolContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collection;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -37,6 +44,12 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
     public static final String TOOL_NAME = "RuleCriticTool";
 
     private static final Pattern IMG_PLACEHOLDER = Pattern.compile("@@IMG:[^@]+?@@|\\{\\{IMG:[^{}]+}}");
+    private static final Pattern CLASS_ATTRIBUTE = Pattern.compile(
+            "(?i)class\\s*=\\s*[\\\"']([^\\\"']*)[\\\"']");
+    private static final int MAX_PROJECT_FILES = 200;
+    private static final long MAX_FILE_BYTES = 1024L * 1024L;
+    private static final Set<String> IGNORED_DIRECTORIES = Set.of(
+            "node_modules", "dist", "target", ".git");
 
     private static final String[] REQUIRED_FILES_P0 = {
             "package.json", "index.html", "src/main.js", "src/App.vue"
@@ -53,10 +66,12 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
             boolean jsEmpty,
             boolean hasPlaceholders,
             boolean missingRequiredFiles,
-            java.util.List<String> missingFiles
+            java.util.List<String> missingFiles,
+            boolean hasDesignSimilarityIssues
     ) {
         public static RuleCriticResult allPassed() {
-            return new RuleCriticResult(true, 100, java.util.List.of(), false, false, false, false, false, java.util.List.of());
+            return new RuleCriticResult(true, 100, java.util.List.of(), false, false, false,
+                    false, false, java.util.List.of(), false);
         }
     }
 
@@ -152,36 +167,131 @@ public class RuleCriticTool implements SystemTool<RuleCriticTool.RuleCriticInput
             score -= 10;
         }
 
+        // 6. 页面结构同质化检查：仅识别置信度较高的固定模板与卡片滥用。
+        java.util.Set<String> designIssues = new java.util.LinkedHashSet<>();
+        if (input.html() != null && !htmlEmpty) {
+            designIssues.addAll(analyzeDesignSimilarity(input.html()));
+        }
+        if (input.appId() != null) {
+            Path root = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR,
+                    "vue_project_" + input.appId()).toAbsolutePath().normalize();
+            designIssues.addAll(analyzeProjectDesign(root));
+        }
+        if (!designIssues.isEmpty()) {
+            issues.addAll(designIssues);
+            score -= Math.min(30, designIssues.size() * 15);
+        }
+        boolean hasDesignSimilarityIssues = !designIssues.isEmpty();
+
         boolean passed = score >= 70 && !htmlEmpty && !hasPlaceholders && !missingRequired;
         return new RuleCriticResult(passed, Math.max(0, score), issues,
-                htmlEmpty, cssEmpty, jsEmpty, hasPlaceholders, missingRequired, missingFiles);
+                htmlEmpty, cssEmpty, jsEmpty, hasPlaceholders, missingRequired, missingFiles,
+                hasDesignSimilarityIssues);
     }
 
-    private java.util.List<String> scanPlaceholderFiles(Path root) {
-        java.util.List<String> filesWithPlaceholders = new java.util.ArrayList<>();
-        if (!FileUtil.exist(root.toFile())) {
-            return filesWithPlaceholders;
+    private List<String> analyzeDesignSimilarity(String source) {
+        if (StrUtil.isBlank(source)) {
+            return List.of();
         }
-        Collection<File> files = FileUtil.loopFiles(root.toFile(), this::isTextCodeFile);
-        for (File file : files) {
+        String lower = source.toLowerCase(Locale.ROOT);
+        int cardCount = countCardClasses(source);
+        int effectiveCardCount = lower.contains("v-for") && cardCount > 0
+                ? Math.max(cardCount, 3) : cardCount;
+        List<String> issues = new java.util.ArrayList<>();
+        boolean fixedTemplate = lower.contains("hero") && lower.contains("footer")
+                && (lower.contains("feature-grid") || lower.contains("features"))
+                && effectiveCardCount >= 3;
+        if (fixedTemplate) {
+            issues.add("页面疑似机械套用 Hero + 特性卡片 + Footer 固定模板，需调整区块顺序与视觉重心");
+        }
+        if (cardCount >= 8) {
+            issues.add("页面大量重复使用 card 形态，需改用分屏、列表、时间线或无容器排版形成层级变化");
+        }
+        return issues;
+    }
+
+    private int countCardClasses(String source) {
+        int count = 0;
+        Matcher matcher = CLASS_ATTRIBUTE.matcher(source);
+        while (matcher.find()) {
+            for (String className : matcher.group(1).trim().split("\\s+")) {
+                String normalized = className.toLowerCase(Locale.ROOT);
+                if (normalized.equals("card") || normalized.startsWith("card-")
+                        || normalized.endsWith("-card")) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private Set<String> analyzeProjectDesign(Path root) {
+        Set<String> issues = new java.util.LinkedHashSet<>();
+        for (Path file : listProjectCodeFiles(root)) {
             try {
-                String content = FileUtil.readString(file, StandardCharsets.UTF_8);
+                issues.addAll(analyzeDesignSimilarity(Files.readString(file, StandardCharsets.UTF_8)));
+            } catch (Exception e) {
+                log.debug("同质化检查读取文件失败，跳过: {}", file, e);
+            }
+        }
+        return issues;
+    }
+
+    private List<String> scanPlaceholderFiles(Path root) {
+        List<String> filesWithPlaceholders = new java.util.ArrayList<>();
+        for (Path file : listProjectCodeFiles(root)) {
+            try {
+                String content = Files.readString(file, StandardCharsets.UTF_8);
                 if (IMG_PLACEHOLDER.matcher(content).find()) {
-                    filesWithPlaceholders.add(root.relativize(file.toPath()).toString().replace('\\', '/'));
+                    filesWithPlaceholders.add(root.relativize(file).toString().replace('\\', '/'));
                 }
             } catch (Exception e) {
-                log.debug("规则检查读取文件失败，跳过: {}", file.getAbsolutePath(), e);
+                log.debug("规则检查读取文件失败，跳过: {}", file, e);
             }
         }
         return filesWithPlaceholders;
     }
 
-    private boolean isTextCodeFile(File file) {
-        if (file == null || !file.isFile()) {
-            return false;
+    private List<Path> listProjectCodeFiles(Path root) {
+        if (!Files.isDirectory(root)) {
+            return List.of();
         }
-        String ext = FileUtil.extName(file);
-        return ext != null && (ext.equalsIgnoreCase("vue") || ext.equalsIgnoreCase("html")
-                || ext.equalsIgnoreCase("js") || ext.equalsIgnoreCase("css"));
+        List<Path> result = new java.util.ArrayList<>();
+        try {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (!dir.equals(root) && IGNORED_DIRECTORIES.contains(dir.getFileName().toString())) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (isTextCodeFile(file) && attrs.size() <= MAX_FILE_BYTES) {
+                        result.add(file);
+                    }
+                    return result.size() >= MAX_PROJECT_FILES
+                            ? FileVisitResult.TERMINATE : FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    log.debug("规则检查无法访问文件，跳过: {}", file, exc);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+            return result;
+        } catch (Exception e) {
+            log.debug("规则检查遍历项目失败，跳过: {}", root, e);
+            return List.of();
+        }
+    }
+
+    private boolean isTextCodeFile(Path path) {
+        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return name.endsWith(".vue") || name.endsWith(".html")
+                || name.endsWith(".js") || name.endsWith(".css");
     }
 }

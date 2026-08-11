@@ -5,6 +5,7 @@ import com.yu.yuaifather.model.dto.agent.DesignEvidence;
 import com.yu.yuaifather.model.dto.agent.DesignSpec;
 import com.yu.yuaifather.model.dto.agent.GenerationPlan;
 import com.yu.yuaifather.model.dto.agent.ProjectBrandContext;
+import com.yu.yuaifather.model.dto.agent.PromptContext;
 import com.yu.yuaifather.model.dto.agent.RequirementDoc;
 import com.yu.yuaifather.model.dto.agent.UserDesignContext;
 import com.yu.yuaifather.generation.domain.GeneratedArtifact;
@@ -40,6 +41,7 @@ public class Blackboard {
     private static final String KEY_DESIGN_EVIDENCE = "designEvidence";
     private static final String KEY_USER_DESIGN_CONTEXT = "userDesignContext";
     private static final String KEY_PROJECT_BRAND_CONTEXT = "projectBrandContext";
+    private static final String KEY_PROMPT_CONTEXT = "promptContext";
     private static final String KEY_RAG_TRACE_ID = "ragTraceId";
 
     private final Map<String, Object> store = new ConcurrentHashMap<>();
@@ -216,6 +218,24 @@ public class Blackboard {
      */
     public ProjectBrandContext getProjectBrandContext() {
         return (ProjectBrandContext) store.get(KEY_PROJECT_BRAND_CONTEXT);
+    }
+
+    // ---------- promptContext ----------
+
+    /**
+     * 写入压缩后的统一设计上下文，供页面、代码和样式 Agent 消费。
+     */
+    public void putPromptContext(PromptContext context) {
+        if (context != null) {
+            store.put(KEY_PROMPT_CONTEXT, context);
+        }
+    }
+
+    /**
+     * 读取统一设计上下文，可能为 null（装配失败或尚未执行装配）。
+     */
+    public PromptContext getPromptContext() {
+        return (PromptContext) store.get(KEY_PROMPT_CONTEXT);
     }
 
     // ---------- ragTraceId ----------

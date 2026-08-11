@@ -12,6 +12,7 @@ import com.yu.yuaifather.utils.JsonExtractor;
 import com.yu.yuaifather.model.dto.agent.CriticReport;
 import com.yu.yuaifather.model.dto.agent.DesignEvidence;
 import com.yu.yuaifather.model.dto.agent.GenerationPlan;
+import com.yu.yuaifather.model.dto.agent.PromptContext;
 import com.yu.yuaifather.constant.AppConstant;
 import com.yu.yuaifather.service.FingerprintFeedbackService;
 import lombok.extern.slf4j.Slf4j;
@@ -26,8 +27,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -70,6 +73,10 @@ public class CriticAgent implements Agent {
     };
 
     private static final Pattern IMG_PLACEHOLDER = Pattern.compile("@@IMG:[^@]+?@@|\\{\\{IMG:[^{}]+}}");
+    private static final int MAX_REVIEW_FILES = 8;
+    private static final int MAX_REVIEW_FILE_CHARS = 12_000;
+    private static final int MAX_REVIEW_TOTAL_CHARS = 60_000;
+    private static final long MAX_REVIEW_SOURCE_BYTES = 512L * 1024L;
 
     private final AgentAiService agentAiService;
     private final DesignLintChecker designLintChecker;
@@ -118,6 +125,16 @@ public class CriticAgent implements Agent {
                 ArrayNode generated = reviewInput.putArray("generatedFiles");
                 ctx.getBlackboard().getGeneratedFiles().keySet().forEach(generated::add);
 
+                PromptContext promptContext = ctx.getBlackboard().getPromptContext();
+                if (promptContext != null) {
+                    ObjectNode personalization = reviewInput.putObject("personalization");
+                    putIfNotBlank(personalization, "userPreference", promptContext.getUserPreferenceSummary());
+                    putIfNotBlank(personalization, "projectBrand", promptContext.getProjectBrandSummary());
+                    putIfNotBlank(personalization, "designSpec", promptContext.getDesignSpecSummary());
+                }
+                appendReviewSourceFiles(reviewInput, ctx.getAppId(), plan,
+                        ctx.getBlackboard().getGeneratedFiles().keySet());
+
                 // 调用 LLM 进行综合评分，失败时退化为纯静态判定
                 CriticReport report;
                 try {
@@ -148,6 +165,7 @@ public class CriticAgent implements Agent {
 
                 // 合并确定性扫描命中为结构化 issues（命中即客观判定，不依赖 LLM 主观判断）
                 mergeLintIssues(report, lint, ctx.getAppId());
+                enforceDesignSimilarityGate(report, ctx.getAppId());
 
                 ctx.getBlackboard().putCriticReport(report);
 
@@ -189,6 +207,124 @@ public class CriticAgent implements Agent {
                 sink.error(e);
             }
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private void putIfNotBlank(ObjectNode node, String field, String value) {
+        if (value != null && !value.isBlank()) {
+            node.put(field, value);
+        }
+    }
+
+    /**
+     * 注入关键源码片段供 LLM 做审美与语义检查。候选路径来自系统计划和已生成文件，
+     * 读取前仍执行根目录约束、扩展名、文件大小和总字符预算校验。
+     */
+    private void appendReviewSourceFiles(ObjectNode reviewInput, Long appId, GenerationPlan plan,
+                                         Set<String> generatedFiles) {
+        Path root = projectRoot(appId);
+        if (!FileUtil.exist(root.toFile())) {
+            return;
+        }
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        candidates.add("src/App.vue");
+        if (plan != null && plan.getRouterConfig() != null) {
+            plan.getRouterConfig().stream()
+                    .map(GenerationPlan.RouteSpec::getComponent)
+                    .filter(path -> path != null && !path.isBlank())
+                    .forEach(candidates::add);
+        }
+        candidates.add("src/styles/variables.css");
+        candidates.add("src/styles/global.css");
+        if (generatedFiles != null) {
+            generatedFiles.stream()
+                    .filter(this::isReviewableSourcePath)
+                    .forEach(candidates::add);
+        }
+
+        ObjectNode sourceFiles = reviewInput.putObject("sourceFiles");
+        int fileCount = 0;
+        int totalChars = 0;
+        for (String relative : candidates) {
+            if (fileCount >= MAX_REVIEW_FILES || totalChars >= MAX_REVIEW_TOTAL_CHARS
+                    || !isReviewableSourcePath(relative)) {
+                continue;
+            }
+            Path target;
+            try {
+                target = root.resolve(relative).normalize();
+            } catch (Exception e) {
+                continue;
+            }
+            if (!target.startsWith(root) || !java.nio.file.Files.isRegularFile(target)) {
+                continue;
+            }
+            try {
+                if (java.nio.file.Files.size(target) > MAX_REVIEW_SOURCE_BYTES) {
+                    continue;
+                }
+                String content = FileUtil.readString(target.toFile(), StandardCharsets.UTF_8);
+                int allowed = Math.min(MAX_REVIEW_FILE_CHARS, MAX_REVIEW_TOTAL_CHARS - totalChars);
+                if (allowed <= 0) {
+                    break;
+                }
+                String excerpt;
+                if (content.length() <= allowed) {
+                    excerpt = content;
+                } else {
+                    String suffix = "\n/* [源码摘要已截断] */";
+                    int bodyLength = Math.max(0, allowed - suffix.length());
+                    excerpt = content.substring(0, bodyLength) + suffix;
+                }
+                sourceFiles.put(relative.replace('\\', '/'), excerpt);
+                totalChars += excerpt.length();
+                fileCount++;
+            } catch (Exception e) {
+                log.debug("CriticAgent 读取审查源码失败，跳过 file={}", target, e);
+            }
+        }
+    }
+
+    private boolean isReviewableSourcePath(String relative) {
+        if (relative == null || relative.isBlank() || relative.contains("\\")) {
+            return false;
+        }
+        String lower = relative.toLowerCase();
+        return (lower.endsWith(".vue") || lower.endsWith(".html")
+                || lower.endsWith(".css") || lower.endsWith(".js"))
+                && !lower.contains("node_modules/") && !lower.contains("dist/");
+    }
+
+    /**
+     * 固定模板属于阻塞问题；组件重复与品牌缺失同时出现时同样阻塞。
+     * 服务端门禁不信任模型给出的 passed 字段。
+     */
+    private void enforceDesignSimilarityGate(CriticReport report, Long appId) {
+        if (report == null || report.getIssues() == null) {
+            return;
+        }
+        boolean fixedTemplate = false;
+        boolean repeatedComponents = false;
+        boolean missingBrandIdentity = false;
+        for (CriticReport.Issue issue : report.getIssues()) {
+            if (issue == null || !"design_similarity".equalsIgnoreCase(issue.getCategory())) {
+                continue;
+            }
+            String description = issue.getDescription() == null ? "" : issue.getDescription();
+            fixedTemplate |= description.contains("[fixed-template]")
+                    || description.contains("固定模板") || description.contains("机械套用");
+            repeatedComponents |= description.contains("[component-repetition]")
+                    || description.contains("组件重复") || description.contains("圆角卡片");
+            missingBrandIdentity |= description.contains("[brand-identity]")
+                    || description.contains("品牌辨识度") || description.contains("没有体现");
+        }
+        if (fixedTemplate || (repeatedComponents && missingBrandIdentity)) {
+            report.setPassed(false);
+            if (report.getScore() > 75) {
+                report.setScore(75);
+            }
+            log.info("CriticAgent 同质化门禁未通过 appId={} fixedTemplate={} repeated={} missingBrand={}",
+                    appId, fixedTemplate, repeatedComponents, missingBrandIdentity);
+        }
     }
 
     /**

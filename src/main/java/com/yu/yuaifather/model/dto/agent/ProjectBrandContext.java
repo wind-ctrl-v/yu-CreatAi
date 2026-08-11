@@ -62,7 +62,18 @@ public class ProjectBrandContext {
      * 是否有效（项目有品牌画像）。
      */
     public boolean hasBrandProfile() {
-        return brandName != null && !brandName.isBlank();
+        return hasText(brandName) || hasText(industry) || hasText(targetAudience) || hasText(profileSummary)
+                || hasValues(brandTone) || hasValues(typographyPreference) || hasValues(layoutPreference)
+                || hasValues(componentPreference) || hasValues(designGuidelines) || hasValues(forbiddenRules)
+                || (brandColors != null && !brandColors.isEmpty());
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private boolean hasValues(List<String> values) {
+        return values != null && !values.isEmpty();
     }
 
     /** 空上下文工厂方法。 */

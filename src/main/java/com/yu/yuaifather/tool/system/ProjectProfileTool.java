@@ -81,7 +81,7 @@ public class ProjectProfileTool implements Agent, SystemTool<Long, ProjectBrandC
      */
     @Override
     public ProjectBrandContext execute(Long projectId, ToolContext context) {
-        if (projectId == null) {
+        if (!rerankEnabled || projectId == null) {
             return ProjectBrandContext.empty();
         }
         try {

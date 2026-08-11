@@ -119,6 +119,12 @@ public class ContextCompressTool implements SystemTool<ContextCompressTool.Compr
         if (spec.getTone() != null && !spec.getTone().isEmpty()) {
             sb.append(" 调性:").append(String.join(",", spec.getTone()));
         }
+        if (spec.getLayoutPatterns() != null && !spec.getLayoutPatterns().isEmpty()) {
+            sb.append(" 布局:").append(String.join(",", spec.getLayoutPatterns()));
+        }
+        if (spec.getInteractionPatterns() != null && !spec.getInteractionPatterns().isEmpty()) {
+            sb.append(" 交互:").append(String.join(",", spec.getInteractionPatterns()));
+        }
         if (spec.getForbiddenPatterns() != null && !spec.getForbiddenPatterns().isEmpty()) {
             sb.append(" 禁止:").append(String.join(",", spec.getForbiddenPatterns()));
         }
@@ -143,11 +149,17 @@ public class ContextCompressTool implements SystemTool<ContextCompressTool.Compr
         StringBuilder sb = new StringBuilder();
         if (StrUtil.isNotBlank(ctx.getBrandName())) sb.append("品牌:").append(ctx.getBrandName()).append(";");
         if (StrUtil.isNotBlank(ctx.getIndustry())) sb.append("行业:").append(ctx.getIndustry()).append(";");
+        if (StrUtil.isNotBlank(ctx.getTargetAudience())) sb.append("目标用户:").append(ctx.getTargetAudience()).append(";");
+        if (StrUtil.isNotBlank(ctx.getProfileSummary())) sb.append("品牌摘要:").append(ctx.getProfileSummary()).append(";");
         if (ctx.getBrandColors() != null && !ctx.getBrandColors().isEmpty()) {
             sb.append("品牌色:").append(String.join(",",
                     ctx.getBrandColors().values().stream().limit(5).toList())).append(";");
         }
         appendIfNotEmpty(sb, "品牌调性", ctx.getBrandTone());
+        appendIfNotEmpty(sb, "排版", ctx.getTypographyPreference());
+        appendIfNotEmpty(sb, "布局", ctx.getLayoutPreference());
+        appendIfNotEmpty(sb, "组件", ctx.getComponentPreference());
+        appendIfNotEmpty(sb, "设计指南", ctx.getDesignGuidelines());
         appendIfNotEmpty(sb, "禁用", ctx.getForbiddenRules());
         return sb.toString();
     }
@@ -160,6 +172,9 @@ public class ContextCompressTool implements SystemTool<ContextCompressTool.Compr
         }
         if (item.getPreferredPatterns() != null && !item.getPreferredPatterns().isEmpty()) {
             sb.append(" 推荐:").append(String.join(",", item.getPreferredPatterns()));
+        }
+        if (item.getInteractionPatterns() != null && !item.getInteractionPatterns().isEmpty()) {
+            sb.append(" 交互:").append(String.join(",", item.getInteractionPatterns()));
         }
         return sb.toString();
     }
