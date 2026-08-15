@@ -3,6 +3,8 @@ application-local.yml
 tmp/
 *.log
 src/main/resources/web_drivers/
+.playwright-cli/
+dump.rdb
 compile_out.txt
 cookies.txt
 frontend/vite.config.js
