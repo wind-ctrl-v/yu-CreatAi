@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CreatAi · 多 Agent 生成流水线数据流</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --card: #ffffff;
+    --ink: #1f2430;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --llm: #2563eb;        /* LLM 步骤 */
+    --tool: #059669;       /* 零 LLM SystemTool */
+    --db: #7c3aed;         /* 业务数据库 */
+    --vec: #0891b2;        /* 向量库 */
+    --board: #d97706;      /* 黑板 */
+    --front: #dc2626;      /* 前端 / SSE */
+    --deploy: #0d9488;     /* 构建部署 / URL */
+    --classic: #64748b;    /* Classic 兜底 */
+    --shadow: 0 1px 3px rgba(16,24,40,.08), 0 8px 24px rgba(16,24,40,.05);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  header.page {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #0d9488 100%);
+    color: #fff;
+    border-radius: 16px;
+    padding: 28px 30px;
+    box-shadow: var(--shadow);
+  }
+  header.page h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: .5px; }
+  header.page p { margin: 0; opacity: .9; font-size: 14px; }
+  header.page .tags { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  header.page .tag {
+    background: rgba(255,255,255,.16);
+    border: 1px solid rgba(255,255,255,.25);
+    padding: 3px 10px; border-radius: 999px; font-size: 12px;
+  }
+
+  /* 图例 */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    margin: 20px 0 8px;
+  }
+  .legend .item {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--card); border: 1px solid var(--line);
+    padding: 5px 10px; border-radius: 8px; font-size: 12px; color: var(--muted);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+
+  /* 主流程 */
+  .flow { margin-top: 18px; }
+  .rail-title {
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    margin: 26px 0 10px; letter-spacing: .4px; text-transform: uppercase;
+  }
+
+  .node {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 5px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
+  }
+  .node .num {
+    position: absolute; top: -11px; left: 14px;
+    background: var(--ink); color: #fff;
+    font-size: 11px; font-weight: 700;
+    padding: 2px 9px; border-radius: 999px;
+    letter-spacing: .3px;
+  }
+  .node h3 { margin: 2px 0 4px; font-size: 16px; }
+  .node .sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+  .node p { margin: 6px 0; font-size: 13.5px; }
+
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+  .badge {
+    font-size: 11px; padding: 2px 9px; border-radius: 999px;
+    border: 1px solid transparent; font-weight: 600; white-space: nowrap;
+  }
+  .b-llm    { background: #eff6ff; color: var(--llm);   border-color: #bfdbfe; }
+  .b-tool   { background: #ecfdf5; color: var(--tool);  border-color: #a7f3d0; }
+  .b-db     { background: #f5f3ff; color: var(--db);    border-color: #ddd6fe; }
+  .b-vec    { background: #ecfeff; color: var(--vec);   border-color: #a5f3fc; }
+  .b-board  { background: #fff7ed; color: var(--board); border-color: #fed7aa; }
+  .b-front  { background: #fef2f2; color: var(--front); border-color: #fecaca; }
+  .b-deploy { background: #f0fdfa; color: var(--deploy);border-color: #99f6e4; }
+  .b-classic{ background: #f8fafc; color: var(--classic); border-color: #cbd5e1; }
+
+  .kv { font-size: 12.5px; margin: 8px 0 0; padding: 8px 10px; background: #fafbfc; border: 1px dashed var(--line); border-radius: 8px; }
+  .kv b { color: var(--ink); }
+  .kv .k { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--llm); }
+
+  .arrow {
+    text-align: center; color: var(--muted);
+    font-size: 18px; line-height: 1; margin: -4px 0 10px;
+  }
+  .arrow .lbl { font-size: 11px; color: var(--muted); display: block; margin-top: 2px; }
+
+  /* 边框着色 */
+  .bd-llm     { border-left-color: var(--llm); }
+  .bd-tool    { border-left-color: var(--tool); }
+  .bd-db      { border-left-color: var(--db); }
+  .bd-vec     { border-left-color: var(--vec); }
+  .bd-board   { border-left-color: var(--board); }
+  .bd-front   { border-left-color: var(--front); }
+  .bd-deploy  { border-left-color: var(--deploy); }
+  .bd-classic { border-left-color: var(--classic); }
+
+  /* 并排分支 */
+  .branch {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;
+  }
+  .branch .node { margin-bottom: 0; }
+  .branch-head {
+    grid-column: 1 / -1;
+    background: #eef2ff; border: 1px dashed #c7d2fe; color: #3730a3;
+    border-radius: 10px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+    text-align: center;
+  }
+  @media (max-width: 640px) { .branch { grid-template-columns: 1fr; } }
+
+  /* 循环标注 */
+  .loop-note {
+    display: flex; align-items: center; gap: 10px;
+    background: #fffbeb; border: 1px dashed #fcd34d; color: #92400e;
+    border-radius: 10px; padding: 8px 12px; font-size: 12.5px; margin: -4px 0 14px;
+  }
+  .loop-note .ic { font-size: 18px; }
+
+  /* 黑板侧栏 */
+  .board-panel {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 10px 0 18px;
+  }
+  .board-panel h4 { margin: 0 0 8px; font-size: 13px; color: #92400e; }
+  .board-panel .keys { display: flex; flex-wrap: wrap; gap: 6px; }
+  .board-panel .key {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11.5px; background: #fff; border: 1px solid #fde68a;
+    color: #92400e; padding: 2px 8px; border-radius: 6px;
+  }
+
+  .note {
+    font-size: 12px; color: var(--muted); background: #f8fafc;
+    border-left: 3px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; margin: 10px 0;
+  }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 40px; }
+  a { color: var(--llm); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>CreatAi · 多 Agent 生成流水线数据流</h1>
+    <p>一条自然语言需求 → 选型 → 策略决策 → 规划 → 素材收集 → 代码/样式并发生成 → 图片填充 → 规则+LLM 双重质检定向修复 → 构建部署 → 可访问 URL，全程 SSE 事件流回推。</p>
+    <div class="tags">
+      <span class="tag">Java 21 · Spring Boot · WebFlux</span>
+      <span class="tag">LangChain4j + DeepSeek</span>
+      <span class="tag">Redis · MySQL · PGvector · COS</span>
+      <span class="tag">Vue 3 + Vite</span>
+    </div>
+  </header>
+
+  <!-- 图例 -->
+  <div class="legend">
+    <span class="item"><span class="dot" style="background:var(--llm)"></span>LLM 调用</span>
+    <span class="item"><span class="dot" style="background:var(--tool)"></span>零 LLM SystemTool</span>
+    <span class="item"><span class="dot" style="background:var(--db)"></span>业务库(MySQL)</span>
+    <span class="item"><span class="dot" style="background:var(--vec)"></span>向量库(PGvector)</span>
+    <span class="item"><span class="dot" style="background:var(--board)"></span>黑板 Blackboard</span>
+    <span class="item"><span class="dot" style="background:var(--front)"></span>前端 / SSE</span>
+    <span class="item"><span class="dot" style="background:var(--deploy)"></span>构建部署 / URL</span>
+    <span class="item"><span class="dot" style="background:var(--classic)"></span>Classic 兜底</span>
+  </div>
+
+  <div class="flow">
+
+    <!-- ============ 阶段 0：输入 + 选型 ============ -->
+    <div class="rail-title">① 入口与选型</div>
+
+    <div class="node bd-front">
+      <span class="num">0-1</span>
+      <h3>用户输入自然语言需求</h3>
+      <p class="sub">前端 HomePage · <code>POST /app/add</code> · <code>AppAddRequest.initPrompt</code></p>
+      <div class="badges"><span class="badge b-front">前端</span></div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">AppController.addApp → AppServiceImpl.createApp</span></div>
+
+    <div class="node bd-llm">
+      <span class="num">0-2</span>
+      <h3>路由选型（一次 LLM 调用）</h3>
+      <p class="sub">AiCodeGenTypeRoutingService.routeCodeGenType(prompt)</p>
+      <div class="badges"><span class="badge b-llm">LLM</span></div>
+      <div class="kv"><b>输出：</b><span class="k">CodeGenTypeEnum</span> → <b>HTML</b>（单页小工具）｜<b>MULTI_FILE</b>（多文件无路由）｜<b>VUE_PROJECT</b>（多页路由应用）</div>
+      <div class="kv"><b>同时：</b>App 落库（appName = prompt 前 12 位）；<b>异步</b> PromptPreferenceExtractor 抽取用户偏好标签入库（不阻塞）</div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">返回 appId + codeGenType</span></div>
+
+    <!-- ============ 阶段 1：发起生成 ============ -->
+    <div class="rail-title">② 发起生成（SSE 长连接）</div>
+
+    <div class="node bd-front">
+      <span class="num">1</span>
+      <h3>前端发起 SSE 生成请求</h3>
+      <p class="sub">AppChatPage.sendMessage → connectChatSSE · <code>GET /app/chat/gen/code?appId=&amp;message=&amp;mode=</code></p>
+      <div class="badges"><span class="badge b-front">前端</span><span class="badge b-front">SSE</span></div>
+      <p>校验所有权、<code>@RateLimit</code>（5 次/60 秒）、写用户消息历史（失败不阻断）。此后全程是一条 <b>Flux&lt;String&gt;</b> 事件流回推。</p>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">AppServiceImpl.chatToGenCode → GenerationPipelineRouter.route</span></div>
+
+    <!-- ============ 阶段 2：策略决策 ============ -->
+    <div class="rail-title">③ 策略决策（决定跑多重 / 哪条链）</div>
+
+    <div class="node bd-llm">
+      <span class="num">2</span>
+      <h3>模式决策 GenerationModeResolver</h3>
+      <p class="sub">套餐 + 需求复杂度 + 额度 → GenerationPolicy（不可变）</p>
+      <div class="badges"><span class="badge b-llm">复杂度 LLM 分析</span><span class="badge b-db">套餐</span></div>
+      <div class="kv">
+        <b>决策顺序：</b>套餐默认/最高模式 → 复杂度升降（SIMPLE→low_cost / COMPLEX→high_quality）→ 套餐封顶 → 额度封顶<br>
+        <b>输出模式：</b><span class="k">low_cost</span>（单遍、无 LLM Critic）｜<span class="k">standard</span>（并发 + 按需 1 轮 Critic）｜<span class="k">high_quality</span>（并发 + ≤3 轮 Critic）
+      </div>
+      <div class="kv"><b>同时：</b>生成 <span class="k">generationId</span>（贯穿全程）、写 <span class="k">GenerationRun</span> 落库、注入 MDC 日志。</div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">GenerationPipelineRouter 分流</span></div>
+
+    <div class="node bd-llm">
+      <span class="num">3</span>
+      <h3>链路分流：V2 多 Agent ／ Classic 兜底</h3>
+      <p class="sub">按 codeGenType + agent.orchestrator.v2.enabled 开关分流；V2 异常 onErrorResume 降级 Classic</p>
+      <div class="badges"><span class="badge b-llm">V2 主线</span><span class="badge b-classic">Classic 兜底</span></div>
+      <div class="kv"><b>规则：</b>仅 <span class="k">VUE_PROJECT</span> 且开关开 → <b>GenerationOrchestrator</b>；否则或降级 → <b>AiCodeGeneratorFacade</b>（单次流式生成 + 解析 + 落盘）。</div>
+    </div>
+
+    <!-- ============ V2 主线 ============ -->
+    <div class="rail-title">④ V2 多 Agent 主链路（GenerationOrchestrator）</div>
+
+    <div class="node bd-llm">
+      <span class="num">4-1</span>
+      <h3>规划阶段 PlanningAgent</h3>
+      <p class="sub">两次 LLM：需求文档 → 生成计划</p>
+      <div class="badges"><span class="badge b-llm">LLM ×2</span><span class="badge b-board">写黑板</span></div>
+      <div class="kv">
+        <b>第 1 次：</b><span class="k">generateRequirementDoc</span> → <b>RequirementDoc</b>（projectName / summary / coreFeatures[] / pages[] / colorTheme / imageNeeds[]）<br>
+        <b>第 2 次：</b><span class="k">generatePlan</span> → <b>GenerationPlan</b>（styleProfile / fileStructure[] / routerConfig[] / imageSlots[] / colorTheme）
+      </div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">黑板：requirementDoc · plan</span></div>
+
+    <div class="node bd-tool">
+      <span class="num">4-2</span>
+      <h3>素材收集 DesignContextAssembler（零 LLM）</h3>
+      <p class="sub">串联 5 个 SystemTool，统一装配设计上下文</p>
+      <div class="badges"><span class="badge b-tool">零 LLM</span><span class="badge b-board">写黑板</span></div>
+
+      <div class="kv">
+        <b>① DesignTokenTool</b>（本地 <span class="k">skill/designs/*.md</span>）→ <b>DesignSpec</b>（含 tokenGroups 变量名契约）<span class="badge b-tool" style="margin-left:6px">本地文件</span>
+      </div>
+      <div class="kv">
+        <b>② UserPreferenceTool</b>（<b>业务库</b>）→ <b>UserDesignContext</b>（偏好风格/颜色/布局）<span class="badge b-db" style="margin-left:6px">MySQL</span>
+      </div>
+      <div class="kv">
+        <b>③ ProjectProfileTool</b>（<b>业务库</b>）→ <b>ProjectBrandContext</b>（品牌名/行业/品牌色）<span class="badge b-db" style="margin-left:6px">MySQL</span>
+      </div>
+      <div class="kv">
+        <b>④ DesignRetrieveTool</b>（<b>向量库</b>）→ <b>DesignEvidence</b>（参考设计模板/证据，默认开关 <span class="k">agent.retrieve.enabled=false</span>）<span class="badge b-vec" style="margin-left:6px">PGvector</span>
+      </div>
+      <div class="kv">
+        <b>⑤ ContextCompressTool</b>（压缩 + 截断）→ <b>PromptContext</b>（含 fullPrompt，按目标 Agent 裁剪）
+      </div>
+      <div class="note">⚠️ 数据来源区分：<b>用户偏好 &amp; 品牌画像来自业务库</b>；只有<b>参考模板/证据</b>来自向量库。静态设计规范来自本地 md 文件。</div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">黑板：designSpec · userDesignContext · projectBrandContext · designEvidence · promptContext</span></div>
+
+    <div class="branch">
+      <div class="branch-head">⚡ 并发执行（Flux.merge）· low_cost 模式则用单遍 PageGenerateAgent</div>
+      <div class="node bd-llm">
+        <span class="num">4-3a</span>
+        <h3>代码生成 CoderAgent</h3>
+        <p class="sub">流式生成 + 文件工具落盘</p>
+        <div class="badges"><span class="badge b-llm">LLM 流式</span><span class="badge b-tool">文件工具</span></div>
+        <p>拼强约束消息（需求 + 过滤后的 plan + token 契约 + 禁用项 + 上轮 issues），推理模型带 <span class="k">readFile/writeFile/modifyFile</span> 等工具逐文件写盘。</p>
+      </div>
+      <div class="node bd-llm">
+        <span class="num">4-3b</span>
+        <h3>样式生成 StyleAgent</h3>
+        <p class="sub">独占全局样式</p>
+        <div class="badges"><span class="badge b-llm">LLM</span></div>
+        <p>严格按 <span class="k">tokenGroups</span> 输出 <span class="k">variables.css</span> 与 <span class="k">global.css</span>（Coder 禁止写这两个文件）。</p>
+      </div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">落盘 vue_project_{appId}/ · 黑板：generatedFiles</span></div>
+
+    <div class="node bd-tool">
+      <span class="num">4-4</span>
+      <h3>图片填充 ImagePlaceholderReplacer</h3>
+      <p class="sub">生成后把 @@IMG:关键词@@ 替换为真实图片 URL</p>
+      <div class="badges"><span class="badge b-tool">零 LLM</span><span class="badge b-vec">外网搜图</span></div>
+      <div class="kv"><b>搜图链：</b>Pixabay → Unsplash → Pexels → picsum 兜底；并发 4、缓存 3600s；失败保留占位符交给质检报「残留」。</div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">进入质检</span></div>
+
+    <div class="node bd-tool">
+      <span class="num">4-5</span>
+      <h3>规则检查 RuleCriticTool（零 LLM）</h3>
+      <p class="sub">确定性检查，结果存 AtomicReference 供后续决策</p>
+      <div class="badges"><span class="badge b-tool">零 LLM</span></div>
+      <div class="kv"><b>检查项：</b>P0 核心文件缺失（package.json / index.html / src/main.js / src/App.vue）、占位符残留、同质化模板（Hero+卡片+Footer 机械套用）、card 类名滥用。</div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">standard 模式：规则失败才触发 LLM Critic</span></div>
+
+    <div class="node bd-llm">
+      <span class="num">4-6</span>
+      <h3>LLM 质检 + 定向修复循环 CriticAgent</h3>
+      <p class="sub">静态检查 + DesignLintChecker + LLM 评分 → CriticReport → 按 issue.category 路由修复</p>
+      <div class="badges"><span class="badge b-llm">LLM</span><span class="badge b-tool">确定性 lint</span><span class="badge b-board">写黑板</span></div>
+      <div class="kv">
+        <b>评分：</b>满分 100，P0 每条 -30、P1 -15、P2 -5，≥80 通过；<b>静态规则优先于 LLM</b>（P0 缺失/占位符残留强制 failed）。<br>
+        <b>修复路由：</b><span class="k">style</span>→StyleAgent｜<span class="k">code</span>→CoderAgent｜两者→先 Style 后 Coder。
+      </div>
+    </div>
+
+    <div class="loop-note">
+      <span class="ic">🔁</span>
+      <span><b>循环修复：</b>最多 <b>3 轮</b>，把上一轮 issues（含 suggestion）注入回 Coder/Style 做「带着方向重试」；<b>乒乓抑制</b>——检测 Style↔Coder 反复交替 ≥2 次即强制收敛，防死循环。</span>
+    </div>
+
+    <div class="node bd-deploy">
+      <span class="num">4-7</span>
+      <h3>构建部署 DeployTool（可选 · agent.deploy.enabled）</h3>
+      <p class="sub">构建 + 上传 COS → 写 deployUrl</p>
+      <div class="badges"><span class="badge b-deploy">构建部署</span></div>
+      <div class="kv"><b>流程：</b>vueProjectBuilder.buildProject → 上传 <span class="k">dist/</span> 到 COS（projects/{appId}/…）→ <span class="k">blackboard.putDeployUrl</span>。</div>
+    </div>
+
+    <div class="node bd-board">
+      <span class="num">4-8</span>
+      <h3>落库记录 GenerationRecordTool / RagTraceTool</h3>
+      <p class="sub">生成快照 + RAG 追踪 + 指纹质量反哺</p>
+      <div class="badges"><span class="badge b-db">MySQL</span></div>
+      <div class="kv"><b>写入：</b>generated_page 快照、rag_trace 追踪；CriticAgent 反哺指纹质量（feedbackFingerprintQuality），形成数据闭环。</div>
+    </div>
+
+    <!-- ============ 黑板 ============ -->
+    <div class="rail-title">⑤ 共享黑板 Blackboard（线程安全 ConcurrentHashMap）</div>
+    <div class="board-panel">
+      <h4>各阶段写入的中间产物（key → 类型）</h4>
+      <div class="keys">
+        <span class="key">requirementDoc</span>
+        <span class="key">plan</span>
+        <span class="key">designSpec</span>
+        <span class="key">userDesignContext</span>
+        <span class="key">projectBrandContext</span>
+        <span class="key">designEvidence</span>
+        <span class="key">promptContext</span>
+        <span class="key">generatedFiles</span>
+        <span class="key">criticReport</span>
+        <span class="key">deployUrl</span>
+        <span class="key">ragTraceId</span>
+      </div>
+    </div>
+
+    <!-- ============ SSE + 收口 ============ -->
+    <div class="rail-title">⑥ SSE 事件流 → 前端</div>
+
+    <div class="node bd-front">
+      <span class="num">5</span>
+      <h3>AgentEvent → SSE 文本</h3>
+      <p class="sub">GenerationPipelineRouter.toStreamPayload → AppController 包成 {"d": chunk}</p>
+      <div class="badges"><span class="badge b-front">SSE</span></div>
+      <div class="kv">
+        <b>事件类型：</b><span class="k">TEXT_CHUNK / TOOL_CALL / TOOL_RESULT</span> 原样透传；<span class="k">STATUS_CHANGE / ERROR</span> 包成 <span class="k">AiResponseMessage</span>。<br>
+        <b>结构化事件：</b><span class="k">[生成] generation_started</span>、<span class="k">[降级] pipeline_fallback</span>；末尾 <span class="k">done</span> 事件。
+      </div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">StreamHandlerExecutor → JsonMessageStreamHandler 解析、去重、拼 AI 历史</span></div>
+
+    <div class="node bd-deploy">
+      <span class="num">6</span>
+      <h3>构建发布 → 返回 URL</h3>
+      <p class="sub">前端 onDone 自动 POST /app/deploy（vue_project）</p>
+      <div class="badges"><span class="badge b-deploy">构建</span><span class="badge b-deploy">URL</span></div>
+      <div class="kv">
+        <b>AppServiceImpl.deployApp：</b>buildProject（npm install + vite build）→ 产出 <span class="k">dist/</span> → 更新 deployKey/deployedTime → 返回 <span class="k">deployBaseUrl + "/" + deployKey + "/"</span>；异步截图生成封面。<br>
+        <b>静态服务：</b><span class="k">GET /api/static/{deployKey}/**</span>（StaticResourceController）→ dist 优先 → 注入可视化选元素脚本 → 可访问页面。
+      </div>
+    </div>
+
+    <!-- ============ Classic 兜底 ============ -->
+    <div class="rail-title">⑦ Classic 兜底链路（HTML / MULTI_FILE / V2 降级）</div>
+
+    <div class="node bd-classic">
+      <span class="num">C</span>
+      <h3>单次流式生成 AiCodeGeneratorFacade</h3>
+      <p class="sub">非 Vue 项目或 V2 异常降级时走此链路</p>
+      <div class="badges"><span class="badge b-classic">Classic</span></div>
+      <div class="kv">
+        <b>流程：</b>个性化上下文（失败用原始消息）→ <span class="k">generateAndSaveCodeStream</span> → HTML/MULTI_FILE 直接流式输出、完成后 <span class="k">CodeParserExecutor</span> 解析 + <span class="k">CodeFileSaverExecutor</span> 落盘；上下文超限自愈（重置记忆重试一次）。<br>
+        <b>V2 降级：</b><span class="k">onErrorResume</span> 切 Classic，并推 <span class="k">pipeline_fallback</span> 事件。
+      </div>
+    </div>
+
+    <!-- ============ 一句话总结 ============ -->
+    <div class="rail-title">⑧ 数据流一句话总结</div>
+    <div class="node" style="border-left-color:#1f2430">
+      <p style="margin:0;font-size:14px">
+        <b>自然语言 →（选型）→（策略决策）→ 规划产出需求+计划 → 素材收集装配统一 PromptContext → 代码/样式 Agent 并发流式落盘 → 图片回填 → 规则+LLM 双重质检循环修复 → 构建 → 部署/静态发布 → SSE 全程回推 → URL</b>
+        ，中间所有环节通过线程安全黑板传递结构化中间产物、通过 <span class="k">Flux&lt;AgentEvent&gt;</span> 传递过程事件。
+      </p>
+    </div>
+
+  </div>
+
+  <footer>
+    由 CreatAi 源码整理生成 · 详见 <code>GenerationOrchestrator / GenerationPipelineRouter / DesignContextAssembler / CriticAgent / DeployTool</code>
+  </footer>
+</div>
+</body>
+</html>

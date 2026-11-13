@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DesignRetrieveTool · 参考设计模板召回过程</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --card: #ffffff;
+    --ink: #1f2430;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --llm: #2563eb;        /* LLM / Embedding */
+    --mysql: #7c3aed;      /* MySQL 权威库 */
+    --pg: #0891b2;         /* PGvector 向量库 */
+    --tool: #059669;       /* 零 LLM 工具 */
+    --board: #d97706;      /* 黑板 */
+    --front: #dc2626;      /* 前端 / SSE */
+    --fallback: #64748b;   /* 兜底通道 */
+    --shadow: 0 1px 3px rgba(16,24,40,.08), 0 8px 24px rgba(16,24,40,.05);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  header.page {
+    background: linear-gradient(135deg, #155e75 0%, #0891b2 55%, #4f46e5 100%);
+    color: #fff;
+    border-radius: 16px;
+    padding: 28px 30px;
+    box-shadow: var(--shadow);
+  }
+  header.page h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: .5px; }
+  header.page p { margin: 0; opacity: .9; font-size: 14px; }
+  header.page .tags { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  header.page .tag {
+    background: rgba(255,255,255,.16);
+    border: 1px solid rgba(255,255,255,.25);
+    padding: 3px 10px; border-radius: 999px; font-size: 12px;
+  }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 8px; }
+  .legend .item {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--card); border: 1px solid var(--line);
+    padding: 5px 10px; border-radius: 8px; font-size: 12px; color: var(--muted);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+
+  .flow { margin-top: 18px; }
+  .rail-title {
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    margin: 26px 0 10px; letter-spacing: .4px; text-transform: uppercase;
+  }
+
+  .node {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 5px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
+  }
+  .node .num {
+    position: absolute; top: -11px; left: 14px;
+    background: var(--ink); color: #fff;
+    font-size: 11px; font-weight: 700;
+    padding: 2px 9px; border-radius: 999px;
+    letter-spacing: .3px;
+  }
+  .node h3 { margin: 2px 0 4px; font-size: 16px; }
+  .node .sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+  .node p { margin: 6px 0; font-size: 13.5px; }
+
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+  .badge {
+    font-size: 11px; padding: 2px 9px; border-radius: 999px;
+    border: 1px solid transparent; font-weight: 600; white-space: nowrap;
+  }
+  .b-llm    { background: #eff6ff; color: var(--llm);    border-color: #bfdbfe; }
+  .b-mysql  { background: #f5f3ff; color: var(--mysql);  border-color: #ddd6fe; }
+  .b-pg     { background: #ecfeff; color: var(--pg);     border-color: #a5f3fc; }
+  .b-tool   { background: #ecfdf5; color: var(--tool);   border-color: #a7f3d0; }
+  .b-board  { background: #fff7ed; color: var(--board);  border-color: #fed7aa; }
+  .b-fallback{ background: #f8fafc; color: var(--fallback); border-color: #cbd5e1; }
+
+  .bd-llm     { border-left-color: var(--llm); }
+  .bd-mysql   { border-left-color: var(--mysql); }
+  .bd-pg      { border-left-color: var(--pg); }
+  .bd-tool    { border-left-color: var(--tool); }
+  .bd-board   { border-left-color: var(--board); }
+  .bd-fallback{ border-left-color: var(--fallback); }
+
+  .kv { font-size: 12.5px; margin: 8px 0 0; padding: 8px 10px; background: #fafbfc; border: 1px dashed var(--line); border-radius: 8px; }
+  .kv b { color: var(--ink); }
+  .k { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--pg); }
+
+  .arrow { text-align: center; color: var(--muted); font-size: 18px; line-height: 1; margin: -4px 0 10px; }
+  .arrow .lbl { font-size: 11px; color: var(--muted); display: block; margin-top: 2px; }
+
+  /* 代码块 */
+  .code {
+    background: #0f172a; color: #e2e8f0;
+    border-radius: 10px; padding: 12px 14px;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font-size: 12px; line-height: 1.6; overflow-x: auto; margin: 10px 0;
+  }
+  .code .cm { color: #64748b; }
+  .code .kw { color: #93c5fd; }
+  .code .st { color: #a7f3d0; }
+  .code .num { color: #fca5a5; }
+
+  /* 公式 */
+  .formula {
+    background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3;
+    border-radius: 10px; padding: 10px 14px; font-size: 13px;
+    font-family: ui-monospace, Consolas, monospace; margin: 10px 0;
+    overflow-x: auto; white-space: nowrap;
+  }
+
+  /* 多通道降级横向流 */
+  .channels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0; }
+  .channel {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; text-align: center; position: relative;
+  }
+  .channel .cname { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+  .channel .cdesc { font-size: 11.5px; color: var(--muted); }
+  .channel .cstate { font-size: 10.5px; margin-top: 6px; padding: 2px 8px; border-radius: 999px; display: inline-block; }
+  .st-ok   { background: #ecfdf5; color: #047857; }
+  .st-skip { background: #f1f5f9; color: #64748b; }
+  .ch-arrow { display: flex; align-items: center; justify-content: center; font-size: 16px; color: var(--muted); }
+  @media (max-width: 760px) {
+    .channels { grid-template-columns: 1fr; }
+    .ch-arrow { transform: rotate(90deg); padding: 2px 0; }
+  }
+
+  .note {
+    font-size: 12px; color: var(--muted); background: #f8fafc;
+    border-left: 3px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; margin: 10px 0;
+  }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <h1>DesignRetrieveTool · 参考设计模板召回过程</h1>
+    <p>素材收集第 4 步：从设计知识库（指纹池）里，为"当前需求"召回最合适的参考模板/证据。PGvector 向量检索（VECTOR_3B）只是其中一条通道，整条链路是多通道降级设计。</p>
+    <div class="tags">
+      <span class="tag">VECTOR_3B · PGvector + HNSW</span>
+      <span class="tag">STRUCTURAL_3A · MySQL</span>
+      <span class="tag">STATIC_FALLBACK · 静态规范</span>
+      <span class="tag">Embedding 1536 维 · cosine</span>
+    </div>
+  </header>
+
+  <div class="legend">
+    <span class="item"><span class="dot" style="background:var(--llm)"></span>LLM / Embedding</span>
+    <span class="item"><span class="dot" style="background:var(--mysql)"></span>MySQL 权威库</span>
+    <span class="item"><span class="dot" style="background:var(--pg)"></span>PGvector 向量库</span>
+    <span class="item"><span class="dot" style="background:var(--tool)"></span>零 LLM 工具</span>
+    <span class="item"><span class="dot" style="background:var(--board)"></span>黑板</span>
+    <span class="item"><span class="dot" style="background:var(--fallback)"></span>兜底通道</span>
+  </div>
+
+  <div class="flow">
+
+    <!-- ============ 写侧：指纹入库 ============ -->
+    <div class="rail-title">① 写侧：指纹如何进入 PGvector（双库双写）</div>
+
+    <div class="node bd-mysql">
+      <span class="num">W-1</span>
+      <h3>指纹来源（四种）</h3>
+      <p class="sub">离线提炼 / 外部爬取 / 用户私有指纹 / 动态合成 → design_fingerprint（MySQL，权威）</p>
+      <div class="badges"><span class="badge b-mysql">MySQL 主数据</span></div>
+      <div class="kv">
+        <b>design_fingerprint：</b>六层指纹 JSON（tone / tokens / layout / components / interaction / antiPatterns）+ 审核状态（CANDIDATE → APPROVED）+ 质量字段（confidence / designQualityScore / usageCount）+ signature 去重 + 权限字段（sourceScope / projectId / sourcePageId）
+      </div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">人工/规则审核 APPROVED 后触发同步</span></div>
+
+    <div class="node bd-pg">
+      <span class="num">W-2</span>
+      <h3>同步进 PGvector（VectorSyncService.syncOnApprove）</h3>
+      <p class="sub">三步：构造语义文本 → Embedding 模型转向量 → upsert 幂等写入</p>
+      <div class="badges"><span class="badge b-tool">文本构造</span><span class="badge b-llm">Embedding</span><span class="badge b-pg">PGvector</span></div>
+      <div class="kv">
+        <b>① buildSemanticText(指纹)</b> → 语义摘要文本：<span class="k">[设计风格: ecommerce] [设计Token: 配色=..., 圆角=...] [布局: 骨架=...] [组件: ...] [调性: 活力]</span><br>
+        <b>② embed(text)</b> → <span class="k">1536 维 float[]</span><br>
+        <b>③ upsert(...)</b> → <span class="k">INSERT ... ON CONFLICT (fingerprint_id) DO UPDATE</span>（幂等）
+      </div>
+    </div>
+
+    <div class="node bd-pg">
+      <span class="num">W-3</span>
+      <h3>PGvector 表结构 + HNSW 索引</h3>
+      <div class="badges"><span class="badge b-pg">PGvector</span></div>
+      <div class="code"><span class="cm">-- 只做相似度检索，业务状态留在 MySQL 权威库</span>
+<span class="kw">CREATE TABLE</span> design_fingerprint_vector (
+    fingerprint_id   BIGINT UNIQUE,
+    style_profile    VARCHAR(32),
+    status           VARCHAR(16) <span class="kw">DEFAULT</span> <span class="st">'APPROVED'</span>,
+    is_active        BOOLEAN <span class="kw">DEFAULT</span> true,
+    confidence / priority,
+    embedding        <span class="kw">vector</span>(1536),
+    source_scope / owner_user_id / project_id / visibility
+);
+<span class="kw">CREATE INDEX</span> ... <span class="kw">USING</span> hnsw (embedding <span class="kw">vector_cosine_ops</span>)
+    <span class="kw">WITH</span> (m = 16, ef_construction = 200);</div>
+      <div class="note">为什么双库？PGvector 的 vector 类型和 &lt;=&gt; 操作符不被 MyBatis-Flex 支持 → 原生 JdbcTemplate 直连 PG；审核/质量/反哺等业务逻辑留在 MySQL，PG 只是向量索引副本。REJECTED/ARCHIVED 时 <span class="k">deactivate()</span> 软删（is_active=false）。</div>
+    </div>
+
+    <!-- ============ 读侧：检索 ============ -->
+    <div class="rail-title">② 读侧：检索流程（多通道降级）</div>
+
+    <div class="node bd-llm">
+      <span class="num">R-1</span>
+      <h3>构造查询文本（两档）</h3>
+      <p class="sub">输入：styleProfile + queryTags + requirement + plan + userContext</p>
+      <div class="badges"><span class="badge b-tool">零 LLM</span></div>
+      <div class="kv">
+        <b>无个性化</b>（EmbeddingService.buildQueryText）：<span class="k">[设计风格: ecommerce] [需求关键词: 商品, 促销]</span><br>
+        <b>有偏好</b>（PersonalizedQueryBuilder.build）：<span class="k">[设计风格: ...] [项目概述: ...] [用户偏好: 深色, 极简] [用户不喜欢: 卡通风] [高频偏好: ...] [高频反感: ...]</span><br>
+        ★ 查询格式与存储端 buildSemanticText <b>结构对齐</b>（都是 [标签: 值]），保证同一 embedding 空间可比
+      </div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">embeddingModel.embed(queryText) → 1536 维查询向量</span></div>
+
+    <div class="node bd-pg">
+      <span class="num">R-2</span>
+      <h3>VECTOR_3B：PGvector 向量检索（余弦相似度）</h3>
+      <p class="sub">DesignFingerprintVectorRepository.search(queryEmbedding, styleProfile=null, k×3, minSimilarity=0.7, userId)</p>
+      <div class="badges"><span class="badge b-pg">PGvector</span><span class="badge b-tool">原生 SQL</span></div>
+      <div class="code"><span class="kw">SELECT</span> ..., 1 - (embedding <span class="kw">&lt;=&gt;</span> ?::vector) <span class="kw">AS</span> similarity
+<span class="kw">FROM</span> design_fingerprint_vector
+<span class="kw">WHERE</span> is_active = true <span class="kw">AND</span> status = <span class="st">'APPROVED'</span>
+  <span class="kw">AND</span> (source_scope = <span class="st">'GLOBAL'</span> <span class="kw">OR</span> owner_user_id = ?)  <span class="cm">-- 权限过滤</span>
+  <span class="kw">AND</span> 1 - (embedding <span class="kw">&lt;=&gt;</span> ?::vector) &gt;= <span class="num">0.7</span>      <span class="cm">-- 相似度阈值</span>
+<span class="kw">ORDER BY</span> embedding <span class="kw">&lt;=&gt;</span> ?::vector          <span class="cm">-- 走 HNSW 索引</span>
+<span class="kw">LIMIT</span> k*3;                                    <span class="cm">-- 粗召回 topK×3</span></div>
+      <div class="kv">
+        <b>关键点：</b>styleProfile 传 <span class="k">null</span> = 解除硬过滤（全局语义召回，靠阈值兜底，profile 匹配改由排序加分表达）；<span class="k">1 - (embedding &lt;=&gt; ?)</span> = 余弦相似度
+      </div>
+    </div>
+
+    <div class="node bd-tool">
+      <span class="num">R-3</span>
+      <h3>候选组装 + 统一排序精排</h3>
+      <p class="sub">向量只负责粗召回，精排交给综合排序</p>
+      <div class="badges"><span class="badge b-mysql">回查完整指纹</span></div>
+      <div class="kv">
+        <b>组装：</b>逐条 <span class="k">getById(fingerprint_id)</span> 回 MySQL → 投影成 DesignEvidence.Item + softMatchScore（需求关键词与 tone/preferred/layout 子串匹配）+ 同 profile 加分(<span class="k">+2</span>)<br>
+        <b>排序：</b><span class="k">priority DESC → confidence DESC → updatedAt DESC → matchScore DESC</span><br>
+        <b>个性化排序</b>（开启时）：10 项加权公式
+      </div>
+      <div class="formula">final = 0.25·语义 + 0.15·风格 + 0.15·组件 + 0.10·布局 + 0.10·质量 + 0.15·偏好 − 0.20·反感</div>
+    </div>
+
+    <div class="arrow">↓<span class="lbl">多样性过滤：EXTRACTED_FINGERPRINT 占比 ≥ 30%</span></div>
+
+    <div class="node bd-board">
+      <span class="num">R-4</span>
+      <h3>产出 DesignEvidence 写黑板</h3>
+      <div class="badges"><span class="badge b-board">黑板</span></div>
+      <div class="kv">
+        <span class="k">DesignEvidence { styleProfile, channel, queryText, items[] }</span> → 写黑板 <span class="k">designEvidence</span><br>
+        → CoderAgent（appendEvidence 注入参考）/ StyleAgent / ContextCompressTool（压缩进 PromptContext）
+      </div>
+    </div>
+
+    <!-- ============ 多通道降级 ============ -->
+    <div class="rail-title">③ 多通道降级（任何一环失败都不阻断生成）</div>
+
+    <div class="channels">
+      <div class="channel" style="border-top:3px solid var(--pg)">
+        <div class="cname">VECTOR_3B</div>
+        <div class="cdesc">PGvector 向量检索<br>余弦 ≥ 0.7 粗召回</div>
+        <div class="cstate st-ok">命中 → channel=VECTOR_3B</div>
+      </div>
+      <div class="ch-arrow">→ 未命中/异常 →</div>
+      <div class="channel" style="border-top:3px solid var(--mysql)">
+        <div class="cname">STRUCTURAL_3A</div>
+        <div class="cdesc">MySQL 按 styleProfile<br>查 APPROVED + 跨类目补充</div>
+        <div class="cstate st-ok">命中 → channel=STRUCTURAL_3A</div>
+      </div>
+      <div class="ch-arrow">→ 未命中 →</div>
+      <div class="channel" style="border-top:3px solid var(--fallback)">
+        <div class="cname">STATIC_FALLBACK</div>
+        <div class="cdesc">静态规范必进候选集<br>（skill/designs/*.md 兜底）</div>
+        <div class="cstate st-skip">始终存在</div>
+      </div>
+    </div>
+
+    <div class="loop-note" style="display:flex;align-items:center;gap:10px;background:#fffbeb;border:1px dashed #fcd34d;color:#92400e;border-radius:10px;padding:8px 12px;font-size:12.5px;margin-top:10px;">
+      <span style="font-size:18px">🔁</span>
+      <span><b>miss 兜底：</b>三档检索均无指纹命中 → <span class="k">recordMiss</span> 落 design_miss_log → 同一 profile miss 次数 ≥ 阈值(2) → <b>LLM 动态合成</b>（DYNAMIC_SYNTH，产物注入本次生成 + 入库 CANDIDATE 待审核）</span>
+    </div>
+
+    <!-- ============ 开关 ============ -->
+    <div class="rail-title">④ 开关与现状</div>
+
+    <div class="node bd-fallback">
+      <span class="num">S</span>
+      <h3>配置开关（默认多为关闭）</h3>
+      <div class="kv">
+        <span class="k">agent.retrieve.enabled=false</span> ｜ 整体检索开关（关 = 只用静态规范）<br>
+        <span class="k">agent.retrieve.vector.enabled=false</span> ｜ 3B 向量通道（需 PGvector + Embedding 模型就绪）<br>
+        <span class="k">agent.retrieve.vector.min-similarity=0.7</span> ｜ 相似度阈值<br>
+        <span class="k">agent.retrieve.top-k=2</span> ｜ 召回条数（≤3）<br>
+        <span class="k">agent.retrieve.synth.enabled=false</span> ｜ 动态合成兜底<br>
+        <span class="k">agent.personalization.enabled=true</span> ｜ 个性化查询/排序
+      </div>
+      <div class="note">现状提醒：<b>projectId 权限字段已建好但检索未按项目过滤</b>（search SQL 无 projectId 条件）——品牌改造方案 P4 将补 PROJECT 级指纹参与召回。</div>
+    </div>
+
+    <!-- ============ 一句话 ============ -->
+    <div class="rail-title">⑤ 一句话总结</div>
+    <div class="node" style="border-left-color:#1f2430">
+      <p style="margin:0;font-size:14px">
+        <b>指纹入库时：</b>APPROVED 指纹经 <span class="k">语义文本 → 1536 维 Embedding → PGvector（HNSW 索引）</span>双写副本；<br>
+        <b>生成检索时：</b><span class="k">需求+偏好 → 查询文本 → 向量化 → 余弦 ≥0.7 粗召回(topK×3) → 综合排序精排 → 多样性过滤 → DesignEvidence 写黑板</span>；<br>
+        <b>兜底：</b>VECTOR_3B → STRUCTURAL_3A → STATIC_FALLBACK 多通道降级，miss 达阈值触发动态合成——<b>任何时候都有参考证据可用，且召回安全（权限 + APPROVED 门禁）</b>。
+      </p>
+    </div>
+
+  </div>
+
+  <footer>
+    依据 DesignRetrieveTool / DesignKnowledgeIndex / DesignFingerprintVectorRepository / EmbeddingService / PersonalizedQueryBuilder 源码整理
+  </footer>
+</div>
+</body>
+</html>
