@@ -5,6 +5,7 @@ import com.yu.yuaifather.model.dto.agent.DesignFingerprintDTO;
 import com.yu.yuaifather.model.entity.DesignFingerprint;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 设计指纹 服务层（阶段二「后验证据」治理，见计划 2.5 / 2.7）。
@@ -82,4 +83,19 @@ public interface DesignFingerprintService extends IService<DesignFingerprint> {
     default List<DesignFingerprint> listApproved(String styleProfile, int limit) {
         return listApproved(styleProfile, limit, null);
     }
+
+    /**
+     * 手动重同步向量索引（A 改造：向量存储后端可选，生产切 {@code store=mysql} 后补历史数据）。
+     * <p>
+     * 遍历前 {@code limit} 条 APPROVED 指纹，逐条调用 {@code VectorSyncWorker.syncOnApprove}；
+     * 向量功能关闭（{@code agent.retrieve.vector.enabled=false}）时不报错，仅返回
+     * {@code enabled=false} 的统计信息。
+     * <p>
+     * 注意：{@code syncOnApprove} 内部已吞掉单条同步异常（向量失败不影响指纹主流程），
+     * 因此返回的 {@code attempted} 表示"已提交同步"，单条失败只记日志。
+     *
+     * @param limit 单次最多处理的 APPROVED 指纹条数（调用方需已按配置上限收敛）
+     * @return 统计信息：{@code enabled} / {@code limit} / {@code scanned} / {@code attempted} / {@code failedIds}
+     */
+    Map<String, Object> resyncVectors(int limit);
 }

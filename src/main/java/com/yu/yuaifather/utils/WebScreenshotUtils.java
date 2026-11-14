@@ -4,10 +4,10 @@ import cn.hutool.core.img.ImgUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import com.yu.yuaifather.config.ScreenshotProperties;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
-
-import io.github.bonigarcia.wdm.WebDriverManager;
+import com.yu.yuaifather.media.screenshot.ChromeRuntime;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
@@ -17,40 +17,57 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.ui.WebDriverWait;
+import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.time.Duration;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 
 /**
- * 截图工具类
+ * 截图工具（Spring 单例 Bean）。
+ * <p>
+ * 改造点：
+ * <ul>
+ *   <li>由静态工具类改为实例 Bean，调用方通过注入使用；</li>
+ *   <li>删除 Windows 专用 chromedriver.exe 路径硬编码，驱动与 Chrome 可执行文件统一由
+ *       {@link ChromeRuntime} 按 {@code app.screenshot.*} 配置解析；</li>
+ *   <li>每次截图仍创建独立 WebDriver 并即时销毁，应用关闭时由 {@link #destroy()} 兜底释放残留实例。</li>
+ * </ul>
  */
 @Slf4j
+@Component
 public class WebScreenshotUtils {
 
-    private static volatile WebDriver webDriver = null;
-
-    // 使用相对路径指向 resources 目录下的 ChromeDriver
-    private static final String CHROME_DRIVER_PATH =
-            System.getProperty("user.dir") + "/src/main/resources/web_drivers/chromedriver.exe";
     private static final int DEFAULT_WIDTH = 1600;
     private static final int DEFAULT_HEIGHT = 900;
 
+    private final ScreenshotProperties screenshotProperties;
+    private final ChromeRuntime chromeRuntime;
+
+    /** 当前存活（尚未 quit）的 WebDriver 实例；截图线程池并发执行时可能有多个，关闭时兜底释放。 */
+    private final Set<WebDriver> activeDrivers = ConcurrentHashMap.newKeySet();
+
+    public WebScreenshotUtils(ScreenshotProperties screenshotProperties, ChromeRuntime chromeRuntime) {
+        this.screenshotProperties = screenshotProperties;
+        this.chromeRuntime = chromeRuntime;
+    }
+
     /**
-     * 退出时销毁
+     * 应用关闭时兜底销毁未正常关闭的 WebDriver 实例。
      */
     @PreDestroy
-    public static void destroy() {
-        if (webDriver != null) {
-            try {
-                webDriver.quit();
-            } catch (Exception e) {
-                log.warn("关闭 WebDriver 时出现异常", e);
-            } finally {
-                webDriver = null;
-            }
+    public void destroy() {
+        if (activeDrivers.isEmpty()) {
+            return;
         }
+        log.info("应用关闭，释放 {} 个未关闭的 WebDriver 实例", activeDrivers.size());
+        for (WebDriver driver : activeDrivers) {
+            quitQuietly(driver);
+        }
+        activeDrivers.clear();
     }
 
     /**
@@ -59,7 +76,7 @@ public class WebScreenshotUtils {
      * @param webUrl 要截图的网址
      * @return 压缩后的截图文件路径，失败返回 null
      */
-    public static String saveWebPageScreenshot(String webUrl) {
+    public String saveWebPageScreenshot(String webUrl) {
         // 非空校验
         if (StrUtil.isBlank(webUrl)) {
             log.error("网页截图失败，url为空");
@@ -70,6 +87,7 @@ public class WebScreenshotUtils {
         try {
             // 每次调用创建新的 WebDriver 实例
             driver = getWebDriver();
+            activeDrivers.add(driver);
 
             // 创建临时目录
             String rootPath = System.getProperty("user.dir") + "/tmp/screenshots/" + UUID.randomUUID().toString().substring(0, 8);
@@ -108,57 +126,32 @@ public class WebScreenshotUtils {
         } finally {
             // 关闭当前 WebDriver 实例
             if (driver != null) {
-                try {
-                    driver.quit();
-                } catch (Exception e) {
-                    log.warn("关闭 WebDriver 时出现异常", e);
-                }
+                quitQuietly(driver);
+                activeDrivers.remove(driver);
             }
         }
     }
 
     /**
-     * 获取 WebDriver 实例（自动匹配系统 Chrome 版本，无需手动下载 chromedriver）
+     * 获取 WebDriver 实例。
+     * <p>驱动路径由 {@link ChromeRuntime#resolveDriver()} 按配置解析（显式 driver-path → WebDriverManager），
+     * Chrome 可执行文件由 {@link ChromeRuntime#resolveChromeBinary()} 解析（显式 chrome-binary → 自动探测）。</p>
+     *
      * @return WebDriver 实例
      */
-    private static WebDriver getWebDriver() {
+    private WebDriver getWebDriver() {
         try {
-            // 1) 自动下载/匹配系统 Chrome 版本的 ChromeDriver
-            try {
-                WebDriverManager.chromedriver().setup();
-                log.info("WebDriverManager 已自动匹配 Chrome 版本");
-            } catch (Exception wdmEx) {
-                // 若自动下载失败（如无网络），回退到本地 chromedriver
-                log.warn("WebDriverManager 自动匹配失败，回退到本地 chromedriver: {}", wdmEx.getMessage());
-                File driverFile = new File(CHROME_DRIVER_PATH);
-                if (!driverFile.exists()) {
-                    throw new BusinessException(ErrorCode.SYSTEM_ERROR,
-                            "ChromeDriver 未找到，请确保文件存在于: " + CHROME_DRIVER_PATH);
-                }
-                System.setProperty("webdriver.chrome.driver", CHROME_DRIVER_PATH);
-            }
+            log.debug("截图配置: chromeBinary={}, driverPath={}, useWebDriverManager={}",
+                    screenshotProperties.getChromeBinary(), screenshotProperties.getDriverPath(),
+                    screenshotProperties.isUseWebDriverManager());
+            // 1) 解析 ChromeDriver（显式 driver-path 优先，否则 WebDriverManager）
+            chromeRuntime.resolveDriver();
 
-            //2) 配置 Chrome 选项，显式指定 Chrome 路径（不在 PATH 时WebDriverManager 找不到）
+            // 2) 配置 Chrome 选项，显式指定 Chrome 路径（不在 PATH 时 ChromeDriver 找不到）
             ChromeOptions options = new ChromeOptions();
-            String[] chromePaths = {
-                // Windows
-                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-                "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-                // macOS
-                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                "/Applications/Chromium.app/Contents/MacOS/Chromium",
-                // Linux
-                "/usr/bin/google-chrome",
-                "/usr/bin/google-chrome-stable",
-                "/usr/bin/chromium-browser",
-                "/usr/bin/chromium"
-            };
-            for (String cp : chromePaths) {
-                if (new File(cp).exists()) {
-                    options.setBinary(cp);
-                    log.info("使用 Chrome: {}", cp);
-                    break;
-                }
+            String chromeBinary = chromeRuntime.resolveChromeBinary();
+            if (StrUtil.isNotBlank(chromeBinary)) {
+                options.setBinary(chromeBinary);
             }
             options.addArguments("--headless=new");    // 新版无头模式
             options.addArguments("--disable-gpu");
@@ -182,12 +175,23 @@ public class WebScreenshotUtils {
     }
 
     /**
+     * 关闭 WebDriver，异常仅记录日志（用于 finally 与关闭钩子）。
+     */
+    private void quitQuietly(WebDriver webDriver) {
+        try {
+            webDriver.quit();
+        } catch (Exception e) {
+            log.warn("关闭 WebDriver 时出现异常: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 保存图片到文件
      *
      * @param imageBytes 图片字节数据
      * @param imagePath 保存路径
      */
-    private static void saveImage(byte[] imageBytes, String imagePath) {
+    private void saveImage(byte[] imageBytes, String imagePath) {
         try {
             FileUtil.writeBytes(imageBytes, imagePath);
         } catch (Exception e) {
@@ -202,7 +206,7 @@ public class WebScreenshotUtils {
      * @param originImagePath 原始图片路径
      * @param compressedImagePath 压缩后图片路径
      */
-    private static void compressImage(String originImagePath, String compressedImagePath) {
+    private void compressImage(String originImagePath, String compressedImagePath) {
         // 压缩图片质量（0.1 = 10% 质量）
         final float COMPRESSION_QUALITY = 0.3f;
         try {
@@ -222,7 +226,7 @@ public class WebScreenshotUtils {
      *
      * @param webDriver WebDriver 实例
      */
-    private static void waitForPageLoad(WebDriver webDriver) {
+    private void waitForPageLoad(WebDriver webDriver) {
         try {
             // 创建等待页面加载对象
             WebDriverWait wait = new WebDriverWait(webDriver, Duration.ofSeconds(10));
@@ -239,4 +243,3 @@ public class WebScreenshotUtils {
         }
     }
 }
-

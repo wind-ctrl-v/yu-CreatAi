@@ -17,6 +17,7 @@
 - `007_user_plan_type.sql`
 - `008_user_quota.sql`
 - `020_project_brand_profile.sql`
+- `021_design_fingerprint_vector_mysql.sql`：MySQL 向量后端建表（`agent.retrieve.vector.store=mysql` 时使用）
 - `design_fingerprint.sql`：历史基础 DDL，应在引入正式迁移工具时补为版本化基线，不得与增量脚本重复执行。
 
 编号 `009` 当前为空缺，不得回填；新迁移使用大于现有最大编号的新版本。
@@ -29,6 +30,10 @@
 - `012_seed_user_preference.sql`
 
 ### PostgreSQL / PGvector migration
+
+仅当 `agent.retrieve.vector.store=pg`（默认，保持改造前行为）时需要执行；
+`store=mysql` 时**不需要**部署 PostgreSQL，改用上面 MySQL 清单中的
+`021_design_fingerprint_vector_mysql.sql`。
 
 - `011_init_pgvector_local.sql`
 - `design_fingerprint_vector.sql`

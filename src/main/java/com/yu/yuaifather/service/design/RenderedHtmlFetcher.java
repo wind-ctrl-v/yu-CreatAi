@@ -1,8 +1,8 @@
 package com.yu.yuaifather.service.design;
 
 import cn.hutool.core.util.StrUtil;
+import com.yu.yuaifather.media.screenshot.ChromeRuntime;
 import com.yu.yuaifather.shared.security.SafeUrlValidator;
-import io.github.bonigarcia.wdm.WebDriverManager;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
@@ -46,7 +46,11 @@ public class RenderedHtmlFetcher {
 
     private final RestTemplate restTemplate;
 
-    public RenderedHtmlFetcher() {
+    /** Chrome 运行时解析器：驱动/浏览器路径统一按 app.screenshot.* 配置解析。 */
+    private final ChromeRuntime chromeRuntime;
+
+    public RenderedHtmlFetcher(ChromeRuntime chromeRuntime) {
+        this.chromeRuntime = chromeRuntime;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(15_000);
         factory.setReadTimeout(30_000);
@@ -97,12 +101,18 @@ public class RenderedHtmlFetcher {
 
     /**
      * 渲染抓取（headless Chrome，每次调用独立实例，用完即销毁）。
+     * <p>驱动解析统一走 {@link ChromeRuntime}（显式 driver-path → WebDriverManager）；
+     * 解析或渲染失败时记录日志并返回 null，由调用方降级为静态抓取。</p>
      */
     private String fetchRendered(String url) {
         WebDriver driver = null;
         try {
-            WebDriverManager.chromedriver().setup();
+            chromeRuntime.resolveDriver();
             ChromeOptions options = new ChromeOptions();
+            String chromeBinary = chromeRuntime.resolveChromeBinary();
+            if (StrUtil.isNotBlank(chromeBinary)) {
+                options.setBinary(chromeBinary);
+            }
             options.addArguments("--headless=new", "--disable-gpu", "--no-sandbox",
                     "--disable-dev-shm-usage", "--disable-extensions",
                     "--window-size=1600,900",

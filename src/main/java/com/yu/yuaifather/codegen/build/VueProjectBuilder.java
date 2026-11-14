@@ -1,6 +1,10 @@
 package com.yu.yuaifather.codegen.build;
 
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RuntimeUtil;
+import com.yu.yuaifather.config.BuildProperties;
+import com.yu.yuaifather.exception.BusinessException;
+import com.yu.yuaifather.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -9,15 +13,26 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 
 @Slf4j
 @Component
 public class VueProjectBuilder {
 
+    /** 构建配置：锁等待 / npm 超时 / 构建后清理，绑定 {@code codegen.build.*}。 */
+    @Autowired
+    private BuildProperties buildProperties;
+
     @Autowired
     @Qualifier("buildExecutor")
     private Executor buildExecutor;
+
+    /**
+     * 构建串行锁（公平锁）：2C4G 单机下 npm install + build 内存占用高，
+     * 同一时刻只允许一个构建任务执行，避免并发构建打满内存。
+     */
+    private final ReentrantLock buildLock = new ReentrantLock(true);
 
     /**
      * 异步构建项目（不阻塞主流程）
@@ -75,21 +90,21 @@ public class VueProjectBuilder {
 
 
     /**
-     * 执行 npm install 命令
+     * 执行 npm install 命令（超时时间可配置，默认 300 秒）
      */
     private boolean executeNpmInstall(File projectDir) {
         log.info("执行 npm install...");
         String command = String.format("%s install", buildCommand("npm"));
-        return executeCommand(projectDir, command, 300); // 5分钟超时
+        return executeCommand(projectDir, command, buildProperties.getInstallTimeoutSeconds());
     }
 
     /**
-     * 执行 npm run build 命令
+     * 执行 npm run build 命令（超时时间可配置，默认 180 秒）
      */
     private boolean executeNpmBuild(File projectDir) {
         log.info("执行 npm run build...");
         String command = String.format("%s run build", buildCommand("npm"));
-        return executeCommand(projectDir, command, 180); // 3分钟超时
+        return executeCommand(projectDir, command, buildProperties.getBuildTimeoutSeconds());
     }
 
 
@@ -107,12 +122,49 @@ public class VueProjectBuilder {
 
 
     /**
-     * 构建 Vue 项目
+     * 构建 Vue 项目（所有构建经公平锁串行执行）。
      *
      * @param projectPath 项目根目录路径
      * @return 是否构建成功
+     * @throws BusinessException 等待构建锁超时（当前已有构建任务在执行）时抛出
      */
     public boolean buildProject(String projectPath) {
+        acquireBuildLock();
+        try {
+            return doBuildProject(projectPath);
+        } finally {
+            buildLock.unlock();
+        }
+    }
+
+    /**
+     * 获取构建锁：{@code lock-wait-seconds <= 0} 表示无限等待，否则最多等待配置秒数。
+     * 未获取到锁时抛业务异常，提示用户稍后再试。
+     */
+    private void acquireBuildLock() {
+        int waitSeconds = buildProperties.getLockWaitSeconds();
+        boolean acquired;
+        try {
+            if (waitSeconds <= 0) {
+                buildLock.lock();
+                acquired = true;
+            } else {
+                acquired = buildLock.tryLock(waitSeconds, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "等待构建任务时被中断，请稍后再试");
+        }
+        if (!acquired) {
+            log.warn("获取构建锁超时（等待 {} 秒），当前已有构建任务在执行", waitSeconds);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "当前有构建任务正在执行，请稍后再试");
+        }
+    }
+
+    /**
+     * 真正的构建流程（调用方已持有构建锁）。
+     */
+    private boolean doBuildProject(String projectPath) {
         File projectDir = new File(projectPath);
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             log.error("项目目录不存在: {}", projectPath);
@@ -141,11 +193,34 @@ public class VueProjectBuilder {
             log.error("构建完成但 dist 目录未生成: {}", distDir.getAbsolutePath());
             return false;
         }
+        // 构建成功后按配置清理 node_modules（默认关闭，保持旧行为；失败仅告警）
+        cleanupNodeModulesIfNeeded(projectDir);
         log.info("Vue 项目构建成功，dist 目录: {}", distDir.getAbsolutePath());
         return true;
     }
 
-
-
+    /**
+     * 按 {@code codegen.build.cleanup-node-modules} 配置清理 node_modules 以节省磁盘。
+     * <p>清理失败仅记录 warn，不影响构建结果。</p>
+     */
+    private void cleanupNodeModulesIfNeeded(File projectDir) {
+        if (!buildProperties.isCleanupNodeModules()) {
+            return;
+        }
+        File nodeModulesDir = new File(projectDir, "node_modules");
+        if (!nodeModulesDir.exists()) {
+            return;
+        }
+        try {
+            boolean deleted = FileUtil.del(nodeModulesDir);
+            if (deleted) {
+                log.info("构建成功，已清理 node_modules 目录: {}", nodeModulesDir.getAbsolutePath());
+            } else {
+                log.warn("构建成功，但清理 node_modules 失败（目录可能被占用）: {}", nodeModulesDir.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            log.warn("构建成功，但清理 node_modules 异常: {}，原因: {}", nodeModulesDir.getAbsolutePath(), e.getMessage());
+        }
+    }
 
 }

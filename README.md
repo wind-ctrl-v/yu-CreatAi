@@ -278,3 +278,16 @@ export AGENT_DEPLOY_ENABLED=true
 ## License
 
 MIT
+
+---
+
+## 生产部署
+
+2 核 4G 单机（Ubuntu 24.04 + MySQL 8 + Redis 7 + Nginx + JDK 21 + Node 20 + headless Chrome，**无需 PostgreSQL**）的完整部署手册见 [docs/deploy/README.md](docs/deploy/README.md)。
+
+配套工件：
+
+- 生产外置配置示例：[docs/deploy/application-prod.yml.example](docs/deploy/application-prod.yml.example)
+- systemd 服务单元：[docs/deploy/systemd/creat-ai.service](docs/deploy/systemd/creat-ai.service)
+- Nginx 站点配置：[docs/deploy/nginx/creat-ai.conf](docs/deploy/nginx/creat-ai.conf)
+- 运维脚本（Chrome 安装 / 备份 / 清理）：[docs/deploy/scripts/](docs/deploy/scripts/)

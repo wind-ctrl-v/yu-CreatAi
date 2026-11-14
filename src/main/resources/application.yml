@@ -106,11 +106,34 @@ image:
 app:
   deploy:
     base-url: ${APP_DEPLOY_BASE_URL:http://localhost:8123/api/static}
+  # 截图（headless Chrome）配置：2C4G 单机部署时使用显式路径 + 单线程执行
+  screenshot:
+    chrome-binary: ${APP_SCREENSHOT_CHROME_BINARY:}
+    driver-path: ${APP_SCREENSHOT_DRIVER_PATH:}
+    use-web-driver-manager: ${APP_SCREENSHOT_USE_WDM:true}
+    executor:
+      core-pool-size: ${APP_SCREENSHOT_EXECUTOR_CORE:2}
+      max-pool-size: ${APP_SCREENSHOT_EXECUTOR_MAX:4}
+      queue-capacity: ${APP_SCREENSHOT_EXECUTOR_QUEUE:20}
+  # 并发保护：0 = 不限制（默认保持旧行为）
+  limits:
+    generation:
+      max-concurrent: ${APP_LIMITS_GENERATION_MAX_CONCURRENT:0}
+    deploy:
+      max-concurrent: ${APP_LIMITS_DEPLOY_MAX_CONCURRENT:0}
 
 # 代码生成 / 静态资源根目录（StaticResourceController 与文生图本地存储共用；
 # 默认与 AppConstant.CODE_OUTPUT_ROOT_DIR 一致）
 code:
   output-root-dir: ${CODE_OUTPUT_ROOT_DIR:${user.dir}/tmp/code_output}
+
+# Vue 项目构建配置（串行锁 / 超时 / 构建后清理），默认值与改造前一致
+codegen:
+  build:
+    lock-wait-seconds: ${CODEGEN_BUILD_LOCK_WAIT_SECONDS:300}
+    install-timeout-seconds: ${CODEGEN_BUILD_INSTALL_TIMEOUT_SECONDS:300}
+    build-timeout-seconds: ${CODEGEN_BUILD_TIMEOUT_SECONDS:180}
+    cleanup-node-modules: ${CODEGEN_BUILD_CLEANUP_NODE_MODULES:false}
 
 # 多 Agent 编排开关
 agent:
@@ -147,6 +170,16 @@ agent:
     vector:
       enabled: ${AGENT_RETRIEVE_VECTOR_ENABLED:false}
       min-similarity: ${AGENT_RETRIEVE_VECTOR_MIN_SIMILARITY:0.7}
+      # 向量后端：pg（默认，兼容旧行为）/ mysql（2C4G 单机推荐，无需 PostgreSQL）
+      store: ${AGENT_RETRIEVE_VECTOR_STORE:pg}
+      # mysql 后端内存快照定时重载间隔（毫秒），0=关闭定时重载
+      reload-interval-ms: ${AGENT_RETRIEVE_VECTOR_RELOAD_MS:300000}
+      # 期望向量维度，0=自动探测（智谱 embedding-2 为 1024）
+      expected-dim: ${AGENT_RETRIEVE_VECTOR_EXPECTED_DIM:0}
+      # mysql 后端内存快照最大条目数，超出只加载优先级最高的部分（防 OOM）
+      max-entries: ${AGENT_RETRIEVE_VECTOR_MAX_ENTRIES:20000}
+      # 管理员一次性重同步向量的单次上限
+      resync-max: ${AGENT_RETRIEVE_VECTOR_RESYNC_MAX:100}
     # 动态合成兜底（覆盖度优化 阶段二）：检索 miss 达阈值时 LLM 现场合成设计规范，
     # 产物入库 CANDIDATE 待人工审核；默认关闭
     synth:

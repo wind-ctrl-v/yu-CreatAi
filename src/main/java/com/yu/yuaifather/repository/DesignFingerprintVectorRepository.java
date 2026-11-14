@@ -2,28 +2,30 @@ package com.yu.yuaifather.repository;
 
 import com.yu.yuaifather.model.dto.agent.DesignFingerprintVector;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.jdbc.core.BeanPropertyRowMapper;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 向量表 Repository：基于 {@link JdbcTemplate} 操作 PGvector。
+ * 向量表门面 Repository（A 改造：向量存储后端可选）。
  * <p>
- * 不使用 MyBatis-Flex（PGvector {@code vector} 类型和 {@code <=>} 操作符不被支持），
- * 所有操作均为原生 SQL + {@link JdbcTemplate}，与 MySQL 主链路隔离。
- * <p>
- * 设计原则：
+ * 保留原有 public 方法签名（11 参 upsert、6 参 upsert、5 参 / 4 参 search、deactivate），
+ * 并补充 5 参 upsert 兼容重载；内部委托给 {@link VectorStore}，调用方
+ * （{@code DesignKnowledgeIndex} / {@code VectorSyncWorker}）零改动。
+ * 具体后端由 {@code config.VectorStoreConfiguration} 按
+ * {@code agent.retrieve.vector.store} 装配：
  * <ul>
- *   <li>入参 {@code float[]} 由 PGvector 自动映射为 {@code vector} 类型；</li>
- *   <li>相似度检索用 {@code embedding <=> ?::vector}（cosine distance），
- *       {@code 1 - distance} 得到 cosine similarity；</li>
- *   <li>UPSERT 用 {@code INSERT ... ON CONFLICT ... DO UPDATE} 保证幂等。</li>
+ *   <li>{@code pg}（默认）：{@link PgVectorStore}，PGvector 原生 SQL + {@code <=>} 语义检索，行为不变；</li>
+ *   <li>{@code mysql}：{@link MysqlVectorStore}，MySQL 持久化 + 内存快照余弦 TopK，无需 PostgreSQL。</li>
  * </ul>
+ * <p>
+ * 历史说明：本类原直接持有 {@code pgVectorJdbcTemplate} 并内联 PG SQL；拆分后只保留门面职责，
+ * 使 {@link #search(float[], String, int, double, Long)} 的语义在不同存储后端下保持一致
+ * （cosine similarity、按相似度降序）。
+ * <p>
+ * 注意：整体行为受 {@code agent.retrieve.vector.enabled=true} 开关控制（关闭时本 Bean 不存在，
+ * 依赖它的 {@code VectorSyncWorker} / {@code DesignKnowledgeIndex} 同时不装配）。
  * <p>
  * ★ 包结构说明（包结构优化计划问题 5）：本类原位于 {@code service} 包，与普通业务 Service 混放；
  * 现独立到 {@code repository} 包，聚合"直连数据源的原生 SQL 访问层"这一类职责，
@@ -36,11 +38,10 @@ import java.util.List;
 @ConditionalOnProperty(name = "agent.retrieve.vector.enabled", havingValue = "true")
 public class DesignFingerprintVectorRepository {
 
-    private final JdbcTemplate jdbc;
+    private final VectorStore vectorStore;
 
-    public DesignFingerprintVectorRepository(
-            @Qualifier("pgVectorJdbcTemplate") JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+    public DesignFingerprintVectorRepository(VectorStore vectorStore) {
+        this.vectorStore = vectorStore;
     }
 
     /**
@@ -65,34 +66,9 @@ public class DesignFingerprintVectorRepository {
                        String embeddingText, float[] embedding,
                        String sourceScope, Long ownerUserId, Long projectId,
                        String visibility, String sourceType) {
-        if (embedding == null || embedding.length == 0) {
-            log.warn("向量为空，跳过 upsert fingerprintId={}", fingerprintId);
-            return;
-        }
-        String sql = """
-                INSERT INTO design_fingerprint_vector
-                    (fingerprint_id, style_profile, status, confidence, priority,
-                     embedding_text, embedding, is_active,
-                     source_scope, owner_user_id, project_id, visibility,
-                     source_type)
-                VALUES (?, ?, 'APPROVED', ?, ?, ?, ?::vector, true, ?, ?, ?, ?, ?)
-                ON CONFLICT (fingerprint_id)
-                DO UPDATE SET
-                    embedding = EXCLUDED.embedding,
-                    embedding_text = EXCLUDED.embedding_text,
-                    confidence = EXCLUDED.confidence,
-                    priority = EXCLUDED.priority,
-                    source_scope = EXCLUDED.source_scope,
-                    owner_user_id = EXCLUDED.owner_user_id,
-                    project_id = EXCLUDED.project_id,
-                    visibility = EXCLUDED.visibility,
-                    source_type = EXCLUDED.source_type,
-                    updated_at = now(),
-                    is_active = true
-                """;
-        jdbc.update(sql, fingerprintId, styleProfile, confidence, priority,
-                embeddingText, embedding,
-                sourceScope, ownerUserId, projectId, visibility, sourceType);
+        vectorStore.upsert(fingerprintId, styleProfile, confidence, priority,
+                embeddingText, embedding, sourceScope, ownerUserId, projectId,
+                visibility, sourceType);
     }
 
     /**
@@ -101,15 +77,20 @@ public class DesignFingerprintVectorRepository {
     public void upsert(Long fingerprintId, String styleProfile,
                        Double confidence, Integer priority,
                        String embeddingText, float[] embedding) {
-        upsert(fingerprintId, styleProfile, confidence, priority,
-                embeddingText, embedding, "GLOBAL", null, null, "PUBLIC", null);
+        vectorStore.upsert(fingerprintId, styleProfile, confidence, priority,
+                embeddingText, embedding);
+    }
+
+    /**
+     * 插入或更新向量（兼容重载：不传 embeddingText，语义文本留空）。
+     */
+    public void upsert(Long fingerprintId, String styleProfile,
+                       Double confidence, Integer priority, float[] embedding) {
+        vectorStore.upsert(fingerprintId, styleProfile, confidence, priority, embedding);
     }
 
     /**
      * 向量相似度检索（cosine similarity），含阶段二权限过滤。
-     * <p>
-     * 使用 PGvector {@code <=>} 操作符计算 cosine distance，
-     * {@code 1 - (embedding <=> query)} 得到 cosine similarity。
      *
      * @param queryEmbedding 查询向量（由检索端 embedding 生成）
      * @param styleProfile   风格画像硬过滤（可空，null 则不限制）
@@ -120,52 +101,7 @@ public class DesignFingerprintVectorRepository {
      */
     public List<DesignFingerprintVector> search(
             float[] queryEmbedding, String styleProfile, int topK, double minSimilarity, Long userId) {
-
-        if (queryEmbedding == null || queryEmbedding.length == 0) {
-            return List.of();
-        }
-
-        StringBuilder sqlBuilder = new StringBuilder("""
-                SELECT id, fingerprint_id, style_profile, status, confidence, priority,
-                       embedding_text, source_scope, owner_user_id, project_id, visibility,
-                       created_at, updated_at, is_active,
-                       1 - (embedding <=> ?::vector) AS similarity
-                FROM design_fingerprint_vector
-                WHERE is_active = true AND status = 'APPROVED'
-                """);
-
-        List<Object> params = new ArrayList<>();
-        params.add(queryEmbedding);
-
-        if (styleProfile != null && !styleProfile.isBlank()) {
-            sqlBuilder.append(" AND style_profile = ?");
-            params.add(styleProfile);
-        }
-
-        // ★ 阶段二：权限过滤（GLOBAL 或 当前用户私有）
-        if (userId != null) {
-            sqlBuilder.append(" AND (source_scope = 'GLOBAL' OR owner_user_id = ?)");
-            params.add(userId);
-        }
-
-        // 用 HAVING 因为 similarity 是计算列
-        sqlBuilder.append(" AND 1 - (embedding <=> ?::vector) >= ?");
-        params.add(queryEmbedding);
-        params.add(minSimilarity);
-
-        // PGvector 的 <=> 可走 HNSW 索引
-        sqlBuilder.append(" ORDER BY embedding <=> ?::vector LIMIT ?");
-        params.add(queryEmbedding);
-        params.add(topK);
-
-        try {
-            return jdbc.query(sqlBuilder.toString(),
-                    new BeanPropertyRowMapper<>(DesignFingerprintVector.class),
-                    params.toArray());
-        } catch (Exception e) {
-            log.error("向量检索失败 styleProfile={} topK={}", styleProfile, topK, e);
-            return List.of();
-        }
+        return vectorStore.search(queryEmbedding, styleProfile, topK, minSimilarity, userId);
     }
 
     /**
@@ -173,7 +109,7 @@ public class DesignFingerprintVectorRepository {
      */
     public List<DesignFingerprintVector> search(
             float[] queryEmbedding, String styleProfile, int topK, double minSimilarity) {
-        return search(queryEmbedding, styleProfile, topK, minSimilarity, null);
+        return vectorStore.search(queryEmbedding, styleProfile, topK, minSimilarity);
     }
 
     /**
@@ -185,17 +121,6 @@ public class DesignFingerprintVectorRepository {
      * @param fingerprintId MySQL 指纹 ID
      */
     public void deactivate(Long fingerprintId) {
-        if (fingerprintId == null) {
-            return;
-        }
-        String sql = """
-                UPDATE design_fingerprint_vector
-                SET is_active = false, updated_at = now()
-                WHERE fingerprint_id = ?
-                """;
-        int updated = jdbc.update(sql, fingerprintId);
-        if (updated > 0) {
-            log.info("向量标记失效 fingerprintId={}", fingerprintId);
-        }
+        vectorStore.deactivate(fingerprintId);
     }
 }

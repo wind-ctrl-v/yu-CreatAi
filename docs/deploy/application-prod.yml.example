@@ -1,0 +1,191 @@
+# =============================================================================
+# CreatAi 生产环境外置配置示例（2 核 4G 单机版）
+# -----------------------------------------------------------------------------
+# 目标路径 : /opt/creat-ai/config/application-prod.yml
+# 权限建议 : chown creat-ai:creat-ai && chmod 600（文件内含模型/COS/数据库凭据）
+# 加载方式 : systemd 注入 SPRING_PROFILES_ACTIVE=prod，WorkingDirectory=/opt/creat-ai；
+#            Spring Boot 默认会加载 file:./config/application-prod.yml，无需额外参数。
+#
+# 使用步骤：
+#   1. cp application-prod.yml.example /opt/creat-ai/config/application-prod.yml
+#   2. chown creat-ai:creat-ai /opt/creat-ai/config/application-prod.yml
+#   3. chmod 600 /opt/creat-ai/config/application-prod.yml
+#   4. 替换文件内所有 CHANGE_ME 占位符（禁止把真实值提交进 Git）
+#
+# 与 classpath:application.yml 的关系：
+#   - 本文件只写“生产需要覆盖或显式确认”的键，未出现的键沿用
+#     src/main/resources/application.yml 的默认值。
+#   - 所有键名、层级均与仓库代码中的 @ConfigurationProperties / @Value 一致。
+# =============================================================================
+
+spring:
+  datasource:
+    # MySQL 8：账号只授予业务库权限，不要用 root 跑应用
+    url: jdbc:mysql://127.0.0.1:3306/yu_ai_code_mother?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: creat_ai
+    password: CHANGE_ME_MYSQL_PASSWORD
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 2C4G 机器不宜开大连接池；生成/构建是长任务，连接主要服务短查询
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 10000
+
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: CHANGE_ME_REDIS_PASSWORD
+      database: 0
+      timeout: 3000ms
+
+  # 生产使用 Redis 保存登录态（本地 application-local.yml 才排除 Session 自动配置）
+  session:
+    store-type: redis
+    timeout: 2592000
+
+server:
+  port: 8123
+  # 只监听回环地址，公网入口统一走 Nginx（Ubuntu 防火墙无需放开 8123）
+  address: 127.0.0.1
+  shutdown: graceful
+  # 信任 Nginx 传入的 X-Forwarded-*，保证重定向/协议识别正确
+  forward-headers-strategy: framework
+  servlet:
+    # 前端请求统一带 /api 前缀；Nginx 反代时保留该前缀，不要改写
+    context-path: /api
+    session:
+      cookie:
+        max-age: 2592000
+        http-only: true
+        same-site: lax
+
+# 生产必须收敛为真实前端域名（多个用逗号分隔）。走 Nginx 同源部署后，
+# 浏览器一般不会触发跨域，但保留该配置用于本地排障/备用域名。
+cors:
+  allowed-origins: https://CHANGE_ME_HOST
+
+# -----------------------------------------------------------------------------
+# 大模型（OpenAI 兼容协议）：chat 用于普通对话，streaming-chat 用于 SSE 生成
+# 示例为 DeepSeek，可替换为任意兼容服务；key 只放外置配置，禁止提交仓库
+# -----------------------------------------------------------------------------
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: https://api.deepseek.com/v1
+      api-key: CHANGE_ME_LLM_API_KEY
+      model-name: deepseek-chat
+      max-tokens: 8192
+      log-requests: false
+      log-responses: false
+    streaming-chat-model:
+      base-url: https://api.deepseek.com/v1
+      api-key: CHANGE_ME_LLM_API_KEY
+      model-name: deepseek-chat
+      max-tokens: 8192
+      log-requests: false
+      log-responses: false
+    # 语义向量模型：必须与 agent.retrieve.vector.expected-dim 匹配。
+    # 示例为智谱 embedding-2（OpenAI 兼容接口，1024 维）。
+    embedding-model:
+      base-url: https://open.bigmodel.cn/api/paas/v4
+      api-key: CHANGE_ME_EMBEDDING_API_KEY
+      model-name: embedding-2
+      log-requests: false
+      log-responses: false
+
+# -----------------------------------------------------------------------------
+# 腾讯云 COS：CosClientConfig 在启动时创建 COSClient 并校验凭据，
+# secretId/secretKey 为空会直接启动失败；截图封面、可选部署产物都依赖它。
+# -----------------------------------------------------------------------------
+cos:
+  client:
+    host: https://CHANGE_ME_BUCKET-APPID.cos.CHANGE_ME_REGION.myqcloud.com
+    secretId: CHANGE_ME_COS_SECRET_ID
+    secretKey: CHANGE_ME_COS_SECRET_KEY
+    region: CHANGE_ME_REGION
+    bucket: CHANGE_ME_BUCKET-APPID
+
+# 新建用户（管理员在后台添加用户）的默认密码；生产必须替换为强密码
+user:
+  default-password: CHANGE_ME_DEFAULT_USER_PASSWORD
+
+app:
+  deploy:
+    # 生成应用的一键部署访问地址前缀：必须是浏览器和本机 Chromium 都能访问的
+    # 真实域名（截图由服务端打开该 URL，域名要能从服务器自身解析/回源）
+    base-url: https://CHANGE_ME_HOST/api/static
+  # 截图（headless Chrome）：使用 scripts/install-chrome.sh 安装到 /opt/chrome；
+  # 禁用 WebDriverManager 自动下载（大陆网络慢/易失败），直接指定二进制路径
+  screenshot:
+    chrome-binary: /opt/chrome/chrome-linux64/chrome
+    driver-path: /opt/chrome/chromedriver-linux64/chromedriver
+    use-web-driver-manager: false
+    executor:
+      # 2C4G 上 Chrome 单实例就很吃内存，线程池压到 1/1/5
+      core-pool-size: 1
+      max-pool-size: 1
+      queue-capacity: 5
+  # 并发保护：生成最多 2 个并发（再多会拖垮 4G 内存），部署串行
+  limits:
+    generation:
+      max-concurrent: 2
+    deploy:
+      max-concurrent: 1
+
+# 生成代码/构建产物根目录：systemd 的 WorkingDirectory=/opt/creat-ai，
+# 因此代码实际落在 /opt/creat-ai/tmp/code_output（backup/cleanup 脚本依赖该路径）
+code:
+  output-root-dir: /opt/creat-ai/tmp/code_output
+
+# Vue 项目构建护栏：串行锁 + 放宽 npm 超时 + 构建后删 node_modules 省磁盘
+codegen:
+  build:
+    lock-wait-seconds: 300
+    install-timeout-seconds: 900
+    build-timeout-seconds: 450
+    cleanup-node-modules: true
+
+agent:
+  orchestrator:
+    v2:
+      # V2 多 Agent 流水线（仅 VUE_PROJECT 生效）
+      enabled: true
+  deploy:
+    # 流水线末尾是否自动构建并上传 COS；2C4G 单机建议关闭，改由用户手动“一键部署”
+    enabled: false
+  retrieve:
+    enabled: true
+    top-k: 2
+    vector:
+      enabled: true
+      # 2C4G 不装 PostgreSQL：向量落 MySQL 表 + JVM 内存快照做余弦 TopK
+      store: mysql
+      # 智谱 embedding-2 维度固定 1024；与 embedding 模型不匹配会校验失败
+      expected-dim: 1024
+      min-similarity: 0.7
+      # 内存快照重载间隔（毫秒），0=关闭
+      reload-interval-ms: 300000
+      # 快照最多加载条数，防止堆内存被吃满；指纹量大时下调到 5000-10000
+      max-entries: 20000
+      # 管理员手动重同步接口 POST /api/fingerprint/admin/vector/resync 的单次上限（默认 100）
+      resync-max: 100
+  fingerprint:
+    # 定时爬取精选应用指纹（默认关闭，生产开启后按 30 分钟一次）
+    crawl:
+      enabled: true
+      interval-ms: 1800000
+    external-crawl:
+      # 外网种子站点抓取：生产关闭，避免不可控的外部请求
+      enabled: false
+  # 使用语义 Embedding（智谱 embedding-2）；关闭时回退 1536 维 SHA-256 哈希，
+  # 与 expected-dim=1024 冲突，因此这里必须为 true
+  embedding:
+    use-openai: true
+
+# 日志统一走 stdout，由 systemd 收进 journal（journalctl -u creat-ai）；
+# journald 的容量上限和轮转在 README 的“日志”一节配置
+logging:
+  level:
+    root: info
+    com.yu.yuaifather: info

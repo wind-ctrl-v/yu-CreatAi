@@ -1,0 +1,72 @@
+# =============================================================================
+# CreatAi 后端 systemd 单元（2 核 4G 单机版）
+# 安装位置 : /etc/systemd/system/creat-ai.service
+# 安装步骤 :
+#   sudo install -m 644 docs/deploy/systemd/creat-ai.service /etc/systemd/system/creat-ai.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now creat-ai
+# 运行前提 :
+#   - /opt/creat-ai/app.jar                 后端可执行 jar
+#   - /opt/creat-ai/config/application-prod.yml  生产外置配置（chmod 600，属主 creat-ai）
+#   - /opt/creat-ai/tmp/code_output         生成代码/构建产物目录（可写）
+#   - 系统用户 creat-ai 已创建，且拥有 /opt/creat-ai 目录
+# =============================================================================
+
+[Unit]
+Description=CreatAi AI website generation service
+# MySQL/Redis 若在本机，先等它们起来；远程数据库可去掉这两个依赖
+After=network-online.target mysql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=creat-ai
+Group=creat-ai
+WorkingDirectory=/opt/creat-ai
+
+# --- 运行环境 ---------------------------------------------------------------
+# prod profile：触发 application.yml + ./config/application-prod.yml 合并
+Environment="SPRING_PROFILES_ACTIVE=prod"
+Environment="TZ=Asia/Shanghai"
+# npm 缓存/配置落在该用户 HOME 下（生成 Vue 项目时后端会 fork npm）
+Environment="HOME=/opt/creat-ai"
+# 生成 Vue 项目时后端会 fork npm：限制 Node 堆大小，避免和 JVM 一起打爆 4G 内存
+Environment="NODE_OPTIONS=--max-old-space-size=768"
+# 中国大陆机器构建生成项目时走 npmmirror 镜像（npm install / npm run build）
+Environment="NPM_CONFIG_REGISTRY=https://registry.npmmirror.com"
+
+# --- JVM 参数 ---------------------------------------------------------------
+# -Xms512m/-Xmx1200m：常驻 512M、峰值 1200M，给 MySQL/Redis/Nginx/Chrome 留出内存
+# -XX:MaxMetaspaceSize=256m：限制元空间，避免类加载撑爆容器
+# -XX:+HeapDumpOnOutOfMemoryError：OOM 时落 dump 便于排查（配合 logs 目录）
+# -Duser.timezone：与 MySQL/日志时区保持一致
+ExecStart=/usr/bin/java \
+    -Xms512m -Xmx1200m \
+    -XX:MaxMetaspaceSize=256m \
+    -XX:+HeapDumpOnOutOfMemoryError \
+    -XX:HeapDumpPath=/opt/creat-ai/logs \
+    -Dfile.encoding=UTF-8 \
+    -Duser.timezone=Asia/Shanghai \
+    -jar /opt/creat-ai/app.jar
+
+# --- 进程管理 ---------------------------------------------------------------
+Restart=always
+RestartSec=10
+# 优雅停机：SIGTERM 后最多等 60s（生成/构建任务可能还在跑）
+KillSignal=SIGTERM
+TimeoutStopSec=60
+# 优雅停机时 JVM 正常退出的退出码
+SuccessExitStatus=143
+# headless Chrome / 大量 HTTP 连接需要更多文件句柄
+LimitNOFILE=65535
+# 最小权限：禁止进程提权
+NoNewPrivileges=true
+
+# --- 日志 -------------------------------------------------------------------
+# stdout/stderr 统一交给 journald：journalctl -u creat-ai -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=creat-ai
+
+[Install]
+WantedBy=multi-user.target

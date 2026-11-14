@@ -8,6 +8,7 @@ import com.yu.yuaifather.shared.security.SafeUrlValidator;
 import com.yu.yuaifather.auth.AuthCheck;
 import com.yu.yuaifather.common.BaseResponse;
 import com.yu.yuaifather.common.ResultUtils;
+import com.yu.yuaifather.config.VectorStoreProperties;
 import com.yu.yuaifather.constant.UserConstant;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
@@ -47,6 +48,10 @@ public class DesignFingerprintController {
 
     @Autowired(required = false)
     private DesignExtractorAgent extractorAgent;
+
+    /** 向量存储配置（A 改造：store=pg/mysql；resync-max 控制单次重同步上限）。 */
+    @Autowired
+    private VectorStoreProperties vectorStoreProperties;
 
     private static final int MAX_REDIRECTS = 3;
     private static final int MAX_HTML_BYTES = 2 * 1024 * 1024;
@@ -136,6 +141,30 @@ public class DesignFingerprintController {
         boolean ok = designFingerprintService.archive(req.getId(), req.getRemark());
         ThrowUtils.throwIf(!ok, ErrorCode.OPERATION_ERROR, "归档失败，指纹可能不存在或状态不正确");
         return ResultUtils.success(true);
+    }
+
+    /**
+     * 管理员手动重同步向量索引（A 改造：向量存储后端可选）。
+     * <p>
+     * 生产切 {@code agent.retrieve.vector.store=mysql} 后，用本接口为历史 APPROVED 指纹补建向量：
+     * 按 {@code priority DESC → confidence DESC → updateTime DESC} 遍历 APPROVED 指纹，
+     * 逐条调用 {@code VectorSyncWorker.syncOnApprove}。单次条数默认取
+     * {@link VectorStoreProperties#getResyncMax()}，可用 {@code limit} 参数下调（不可超过该上限）。
+     * <p>
+     * 向量功能关闭时接口仍可用，返回 {@code enabled=false} 的统计信息（不报错）。
+     *
+     * @param limit 本次最多处理的指纹条数（可选，默认且最大为 resync-max）
+     * @return 统计信息：enabled / limit / scanned / attempted / failedIds
+     */
+    @PostMapping("/admin/vector/resync")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<Map<String, Object>> adminResyncVectors(
+            @RequestParam(value = "limit", required = false) Integer limit) {
+        int max = Math.max(1, vectorStoreProperties.getResyncMax());
+        int effectiveLimit = (limit == null || limit <= 0) ? max : Math.min(limit, max);
+        Map<String, Object> result = designFingerprintService.resyncVectors(effectiveLimit);
+        log.info("管理员触发向量重同步 limit={} result={}", effectiveLimit, result);
+        return ResultUtils.success(result);
     }
 
     /**

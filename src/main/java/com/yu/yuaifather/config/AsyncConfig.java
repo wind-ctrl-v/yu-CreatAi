@@ -17,12 +17,23 @@ import java.util.concurrent.Executor;
 @EnableAsync
 public class AsyncConfig {
 
+    /** 截图配置（{@code app.screenshot.executor.*}），默认值与改造前一致：core=2 / max=4 / queue=20。 */
+    private final ScreenshotProperties screenshotProperties;
+
+    public AsyncConfig(ScreenshotProperties screenshotProperties) {
+        this.screenshotProperties = screenshotProperties;
+    }
+
     @Bean(name = "screenshotExecutor")
     public Executor screenshotExecutor() {
+        // 2C4G 单机部署可通过配置把截图线程池压到 1，默认值保持不变
+        ScreenshotProperties.Executor config = screenshotProperties.getExecutor() == null
+                ? new ScreenshotProperties.Executor()
+                : screenshotProperties.getExecutor();
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(4);
-        executor.setQueueCapacity(20);
+        executor.setCorePoolSize(config.getCorePoolSize());
+        executor.setMaxPoolSize(config.getMaxPoolSize());
+        executor.setQueueCapacity(config.getQueueCapacity());
         executor.setThreadNamePrefix("screenshot-");
         executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();

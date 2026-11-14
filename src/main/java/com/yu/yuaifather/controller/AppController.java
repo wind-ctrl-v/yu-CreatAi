@@ -23,6 +23,7 @@ import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.exception.ThrowUtils;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.vo.AppVO;
+import com.yu.yuaifather.ratelimiter.ConcurrencyLimit;
 import com.yu.yuaifather.ratelimiter.RateLimit;
 import com.yu.yuaifather.ratelimiter.RateLimitType;
 import com.yu.yuaifather.service.AppBehaviorService;
@@ -322,6 +323,7 @@ public class AppController {
      */
 
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
+    @ConcurrencyLimit("generation")
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                                       @RequestParam String message,
@@ -361,6 +363,7 @@ public class AppController {
      */
     @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60,
             message = "修改请求过于频繁，请稍后再试")
+    @ConcurrencyLimit("generation")
     @GetMapping(value = "/incremental-edit-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> incrementalEditStream(@RequestParam Long appId,
                                                                 @RequestParam String instruction,
@@ -442,6 +445,7 @@ public class AppController {
      * @param request          请求
      * @return 部署 URL
      */
+    @ConcurrencyLimit("deploy")
     @PostMapping("/deploy")
     public BaseResponse<String> deployApp(@RequestBody AppDeployRequest appDeployRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appDeployRequest == null, ErrorCode.PARAMS_ERROR);

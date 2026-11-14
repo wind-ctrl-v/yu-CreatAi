@@ -12,12 +12,16 @@ import com.yu.yuaifather.model.enums.FingerprintStatus;
 import com.yu.yuaifather.service.DesignFingerprintService;
 import com.yu.yuaifather.worker.VectorSyncWorker;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 设计指纹 服务实现（阶段二治理：入库 / 去重 / 状态流转 / 多样性配额）。
@@ -50,13 +54,17 @@ public class DesignFingerprintServiceImpl
     private static final int FINGERPRINT_PRIORITY = 30;
 
     private final FingerprintParser fingerprintParser;
-    private final VectorSyncWorker vectorSyncWorker;
+    /**
+     * 向量同步 Worker：用 {@link ObjectProvider} 延迟查找，向量功能关闭时 Worker Bean 不存在，
+     * 既不会导致本类启动失败，也保留"审核通过即同步向量"的可选能力。
+     */
+    private final ObjectProvider<VectorSyncWorker> vectorSyncWorkerProvider;
 
     @Autowired
     public DesignFingerprintServiceImpl(FingerprintParser fingerprintParser,
-                                        @Autowired(required = false) VectorSyncWorker vectorSyncWorker) {
+                                        ObjectProvider<VectorSyncWorker> vectorSyncWorkerProvider) {
         this.fingerprintParser = fingerprintParser;
-        this.vectorSyncWorker = vectorSyncWorker;
+        this.vectorSyncWorkerProvider = vectorSyncWorkerProvider;
     }
 
     @Override
@@ -154,8 +162,11 @@ public class DesignFingerprintServiceImpl
             return false;
         }
         boolean ok = updateStatus(fp, FingerprintStatus.REJECTED, remark);
-        if (ok && vectorSyncWorker != null) {
-            vectorSyncWorker.deactivateOnRejectOrArchive(id);
+        if (ok) {
+            VectorSyncWorker worker = vectorSyncWorkerProvider.getIfAvailable();
+            if (worker != null) {
+                worker.deactivateOnRejectOrArchive(id);
+            }
         }
         return ok;
     }
@@ -167,8 +178,11 @@ public class DesignFingerprintServiceImpl
             return false;
         }
         boolean ok = updateStatus(fp, FingerprintStatus.ARCHIVED, remark);
-        if (ok && vectorSyncWorker != null) {
-            vectorSyncWorker.deactivateOnRejectOrArchive(id);
+        if (ok) {
+            VectorSyncWorker worker = vectorSyncWorkerProvider.getIfAvailable();
+            if (worker != null) {
+                worker.deactivateOnRejectOrArchive(id);
+            }
         }
         return ok;
     }
@@ -200,6 +214,42 @@ public class DesignFingerprintServiceImpl
                 .thenComparing(f -> f.getUpdateTime() == null ? LocalDateTime.MIN : f.getUpdateTime(), Comparator.reverseOrder()));
         int n = Math.max(0, limit);
         return n > 0 && list.size() > n ? list.subList(0, n) : list;
+    }
+
+    @Override
+    public Map<String, Object> resyncVectors(int limit) {
+        int max = Math.max(1, limit);
+        List<DesignFingerprint> approved = listApproved(null, max, null);
+        Map<String, Object> result = new LinkedHashMap<>();
+        VectorSyncWorker worker = vectorSyncWorkerProvider.getIfAvailable();
+        result.put("enabled", worker != null);
+        result.put("limit", max);
+        result.put("scanned", approved.size());
+
+        if (worker == null) {
+            result.put("attempted", 0);
+            result.put("failedIds", List.of());
+            log.warn("向量重同步跳过：VectorSyncWorker 未装配（agent.retrieve.vector.enabled=false）");
+            return result;
+        }
+
+        int attempted = 0;
+        List<Long> failedIds = new ArrayList<>();
+        for (DesignFingerprint fp : approved) {
+            try {
+                worker.syncOnApprove(fp);
+                attempted++;
+            } catch (Exception e) {
+                // syncOnApprove 内部通常已兜底，这里防御性捕获，保证单条异常不影响整批
+                failedIds.add(fp.getId());
+                log.warn("向量重同步单条失败 fingerprintId={} msg={}", fp.getId(), e.getMessage());
+            }
+        }
+        result.put("attempted", attempted);
+        result.put("failedIds", failedIds);
+        log.info("向量重同步完成 scanned={} attempted={} failed={}",
+                approved.size(), attempted, failedIds.size());
+        return result;
     }
 
     // =================== 内部辅助 ===================
@@ -244,8 +294,11 @@ public class DesignFingerprintServiceImpl
         if (ok) {
             log.info("指纹状态流转 id={} -> {} remark={}", fp.getId(), status.getValue(), remark);
             // APPROVED 时触发向量同步（失败不影响 MySQL 事务）
-            if (status == FingerprintStatus.APPROVED && vectorSyncWorker != null) {
-                vectorSyncWorker.syncOnApprove(fp);
+            if (status == FingerprintStatus.APPROVED) {
+                VectorSyncWorker worker = vectorSyncWorkerProvider.getIfAvailable();
+                if (worker != null) {
+                    worker.syncOnApprove(fp);
+                }
             }
         }
         return ok;

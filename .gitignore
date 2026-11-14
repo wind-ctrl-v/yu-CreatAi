@@ -2,6 +2,10 @@
 application-local.yml
 tmp/
 *.log
+# 本地构建用的 Maven 仓库副本（沙箱/CI 内构建用，避免写系统级 ~/.m2）
+.m2repo/
+# 本地验证构建副本（避免污染项目 target，仅本机使用）
+build-verify/
 src/main/resources/web_drivers/
 .playwright-cli/
 dump.rdb

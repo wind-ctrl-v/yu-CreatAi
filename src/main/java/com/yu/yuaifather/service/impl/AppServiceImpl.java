@@ -5,6 +5,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
+import com.yu.yuaifather.codegen.ProjectDirCleaner;
 import com.yu.yuaifather.codegen.routing.AiCodeGenTypeRoutingService;
 import com.yu.yuaifather.codegen.build.VueProjectBuilder;
 import com.yu.yuaifather.codegen.stream.StreamHandlerExecutor;
@@ -68,6 +69,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
     @Autowired
     private VueProjectBuilder vueProjectBuilder;
+
+    /** 代码输出目录清理器：删除应用时 best-effort 清理磁盘上的项目目录 */
+    @Autowired
+    private ProjectDirCleaner projectDirCleaner;
 
     @Autowired
     private GenerationPipelineRouter generationPipelineRouter;
@@ -294,6 +299,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
      * 删除应用时关联删除对话历史，事务保证原子性。
      * <p>
      * 若历史删除成功但应用删除失败，事务回滚，避免出现"历史已删但应用仍存在"的数据不一致情况。
+     * 应用记录删除成功后，best-effort 清理磁盘上的代码输出目录（{@code {codeGenType}_{appId}}），
+     * 清理失败仅记录日志，不影响事务与返回值。
      * </p>
      *
      * @param id 应用ID
@@ -310,11 +317,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         if (appId <= 0) {
             return false;
         }
+        // 事务内先查询应用记录，删除后仍可用 codeGenType 定位代码输出目录
+        App app = this.getById(appId);
         // 先删除关联的对话历史（在同一事务中，任一失败均触发回滚）
         chatHistoryService.deleteByAppId(appId);
         log.info("删除应用关联对话历史成功 appId={}", appId);
         // 删除应用
-        return super.removeById(id);
+        boolean removed = super.removeById(id);
+        // 应用删除成功后清理磁盘目录（best-effort：失败仅记录日志，不抛异常、不影响事务）
+        if (removed && app != null && StrUtil.isNotBlank(app.getCodeGenType())) {
+            try {
+                projectDirCleaner.clean(app.getCodeGenType() + "_" + appId);
+            } catch (Exception e) {
+                log.warn("删除应用代码目录失败 appId={} msg={}", appId, e.getMessage(), e);
+            }
+        }
+        return removed;
     }
 
 

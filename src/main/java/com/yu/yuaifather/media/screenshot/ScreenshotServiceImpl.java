@@ -25,6 +25,10 @@ public class ScreenshotServiceImpl implements ScreenshotService {
     @Resource
     private CosManager cosManager;
 
+    /** 截图工具（Spring Bean，改造前为静态工具类） */
+    @Resource
+    private WebScreenshotUtils webScreenshotUtils;
+
     /**
      * 应用部署基础 URL，用于 SSRF 同源校验（与 AppServiceImpl 使用同一配置项）。
      */
@@ -35,7 +39,7 @@ public class ScreenshotServiceImpl implements ScreenshotService {
     public String generateAndUploadScreenshot(String webUrl) {
         ThrowUtils.throwIf(StrUtil.isBlank(webUrl), ErrorCode.PARAMS_ERROR, "网页 URL 不能为空");
         validateScreenshotOrigin(webUrl);
-        String localPath = WebScreenshotUtils.saveWebPageScreenshot(webUrl);
+        String localPath = webScreenshotUtils.saveWebPageScreenshot(webUrl);
         ThrowUtils.throwIf(StrUtil.isBlank(localPath), ErrorCode.OPERATION_ERROR, "本地截图生成失败");
         try {
             File screenshotFile = new File(localPath);
