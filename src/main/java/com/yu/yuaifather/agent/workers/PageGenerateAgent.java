@@ -77,8 +77,9 @@ public class PageGenerateAgent implements Agent {
                 }
 
                 String prompt = buildPrompt(ctx);
-                String raw = agentAiService.generatePage(prompt);
-                PageGenerationResponse response = JsonExtractor.parse(raw, PageGenerationResponse.class);
+                PageGenerationResponse response = JsonExtractor.parseWithRetry(
+                        () -> agentAiService.generatePage(prompt),
+                        PageGenerationResponse.class);
                 GeneratedArtifact artifact = saveFiles(ctx, response);
                 try {
                     imagePlaceholderReplacer.replaceAll(ctx.getAppId());

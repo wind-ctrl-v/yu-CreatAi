@@ -18,7 +18,7 @@
                                           ├─> MySQL 8   127.0.0.1:3306  业务库 yu_ai_code_mother
                                           ├─> Redis 7   127.0.0.1:6379  Session / 对话记忆快照
                                           ├─> headless Chrome /opt/chrome（同步页截图）
-                                          └─> 腾讯云 COS（截图封面、可选部署产物）
+                                          └─> 本地磁盘（生成页面 + 封面截图；COS 仅在需要时可选）
 ```
 
 | 组件 | 版本 | 监听 | 说明 |

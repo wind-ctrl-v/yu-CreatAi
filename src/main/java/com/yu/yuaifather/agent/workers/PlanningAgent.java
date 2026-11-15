@@ -46,8 +46,9 @@ public class PlanningAgent implements Agent {
             // ① 解析需求
             sink.next(AgentEvent.status(AGENT_NAME, "解析需求并规划设计"));
             try {
-                String raw = agentAiService.generateRequirementDoc(ctx.getUserPrompt());
-                RequirementDoc doc = JsonExtractor.parse(raw, RequirementDoc.class);
+                RequirementDoc doc = JsonExtractor.parseWithRetry(
+                        () -> agentAiService.generateRequirementDoc(ctx.getUserPrompt()),
+                        RequirementDoc.class);
                 ctx.getBlackboard().putRequirementDoc(doc);
                 sink.next(AgentEvent.builder()
                         .type(AgentEvent.EventType.STATUS_CHANGE)
@@ -73,8 +74,9 @@ public class PlanningAgent implements Agent {
                 input.set("requirementDoc", JsonExtractor.mapper().valueToTree(doc));
                 input.put("techStack", ctx.getCodeGenType() == null
                         ? "vue_project" : ctx.getCodeGenType().getValue());
-                String raw = agentAiService.generatePlan(input.toString());
-                GenerationPlan plan = JsonExtractor.parse(raw, GenerationPlan.class);
+                GenerationPlan plan = JsonExtractor.parseWithRetry(
+                        () -> agentAiService.generatePlan(input.toString()),
+                        GenerationPlan.class);
                 ctx.getBlackboard().putPlan(plan);
                 sink.next(AgentEvent.builder()
                         .type(AgentEvent.EventType.STATUS_CHANGE)

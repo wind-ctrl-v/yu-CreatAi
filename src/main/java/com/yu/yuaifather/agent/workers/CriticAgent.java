@@ -138,8 +138,9 @@ public class CriticAgent implements Agent {
                 // 调用 LLM 进行综合评分，失败时退化为纯静态判定
                 CriticReport report;
                 try {
-                    String raw = agentAiService.review(reviewInput.toString());
-                    report = JsonExtractor.parse(raw, CriticReport.class);
+                    report = JsonExtractor.parseWithRetry(
+                            () -> agentAiService.review(reviewInput.toString()),
+                            CriticReport.class);
                 } catch (Exception llmFail) {
                     log.warn("CriticAgent LLM 评分失败，退化为静态判定 appId={} msg={}",
                             ctx.getAppId(), llmFail.getMessage());

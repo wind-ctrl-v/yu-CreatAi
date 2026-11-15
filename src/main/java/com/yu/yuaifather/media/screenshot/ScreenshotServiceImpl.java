@@ -5,7 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.yu.yuaifather.exception.BusinessException;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.exception.ThrowUtils;
-import com.yu.yuaifather.media.storage.CosManager;
+import com.yu.yuaifather.media.storage.LocalImageStorage;
 import com.yu.yuaifather.utils.WebScreenshotUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -14,16 +14,14 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.net.URI;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.UUID;
 
 @Service
 @Slf4j
 public class ScreenshotServiceImpl implements ScreenshotService {
 
+    /** 封面截图落地到本机静态目录，由 /api/static 提供访问，不再依赖 COS。 */
     @Resource
-    private CosManager cosManager;
+    private LocalImageStorage localImageStorage;
 
     /** 截图工具（Spring Bean，改造前为静态工具类） */
     @Resource
@@ -44,14 +42,16 @@ public class ScreenshotServiceImpl implements ScreenshotService {
         try {
             File screenshotFile = new File(localPath);
             ThrowUtils.throwIf(!screenshotFile.exists(), ErrorCode.OPERATION_ERROR, "截图文件不存在");
-            String fileName = UUID.randomUUID().toString().substring(0, 8) + "_compressed.jpg";
-            String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
-            String url = cosManager.uploadFile(String.format("/screenshots/%s/%s", datePath, fileName), screenshotFile);
-            ThrowUtils.throwIf(StrUtil.isBlank(url), ErrorCode.OPERATION_ERROR, "截图上传对象存储失败");
+            String ext = FileUtil.extName(screenshotFile);
+            String url = localImageStorage.save(screenshotFile, StrUtil.blankToDefault(ext, "jpg"));
+            ThrowUtils.throwIf(StrUtil.isBlank(url), ErrorCode.OPERATION_ERROR, "截图保存到本地失败");
+            log.info("封面截图已保存到本地: {}", url);
             return url;
         } finally {
             File file = new File(localPath);
-            if (file.exists()) FileUtil.del(file.getParentFile());
+            if (file.exists()) {
+                FileUtil.del(file.getParentFile());
+            }
         }
     }
 
