@@ -19,9 +19,9 @@ public interface UserPreferenceWeightMapper extends BaseMapper<UserPreferenceWei
      *
      * @return 受影响的行数（0 = 记录不存在，需要 INSERT）
      */
-    @Update("UPDATE user_preference_weight SET weight = weight + #{delta}, " +
-            "evidence_count = evidence_count + 1, last_evidence_at = NOW() " +
-            "WHERE user_id = #{userId} AND preference_type = #{type} AND preference_key = #{key}")
+    @Update("UPDATE `user_preference_weight` SET `weight` = `weight` + #{delta}, " +
+            "`evidenceCount` = `evidenceCount` + 1, `lastEvidenceAt` = NOW() " +
+            "WHERE `userId` = #{userId} AND `preferenceType` = #{type} AND `preferenceKey` = #{key}")
     int atomicUpsertWeight(@Param("userId") Long userId,
                             @Param("type") String type,
                             @Param("key") String key,

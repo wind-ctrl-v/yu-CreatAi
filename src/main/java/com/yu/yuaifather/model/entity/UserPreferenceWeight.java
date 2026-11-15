@@ -45,6 +45,10 @@ public class UserPreferenceWeight implements Serializable {
     @Column("preferenceKey")
     private String preferenceKey;
 
+    /**
+     * 显式映射，避免 {@code @Table(camelToUnderline=true)} 在后续改名时把该列写成别的名字。
+     */
+    @Column("weight")
     private Double weight;
 
     @Column("evidenceCount")

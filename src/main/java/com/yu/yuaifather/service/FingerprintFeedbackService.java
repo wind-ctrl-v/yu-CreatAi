@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * 指纹质量反哺服务（阶段三：评估治理）。
  * <p>
- * CriticAgent 评估后，反向更新指纹的 usage_count、retrieval_success_score。
+ * CriticAgent 评估后，反向更新指纹的 usageCount、retrievalSuccessScore。
  *
  * @author yu
  */
@@ -37,8 +37,8 @@ public class FingerprintFeedbackService {
      * 更新链条：
      * <ol>
      *   <li>generated_page.qualityScore 更新</li>
-     *   <li>design_fingerprint.usage_count++</li>
-     *   <li>design_fingerprint.retrieval_success_score 更新</li>
+     *   <li>design_fingerprint.usageCount++</li>
+     *   <li>design_fingerprint.retrievalSuccessScore 更新</li>
      *   <li>generation_rag_trace 补充 Critic 结果</li>
      * </ol>
      *

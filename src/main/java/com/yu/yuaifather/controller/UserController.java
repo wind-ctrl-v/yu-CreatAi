@@ -99,7 +99,7 @@ public class UserController {
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @GetMapping("list")
     public List<User> list() {
-        return userService.list();
+        return eraseCredentials(userService.list());
     }
 
     /**
@@ -111,7 +111,7 @@ public class UserController {
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @GetMapping("getInfo/{id}")
     public User getInfo(@PathVariable Long id) {
-        return userService.getById(id);
+        return eraseCredentials(userService.getById(id));
     }
 
     /**
@@ -123,7 +123,11 @@ public class UserController {
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     @GetMapping("page")
     public Page<User> page(Page<User> page) {
-        return userService.page(page);
+        Page<User> result = userService.page(page);
+        if (result != null) {
+            eraseCredentials(result.getRecords());
+        }
+        return result;
     }
 
 
@@ -239,7 +243,7 @@ public class UserController {
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
         User user = userService.getById(id);
         ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR);
-        return ResultUtils.success(user);
+        return ResultUtils.success(eraseCredentials(user));
     }
 
     /**
@@ -299,6 +303,17 @@ public class UserController {
         List<UserVO> userVOList = userService.getUserVOList(userPage.getRecords());
         userVOPage.setRecords(userVOList);
         return ResultUtils.success(userVOPage);
+    }
+
+    private static User eraseCredentials(User user) {
+        return user == null ? null : user.eraseCredentials();
+    }
+
+    private static List<User> eraseCredentials(List<User> users) {
+        if (users != null) {
+            users.forEach(UserController::eraseCredentials);
+        }
+        return users;
     }
 
 }
