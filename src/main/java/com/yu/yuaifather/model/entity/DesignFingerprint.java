@@ -157,7 +157,11 @@ public class DesignFingerprint implements Serializable {
 
     /**
      * 使用次数（阶段三新增）。
+     * <p>
+     * 必须显式映射到驼峰列 {@code usageCount}。未标注时 MyBatis-Flex 会按默认策略查询
+     * {@code usage_count}，而 004 迁移添加的是驼峰列。
      */
+    @Column("usageCount")
     private Integer usageCount;
 
     /**

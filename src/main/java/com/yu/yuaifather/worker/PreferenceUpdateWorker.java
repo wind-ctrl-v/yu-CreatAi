@@ -315,7 +315,7 @@ public class PreferenceUpdateWorker {
         if (userId == null) return;
         try {
             long totalEvents = eventMapper.selectCountByQuery(
-                    new QueryWrapper().eq("user_id", userId));
+                    new QueryWrapper().eq("userId", userId));
             if (totalEvents == 0 || totalEvents % SUMMARY_REFRESH_INTERVAL != 0) return;
 
             // 异步刷新，不阻塞偏好更新主链路
@@ -338,14 +338,14 @@ public class PreferenceUpdateWorker {
         try {
         // 查询 Top-5 正权重标签
         QueryWrapper topQuery = new QueryWrapper()
-                .eq("user_id", userId)
+                .eq("userId", userId)
                 .orderBy("weight", false)
                 .limit(5);
         java.util.List<UserPreferenceWeight> topLikes = weightMapper.selectListByQuery(topQuery);
 
         // 查询 Top-3 负权重标签
         QueryWrapper bottomQuery = new QueryWrapper()
-                .eq("user_id", userId)
+                .eq("userId", userId)
                 .orderBy("weight", true)
                 .limit(3);
         java.util.List<UserPreferenceWeight> topDislikes = weightMapper.selectListByQuery(bottomQuery);
@@ -369,7 +369,7 @@ public class PreferenceUpdateWorker {
         try {
             if (!sb.isEmpty()) {
                 UserDesignProfile profile = profileMapper.selectOneByQuery(
-                        new QueryWrapper().eq("user_id", userId));
+                        new QueryWrapper().eq("userId", userId));
                 if (profile != null) {
                     UserDesignProfile update = new UserDesignProfile();
                     update.setId(profile.getId());

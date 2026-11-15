@@ -489,7 +489,7 @@ public class AppController {
 
 
     /**
-     * 增量编辑：对已生成的 Vue 项目原地修改文件，不重新生成整个项目。
+     * 增量编辑：对已生成的 HTML、多文件或 Vue 项目原地修改文件，不重新生成整个项目。
      */
     @PostMapping("/incremental-edit")
     public BaseResponse<Map<String, Object>> incrementalEdit(@RequestBody Map<String, Object> body,

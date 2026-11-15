@@ -2,16 +2,23 @@ package com.yu.yuaifather.codegen.tools;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
-import com.yu.yuaifather.constant.AppConstant;
+import com.yu.yuaifather.codegen.GeneratedProjectDirectory;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * 工具基类
  * 定义所有工具的通用接口
  */
 public abstract class BaseTool {
+
+    /**
+     * 按应用的代码类型定位 html / multi_file / vue_project 目录。
+     * 非 Spring 构造的工具实例没有该依赖时，回退到磁盘上唯一的生成目录，否则仍使用 vue_project。
+     */
+    @Autowired(required = false)
+    private GeneratedProjectDirectory projectDirectory;
 
     /**
      * 获取工具的英文名称（对应方法名）
@@ -51,10 +58,10 @@ public abstract class BaseTool {
      * @return 项目根目录的绝对规范化路径
      */
     protected Path getProjectRoot(Long appId) {
-        String projectDirName = "vue_project_" + appId;
-        return Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectDirName)
-                .toAbsolutePath()
-                .normalize();
+        if (projectDirectory != null) {
+            return projectDirectory.toolRoot(appId);
+        }
+        return GeneratedProjectDirectory.toolRoot(appId, null);
     }
 
     /**

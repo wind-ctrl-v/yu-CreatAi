@@ -1,5 +1,6 @@
 package com.yu.yuaifather.model.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
@@ -45,10 +46,30 @@ public class User implements Serializable {
     private String userAccount;
 
     /**
-     * 密码
+     * 密码哈希。只允许从请求写入；任何 JSON 响应都不得输出。
      */
     @Column("userPassword")
     private String userPassword;
+
+    /**
+     * 序列化时忽略口令哈希。反序列化仍接受该字段，管理端保存密码不受影响。
+     */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    public String getUserPassword() {
+        return userPassword;
+    }
+
+    public void setUserPassword(String userPassword) {
+        this.userPassword = userPassword;
+    }
+
+    /**
+     * 从即将返回给客户端的对象上移除口令哈希。登录校验必须使用尚未调用本方法的实体。
+     */
+    public User eraseCredentials() {
+        this.userPassword = null;
+        return this;
+    }
 
     /**
      * 用户昵称

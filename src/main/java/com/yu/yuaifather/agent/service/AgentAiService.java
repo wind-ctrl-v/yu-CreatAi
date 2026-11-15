@@ -1,6 +1,8 @@
 package com.yu.yuaifather.agent.service;
 
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
 
 /**
  * 多 Agent 流水线的 AI 服务接口。
@@ -38,9 +40,14 @@ public interface AgentAiService {
 
     /**
      * CriticAgent：基于检查输入输出 CriticReport JSON。
+     * <p>
+     * 审查材料里常有 Vue 插值（{@code {{ r.name }}}、{@code {{ counts[cat.id] || 0 }}}）。
+     * 若把整段材料直接当成用户消息模板，LangChain4j 会把这些花括号当成缺失变量并跳过 LLM 评分。
+     * 这里只声明一个 {@code reviewInput} 变量，材料本身按字面量注入。
      */
     @SystemMessage(fromResource = "prompt/agent-critic-system-prompt.txt")
-    String review(String reviewInput);
+    @UserMessage("{{reviewInput}}")
+    String review(@V("reviewInput") String reviewInput);
 
     /**
      * DesignExtractorAgent（阶段二，离线）：基于结构化页面摘要按六层契约输出指纹 JSON。

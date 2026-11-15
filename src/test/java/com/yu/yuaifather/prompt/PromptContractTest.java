@@ -65,6 +65,9 @@ class PromptContractTest {
         assertTrue(critic.contains("[fixed-template]"));
         assertTrue(critic.contains("[component-repetition]"));
         assertTrue(critic.contains("[brand-identity]"));
+        assertFalse(critic.contains("{{"),
+                "Critic 系统提示词会被 LangChain4j 当模板渲染，不能引用未提供的变量");
+        assertTrue(critic.contains("Vue 插值"));
     }
 
     private String readPrompt(String name) {
