@@ -15,8 +15,11 @@ import com.yu.yuaifather.model.entity.UserPreferenceWeight;
 import com.mybatisflex.core.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.SQLException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -244,25 +247,64 @@ public class PreferenceUpdateWorker {
         }
     }
 
+    /**
+     * 先原子更新已有行；没有命中时插入。
+     * <p>
+     * {@code BaseMapper.insert} 会把空的 {@code createTime}/{@code updateTime} 写成 NULL。
+     * MariaDB 对 NOT NULL 列会拒绝这个显式 NULL，即使列上有 DEFAULT，插入因此失败。
+     * 这里写入当前时间，并用 {@code insertSelective} 跳过仍然为空的列，让数据库默认值生效。
+     * 只有唯一键冲突才重试更新；其它插入失败继续抛出，避免调用方把 0 行当成提取成功。
+     */
     private void upsertWeight(Long userId, String type, String key, double delta) {
-        if (delta == 0d) return;
-        int affected = weightMapper.atomicUpsertWeight(userId, type, key, delta);
-        if (affected == 0) {
-            try {
-                UserPreferenceWeight newWeight = UserPreferenceWeight.builder()
-                        .userId(userId)
-                        .preferenceType(type)
-                        .preferenceKey(key)
-                        .weight(delta)
-                        .evidenceCount(1)
-                        .lastEvidenceAt(LocalDateTime.now())
-                        .build();
-                weightMapper.insert(newWeight);
-            } catch (Exception dupEx) {
-                log.debug("偏好权重并发冲突，重试原子更新 userId={} type={} key={}", userId, type, key);
-                weightMapper.atomicUpsertWeight(userId, type, key, delta);
-            }
+        if (userId == null || StrUtil.isBlank(type) || StrUtil.isBlank(key) || delta == 0d) {
+            return;
         }
+        if (weightMapper.atomicUpsertWeight(userId, type, key, delta) > 0) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        UserPreferenceWeight newWeight = UserPreferenceWeight.builder()
+                .userId(userId)
+                .preferenceType(type)
+                .preferenceKey(key)
+                .weight(delta)
+                .evidenceCount(1)
+                .lastEvidenceAt(now)
+                .createTime(now)
+                .updateTime(now)
+                .build();
+        try {
+            int inserted = weightMapper.insertSelective(newWeight);
+            if (inserted != 1) {
+                throw new IllegalStateException("偏好权重插入未写入行 userId=" + userId
+                        + " type=" + type + " key=" + key + " inserted=" + inserted);
+            }
+        } catch (RuntimeException insertFailure) {
+            if (!isDuplicateKey(insertFailure)) {
+                throw insertFailure;
+            }
+            int retried = weightMapper.atomicUpsertWeight(userId, type, key, delta);
+            if (retried == 0) {
+                throw new IllegalStateException("偏好权重并发插入后更新仍未命中 userId=" + userId
+                        + " type=" + type + " key=" + key, insertFailure);
+            }
+            log.debug("偏好权重并发冲突，已重试原子更新 userId={} type={} key={}", userId, type, key);
+        }
+    }
+
+    private static boolean isDuplicateKey(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof DuplicateKeyException) {
+                return true;
+            }
+            if (current instanceof SQLException sqlException
+                    && (sqlException.getErrorCode() == 1062 || sqlException.getErrorCode() == 1586)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     @SuppressWarnings("unchecked")
