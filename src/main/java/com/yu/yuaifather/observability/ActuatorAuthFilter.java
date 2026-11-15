@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.session.web.http.SessionRepositoryFilter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -19,11 +20,21 @@ import java.io.IOException;
 /**
  * Actuator 端点鉴权过滤器：health 保持开放（供存活探针使用），
  * prometheus / info 等敏感端点要求管理员登录，禁止公网裸露指标数据。
+ * <p>
+ * 顺序必须晚于 Spring Session 的 {@link SessionRepositoryFilter}（默认
+ * {@code Integer.MIN_VALUE + 50}）。本过滤器原先使用 {@code HIGHEST_PRECEDENCE + 20}，
+ * 会在会话包装生效前执行；此时 {@code request.getSession()} 仍是容器原生空会话，
+ * 读不到 Redis 里的登录态，已登录管理员也会被当成未登录。
  */
 @Slf4j
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 20)
-public class ActuatorAuthFilter extends OncePerRequestFilter {
+@Order(SessionRepositoryFilter.DEFAULT_ORDER + 1)
+public class ActuatorAuthFilter extends OncePerRequestFilter implements Ordered {
+
+    /**
+     * 紧跟默认的 Spring Session 过滤器之后。容器按该值注册本过滤器。
+     */
+    public static final int ORDER = SessionRepositoryFilter.DEFAULT_ORDER + 1;
 
     private static final String ACTUATOR_PATH = "/actuator/";
     private static final String HEALTH_PATH = "/actuator/health";
@@ -36,6 +47,11 @@ public class ActuatorAuthFilter extends OncePerRequestFilter {
 
     public ActuatorAuthFilter(ObjectProvider<UserService> userServiceProvider) {
         this.userServiceProvider = userServiceProvider;
+    }
+
+    @Override
+    public int getOrder() {
+        return ORDER;
     }
 
     @Override
