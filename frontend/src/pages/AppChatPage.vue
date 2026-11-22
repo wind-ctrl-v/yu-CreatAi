@@ -291,18 +291,18 @@ function sendMessage(content: string, displayText?: string) {
         fallbackText: text,
       }
     },
+    onAutoDeployStarted: () => {
+      generating.value = false
+      deploying.value = true
+    },
+    onAutoDeployFailed: (text) => {
+      message.warning(text)
+    },
     onDone: () => {
       generating.value = false
-      // Vue 项目需触发后端构建生成 dist/ 目录，否则 iframe 预览白屏
-      if (app.value?.codeGenType === 'vue_project') {
-        deploying.value = true
-        deployApp(appId.value)
-          .then(() => refreshPreview())
-          .catch(() => message.warning('自动构建失败，请手动点击「部署」'))
-          .finally(() => { deploying.value = false })
-      } else {
-        refreshPreview()
-      }
+      deploying.value = false
+      // 本地部署（含 Vue 构建与封面截图）已在 done 之前由后端完成
+      refreshPreview()
     },
     onBusinessError: ({ code, message: errMsg }) => {
       generating.value = false
@@ -398,8 +398,16 @@ function doIncrementalEdit(instruction: string, userDisplay?: string) {
         toolLines.push(`${P_WARN}${msg}`)
         messages.value[aiIndex].content = toolLines.join('\n')
       },
+      onAutoDeployStarted: () => {
+        generating.value = false
+        deploying.value = true
+      },
+      onAutoDeployFailed: (text) => {
+        message.warning(text)
+      },
       onDone: () => {
         generating.value = false
+        deploying.value = false
         if (!hasError) {
           toolLines.push(`${P_DONE}修改完成`)
         }

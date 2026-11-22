@@ -18,6 +18,10 @@ export interface SSECallbacks {
   onReconnecting?: (retriesLeft: number, delayMs: number) => void
   /** 重连成功（重新建立 SSE 后触发） */
   onReconnected?: () => void
+  /** 生成已成功，后端开始本地部署（写 deployKey 并截封面） */
+  onAutoDeployStarted?: () => void
+  /** 本地自动部署失败，生成结果仍保留 */
+  onAutoDeployFailed?: (message: string) => void
 }
 
 /** 结构化事件文本前缀（与后端 GenerationPipelineRouter 保持一致） */
@@ -91,6 +95,8 @@ export function connectChatSSE(
       callbacks.onBusinessError?.(payload)
     })
 
+    bindAutoDeployEvents(source, callbacks)
+
     source.addEventListener('done', () => {
       doneReceived = true
       if (!businessErrored) callbacks.onDone?.()
@@ -124,6 +130,10 @@ export interface IncrementalEditCallbacks {
   onError: (message: string) => void
   /** 流式结束 */
   onDone: () => void
+  /** 编辑已写出新页面，后端开始本地部署 */
+  onAutoDeployStarted?: () => void
+  /** 本地自动部署失败，修改结果仍保留 */
+  onAutoDeployFailed?: (message: string) => void
 }
 
 /**
@@ -178,6 +188,8 @@ export function connectIncrementalEditSSE(
       }
     }
 
+    bindAutoDeployEvents(source, callbacks)
+
     source.addEventListener('done', () => {
       doneReceived = true
       callbacks.onDone()
@@ -195,6 +207,31 @@ export function connectIncrementalEditSSE(
   bindEvents(es)
 
   return finalClose
+}
+
+const AUTO_DEPLOY_WARNING = '自动部署失败，请手动点击「部署」'
+
+function bindAutoDeployEvents(
+  source: EventSource,
+  callbacks: {
+    onAutoDeployStarted?: () => void
+    onAutoDeployFailed?: (message: string) => void
+  },
+) {
+  source.addEventListener('auto-deploy-started', () => {
+    callbacks.onAutoDeployStarted?.()
+  })
+  source.addEventListener('auto-deploy-failed', (e: Event) => {
+    const me = e as MessageEvent
+    let text = AUTO_DEPLOY_WARNING
+    try {
+      const parsed = JSON.parse(me.data)
+      if (typeof parsed.message === 'string' && parsed.message) text = parsed.message
+    } catch {
+      /* 使用默认提示 */
+    }
+    callbacks.onAutoDeployFailed?.(text)
+  })
 }
 
 function parseArgs(args: string): Record<string, unknown> {
