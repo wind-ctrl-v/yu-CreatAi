@@ -33,6 +33,10 @@ import com.yu.yuaifather.service.UserService;
 import com.yu.yuaifather.model.enums.ChatHistoryMessageTypeEnum;
 import com.yu.yuaifather.service.PromptPreferenceExtractor;
 import com.yu.yuaifather.service.IncrementalEditService;
+import com.yu.yuaifather.service.deploy.AutoDeployOutcome;
+import com.yu.yuaifather.service.deploy.AutoDeploySse;
+import com.yu.yuaifather.service.deploy.IncrementalPageChange;
+import com.yu.yuaifather.service.deploy.LocalAutoDeployService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -50,6 +54,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.function.BooleanSupplier;
 
 /**
  * 应用 控制层。
@@ -84,6 +89,9 @@ public class AppController {
 
     @Autowired
     private IncrementalEditService incrementalEditService;
+
+    @Autowired
+    private LocalAutoDeployService localAutoDeployService;
 
     @Autowired
     @Qualifier("preferenceExecutor")
@@ -337,23 +345,10 @@ public class AppController {
         appAccessService.requireOwner(appId, loginUser.getId());
         // 调用服务生成代码（流式）。mode 为前端请求模式（不可信意图），由服务端按套餐封顶。
         Flux<String> contentFlux = appService.chatToGenCode(appId, message, mode, loginUser);
-        // 转换为 ServerSentEvent 格式
-        return contentFlux
-                .map(chunk -> {
-                    // 将内容包装成JSON对象
-                    Map<String, String> wrapper = Map.of("d", chunk);
-                    String jsonData = JSONUtil.toJsonStr(wrapper);
-                    return ServerSentEvent.<String>builder()
-                            .data(jsonData)
-                            .build();
-                })
-                .concatWith(Mono.just(
-                        // 发送结束事件
-                        ServerSentEvent.<String>builder()
-                                .event("done")
-                                .data("")
-                                .build()
-                ));
+        // 生成流正常结束后走本地部署（HTML / MULTI_FILE / VUE_PROJECT 同一路径）。
+        // 失败只追加警告事件，不把生成标成失败。
+        Flux<ServerSentEvent<String>> contentEvents = contentFlux.map(this::toDataEvent);
+        return finishWithLocalDeploy(contentEvents, () -> true, appId, loginUser);
     }
 
     /**
@@ -393,24 +388,17 @@ public class AppController {
 
         // 收集 AI 响应的完整文本，用于流结束后持久化
         StringBuilder aiResponseBuffer = new StringBuilder();
+        IncrementalPageChange pageChange = new IncrementalPageChange();
         Flux<String> contentFlux = incrementalEditService.incrementalEditStream(appId, instruction);
-        return contentFlux
-                .map(chunk -> {
-                    // 收集 ai_response 文本
-                    collectAiText(chunk, aiResponseBuffer);
-                    Map<String, String> wrapper = Map.of("d", chunk);
-                    return ServerSentEvent.<String>builder()
-                            .data(JSONUtil.toJsonStr(wrapper))
-                            .build();
-                })
-                .concatWith(Mono.just(
-                        ServerSentEvent.<String>builder()
-                                .event("done")
-                                .data("")
-                                .build()
-                ))
-                .doOnTerminate(() -> {
-                    // 流结束后保存 AI 响应到对话历史
+        Flux<ServerSentEvent<String>> contentEvents = contentFlux.map(chunk -> {
+            collectAiText(chunk, aiResponseBuffer);
+            pageChange.observe(chunk);
+            return toDataEvent(chunk);
+        });
+        // 只有写出了新页面才自动部署；编辑失败不部署，也不影响本次对话落库。
+        // doFinally 覆盖完成与取消：自动部署期间用户离开页面时，已生成的回复仍要落库。
+        return finishWithLocalDeploy(contentEvents, pageChange::shouldAutoDeploy, appId, loginUser)
+                .doFinally(signal -> {
                     String aiText = aiResponseBuffer.toString().trim();
                     if (StrUtil.isNotBlank(aiText)) {
                         try {
@@ -505,7 +493,44 @@ public class AppController {
         boolean success = appBehaviorService.judgeIncrementalEditSuccess(result);
         data.put("success", success);
         data.put("message", result);
+        // 同步编辑成功视为页面已更新。部署失败不改 success，只附带可重试的警告。
+        if (success) {
+            AutoDeployOutcome outcome = localAutoDeployService.tryDeploy(appId, loginUser);
+            if (!outcome.success()) {
+                data.put("autoDeployWarning", AutoDeployOutcome.USER_WARNING);
+            }
+        }
         return ResultUtils.success(data);
+    }
+
+    /**
+     * 生成内容成功结束后执行本地自动部署，并始终以 done 收尾。
+     * 部署使用与手动接口相同的 {@code deployApp}，不启用 COS。
+     */
+    private Flux<ServerSentEvent<String>> finishWithLocalDeploy(Flux<ServerSentEvent<String>> contentEvents,
+                                                                BooleanSupplier shouldDeploy,
+                                                                Long appId,
+                                                                User loginUser) {
+        return AutoDeploySse.append(
+                        contentEvents,
+                        shouldDeploy,
+                        () -> localAutoDeployService.tryDeploy(appId, loginUser),
+                        localAutoDeployService.executor())
+                .concatWith(Mono.just(doneEvent()));
+    }
+
+    private ServerSentEvent<String> toDataEvent(String chunk) {
+        Map<String, String> wrapper = Map.of("d", chunk);
+        return ServerSentEvent.<String>builder()
+                .data(JSONUtil.toJsonStr(wrapper))
+                .build();
+    }
+
+    private ServerSentEvent<String> doneEvent() {
+        return ServerSentEvent.<String>builder()
+                .event("done")
+                .data("")
+                .build();
     }
 
 

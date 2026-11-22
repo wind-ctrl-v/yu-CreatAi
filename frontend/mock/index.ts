@@ -117,17 +117,29 @@ function sseHead(res: ServerResponse) {
   })
 }
 
+/** 演示模式对齐后端：生成成功后标记本地部署，再发送 done。 */
+function markDemoDeployed(appId: string | null) {
+  if (!appId) return
+  const app = appById(appId)
+  if (!app) return
+  app.deployKey = `${app.codeGenType}_${appId}`
+  app.deployedTime = new Date().toISOString().slice(0, 19).replace('T', ' ')
+}
+
 /** 按节奏推送若干帧，最后发送 done 事件 */
 function streamFrames(
   res: ServerResponse,
   frames: string[],
   intervalMs = 90,
   eventName?: string,
+  beforeDone?: () => void,
 ) {
   let i = 0
   const timer = setInterval(() => {
     if (i >= frames.length) {
       clearInterval(timer)
+      beforeDone?.()
+      res.write('event: auto-deploy-started\ndata: {}\n\n')
       res.write('event: done\ndata: {}\n\n')
       res.end()
       return
@@ -449,7 +461,7 @@ export function devMockPlugin(): Plugin {
           })
           res.write(`data: ${JSON.stringify({ d: `\n[生成] ${started}\n` })}\n\n`)
           const frames = generationScript(prompt).flatMap((seg) => chunkText(seg, 12))
-          streamFrames(res, frames, 60)
+          streamFrames(res, frames, 60, undefined, () => markDemoDeployed(query.get('appId')))
           return
         }
 
@@ -464,7 +476,9 @@ export function devMockPlugin(): Plugin {
               data: `已按「${instruction.slice(0, 40)}」完成调整，右侧预览已刷新。\n`,
             },
           ]
-          streamFrames(res, script.map((m) => JSON.stringify(m)), 320)
+          streamFrames(res, script.map((m) => JSON.stringify(m)), 320, undefined, () =>
+            markDemoDeployed(query.get('appId')),
+          )
           return
         }
 

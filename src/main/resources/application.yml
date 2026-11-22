@@ -162,7 +162,8 @@ agent:
     # Critic 反馈最大轮次
     max-rounds: 3
   deploy:
-    # 是否在流水线末尾自动执行 DeployTool（构建并上传 COS）
+    # 是否在 V2 流水线末尾执行 DeployTool（构建并上传 COS）。
+    # 生成完成后的本地部署（deployKey、封面截图）不读取此开关，始终调用 AppService.deployApp。
     enabled: ${AGENT_DEPLOY_ENABLED:false}
   # 指纹爬取（覆盖度优化 阶段三）
   fingerprint:
