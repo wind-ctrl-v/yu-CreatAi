@@ -4,7 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.yu.yuaifather.service.design.DesignExtractorAgent;
-import com.yu.yuaifather.shared.security.SafeUrlValidator;
+import com.yu.yuaifather.common.security.SafeUrlValidator;
 import com.yu.yuaifather.auth.AuthCheck;
 import com.yu.yuaifather.common.BaseResponse;
 import com.yu.yuaifather.common.ResultUtils;

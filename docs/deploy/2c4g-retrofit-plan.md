@@ -72,7 +72,7 @@ void deactivate(Long fingerprintId);
 | `config/PgVectorDataSourceConfig.java` | 嵌套 `@Configuration` 实现 `enabled=true` + `store=pg` 双条件 |
 | `config/VectorStoreProperties.java` | 新增 `@ConfigurationProperties("agent.retrieve.vector")` |
 
-MySQL 表（`docs/sql/021_design_fingerprint_vector_mysql.sql`）：
+MySQL 表（`docs/sql/migrations/021_design_fingerprint_vector_mysql.sql`）：
 
 ```sql
 CREATE TABLE IF NOT EXISTS design_fingerprint_vector (
@@ -175,7 +175,7 @@ app.limits:
 
 ### 4.8 H：数据库
 
-- 新增 `docs/sql/021_design_fingerprint_vector_mysql.sql`；更新 `docs/sql/README.md`（迁移清单 + PG 脚本仅 `store=pg` 使用）。
+- 新增 `docs/sql/migrations/021_design_fingerprint_vector_mysql.sql`；更新 `docs/sql/README.md`（迁移清单 + PG 脚本仅 `store=pg` 使用）。
 - 不改动任何既有 MySQL 表结构。
 
 ### 4.9 I：测试

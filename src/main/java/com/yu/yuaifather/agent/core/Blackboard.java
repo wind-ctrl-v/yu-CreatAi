@@ -8,7 +8,7 @@ import com.yu.yuaifather.model.dto.agent.ProjectBrandContext;
 import com.yu.yuaifather.model.dto.agent.PromptContext;
 import com.yu.yuaifather.model.dto.agent.RequirementDoc;
 import com.yu.yuaifather.model.dto.agent.UserDesignContext;
-import com.yu.yuaifather.generation.domain.GeneratedArtifact;
+import com.yu.yuaifather.service.generation.GeneratedArtifact;
 
 import java.util.Collections;
 import java.util.HashMap;

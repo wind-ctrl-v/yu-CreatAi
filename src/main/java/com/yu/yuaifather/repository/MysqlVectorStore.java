@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
  * 设计目标：不部署 PostgreSQL 也能保留 3B 语义检索——
  * <ul>
  *   <li><b>持久化</b>：向量以 {@code BLOB}（小端序 float 数组）+ {@code dim}/{@code norm} 落 MySQL
- *       {@code design_fingerprint_vector} 表，由 {@code docs/sql/021_design_fingerprint_vector_mysql.sql} 建表；</li>
+ *       {@code design_fingerprint_vector} 表，由 {@code docs/sql/migrations/021_design_fingerprint_vector_mysql.sql} 建表；</li>
  *   <li><b>检索</b>：JVM 内存快照 + Java 余弦 TopK（{@link VectorSnapshot} + {@link VectorMath}），
  *       单机 APPROVED 指纹量级（默认上限 2 万条 × 1024 维）毫秒级完成；</li>
  *   <li><b>加载</b>：{@link ApplicationReadyEvent} 启动加载；{@code @Scheduled} 定时重载
