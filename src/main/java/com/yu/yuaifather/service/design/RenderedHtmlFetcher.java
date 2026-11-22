@@ -2,7 +2,7 @@ package com.yu.yuaifather.service.design;
 
 import cn.hutool.core.util.StrUtil;
 import com.yu.yuaifather.media.screenshot.ChromeRuntime;
-import com.yu.yuaifather.shared.security.SafeUrlValidator;
+import com.yu.yuaifather.common.security.SafeUrlValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;

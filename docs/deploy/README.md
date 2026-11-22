@@ -267,7 +267,7 @@ SQL
 
 ## 6. 数据库初始化：基线 schema + 021 向量表
 
-> **为什么不能只跑 docs/sql？** 仓库 `docs/sql/` 只有**增量迁移**（见 [`docs/sql/README.md`](../sql/README.md)），
+> **为什么不能只跑 docs/sql？** 仓库 `docs/sql/migrations/` 只有**增量迁移**（见 [`docs/sql/README.md`](../sql/README.md)），
 > 不含 user/app/chat_history 等初始建表语句。因此生产基线必须从**开发库**导出一份结构快照。
 > 导出后开发库当前已包含 001–020 的变更，生产**不要**再重复执行 001–020；只补跑开发库还没包含的增量（当前是 021）。
 
@@ -302,11 +302,11 @@ mysql -h 127.0.0.1 -u root -p yu_ai_code_mother -e 'SHOW TABLES;'
 ### 6.3 执行 021 向量表 DDL（本部署必须）
 
 `store=mysql` 不需要 PostgreSQL/PGvector。**只执行 MySQL 的 021**，PG 脚本
-（`011_init_pgvector_local.sql`、`design_fingerprint_vector.sql`）**不要执行**（见 docs/sql/README 分类说明）。
+（`docs/sql/postgresql/011_init_pgvector_local.sql`、`docs/sql/postgresql/design_fingerprint_vector.sql`）**不要执行**（见 docs/sql/README 分类说明）。
 
 ```bash
-# 本地：上传 021 脚本（仓库文件 docs/sql/021_design_fingerprint_vector_mysql.sql）
-scp docs/sql/021_design_fingerprint_vector_mysql.sql root@<服务器IP>:/tmp/
+# 本地：上传 021 脚本（仓库文件 docs/sql/migrations/021_design_fingerprint_vector_mysql.sql）
+scp docs/sql/migrations/021_design_fingerprint_vector_mysql.sql root@<服务器IP>:/tmp/
 
 # 服务器：执行
 mysql -h 127.0.0.1 -u root -p yu_ai_code_mother \
@@ -322,8 +322,8 @@ mysql -h 127.0.0.1 -u root -p yu_ai_code_mother -e \
 
 ### 6.4 迁移治理约定
 
-- 已执行的迁移脚本禁止修改，新增变更按 `docs/sql/README.md` 追加大于当前最大编号的脚本。
-- Seed（010/012）与 Test 类脚本禁止进生产。
+- 已执行的迁移脚本禁止修改，新增变更按 `docs/sql/README.md` 追加到 `docs/sql/migrations/`，编号大于当前最大编号。
+- Seed（`docs/sql/seed/` 的 010/012）与 Test（`docs/sql/test/`）类脚本禁止进生产。
 - 生产导入基线后，后续版本升级按“先执行向后兼容的 DDL，再启动新 jar”顺序操作（第 16 节）。
 
 ---
@@ -657,7 +657,7 @@ sudo mysql yu_ai_code_mother -e \
 POST /api/fingerprint/admin/vector/resync?limit=100     # 管理员鉴权，limit 默认且最大 resync-max=100
 ```
 
-- 生效前提：已执行 [`docs/sql/021_design_fingerprint_vector_mysql.sql`](../sql/021_design_fingerprint_vector_mysql.sql) 建表，
+- 生效前提：已执行 [`docs/sql/migrations/021_design_fingerprint_vector_mysql.sql`](../sql/migrations/021_design_fingerprint_vector_mysql.sql) 建表，
   且生产配置为 `agent.retrieve.vector.enabled=true` + `store=mysql` + `expected-dim=1024`。
 - `limit` 单次上限由 `agent.retrieve.vector.resync-max`（环境变量 `AGENT_RETRIEVE_VECTOR_RESYNC_MAX`）控制，默认 100；
   指纹多时重复调用该接口直到补完。
@@ -794,8 +794,8 @@ scp target/yu-ai-father-0.0.1-SNAPSHOT.jar root@<服务器IP>:/opt/creat-ai/app.
 rsync -avz --delete frontend/dist/ root@<服务器IP>:/var/www/creat-ai/
 
 # ---- 迁移与重启 ----
-# 若本版本包含 docs/sql 新增迁移：先 scp 到服务器再执行（保持向后兼容），最后重启服务
-# scp docs/sql/<新迁移>.sql root@<服务器IP>:/tmp/
+# 若本版本包含 docs/sql/migrations 新增迁移：先 scp 到服务器再执行（保持向后兼容），最后重启服务
+# scp docs/sql/migrations/<新迁移>.sql root@<服务器IP>:/tmp/
 mysql -h 127.0.0.1 -u root -p yu_ai_code_mother < /tmp/<新迁移>.sql
 sudo systemctl restart creat-ai
 sudo systemctl status creat-ai --no-pager
@@ -904,7 +904,7 @@ find /opt/creat-ai/backups -type f -mtime +7 -ls
 ## 19. 相关文档
 
 - 本次改造的实施计划与验收记录：[`2c4g-retrofit-plan.md`](2c4g-retrofit-plan.md)
-- 数据库迁移治理：[`docs/sql/README.md`](../sql/README.md)（001–021 清单；PG 脚本仅 `store=pg` 时使用）
+- 数据库迁移治理：[`docs/sql/README.md`](../sql/README.md)（生产增量在 `migrations/`；PG 脚本在 `postgresql/`，仅 `store=pg` 时使用）
 - 本地开发启动方式：[根 README](../../README.md#快速开始)
 - 多 Agent 流水线开关：[根 README](../../README.md#多-agent-流水线可选)
 - 本目录工件：[`application-prod.yml.example`](application-prod.yml.example)、

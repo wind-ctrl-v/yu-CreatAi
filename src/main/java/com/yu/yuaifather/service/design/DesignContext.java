@@ -13,9 +13,8 @@ import java.util.Map;
  * Agent 只需读取 {@link #promptContext} 即可获得定制化的 Prompt 文本，
  * 不再需要自行查询用户偏好或 RAG 证据。
  * <p>
- * ★ 包结构说明（包结构优化计划问题 3）：本类原位于 {@code orchestrator} 包，
- * 现迁移到 {@code service.design}（与 {@code DesignKnowledgeIndex}/{@code FingerprintProjector}
- * 等同域数据组装类聚合），编排器包只保留真正的编排逻辑类 {@code GenerationOrchestrator}。
+ * ★ 包结构说明：本类位于 {@code service.design}（与 {@code DesignKnowledgeIndex}/{@code FingerprintProjector}
+ * 等同域数据组装类聚合）。多 Agent 编排入口 {@code GenerationOrchestrator} 位于 {@code service.generation}。
  */
 @Data
 @Builder

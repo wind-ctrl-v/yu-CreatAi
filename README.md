@@ -126,7 +126,7 @@ CreatAi/
     ├── agent/                         # ★ 多 Agent 流水线
     │   ├── core/                      # Agent 接口、AgentContext、AgentEvent、Blackboard
     │   ├── service/                   # AgentAiService 及其工厂
-    │   └── workers/                   # Planning / Coder / Style / Critic
+    │   └── pipeline/                  # Planning / PageGenerate / Coder / Style / Critic
     ├── codegen/                       # 代码生成、解析、保存、流处理和文件工具
     │   ├── service/                   # 代码生成服务与 Facade
     │   ├── routing/                   # 代码类型路由
@@ -135,10 +135,10 @@ CreatAi/
     │   ├── stream/                    # SSE 流处理与消息模型
     │   ├── tools/                     # 增量编辑文件工具
     │   └── build/                     # Vue 项目构建
-    ├── orchestrator/                  # GenerationOrchestrator（V2 编排 + Critic 循环）
     ├── service/design/                # 设计上下文与离线指纹提取
-    ├── config/                        # Redis 对话记忆、流式模型、COS、图片配置
-    ├── ratelimiter/                   # 限流注解与 AOP
+    ├── service/generation/            # 生成策略、配额、GenerationOrchestrator
+    ├── config/                        # Redis 对话记忆、流式模型、COS、图片、Redisson
+    ├── ratelimiter/                   # 限流注解与 AOP（客户端配置在 config）
     ├── exception/                     # 全局异常处理与错误码
     └── constant/                      # AppConstant（生成目录、部署目录）
 ```

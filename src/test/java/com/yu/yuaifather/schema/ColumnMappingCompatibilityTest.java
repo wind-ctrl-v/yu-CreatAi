@@ -51,7 +51,7 @@ class ColumnMappingCompatibilityTest {
 
     @Test
     void compatibilityMigrationsCoverBothColumnNamesWithoutDroppingData() throws Exception {
-        String usage = Files.readString(Path.of("docs/sql/022_design_fingerprint_usage_count_compat.sql"));
+        String usage = Files.readString(Path.of("docs/sql/migrations/022_design_fingerprint_usage_count_compat.sql"));
         assertTrue(usage.contains("usageCount"));
         assertTrue(usage.contains("usage_count"));
         assertTrue(usage.contains("GREATEST"));
@@ -60,7 +60,7 @@ class ColumnMappingCompatibilityTest {
         assertFalse(usage.toLowerCase().contains("drop column"));
         assertFalse(usage.toLowerCase().contains("drop table"));
 
-        String evidence = Files.readString(Path.of("docs/sql/023_user_preference_evidence_count_compat.sql"));
+        String evidence = Files.readString(Path.of("docs/sql/migrations/023_user_preference_evidence_count_compat.sql"));
         for (String token : new String[]{
                 "evidenceCount", "evidence_count",
                 "lastEvidenceAt", "last_evidence_at",

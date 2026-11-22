@@ -8,9 +8,8 @@ import java.lang.annotation.Target;
 /**
  * 限流注解。
  * <p>
- * ★ 包结构说明：本类与 {@link RateLimitAspect}/{@link RateLimitType}/{@code RedissonConfig}
- * 原分散在 {@code ratelimiter} 下 4 个各只有 1 个文件的子包，现扁平化到 {@code ratelimiter} 单层
- * （见包结构优化计划问题 6）。
+ * ★ 包结构说明：本类与 {@link RateLimitAspect}/{@link RateLimitType} 位于 {@code ratelimiter}。
+ * Redisson 客户端配置见 {@code config.RedissonConfig}。
  */
 @Target({ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
