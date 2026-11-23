@@ -1,16 +1,27 @@
 # CreatAi
 
-> 用一句话，创造属于你的产品。
+用自然语言生成可预览、可修改、可分享的网站。
 
-**CreatAi** 是一个 AI 驱动的全栈网站生成平台。用户只需用自然语言描述需求，系统即可通过大模型实时生成完整的前端项目代码，并支持在线预览、对话式迭代修改、一键部署与打包下载。
+*AI website generator: describe a page, preview it, and share a local static link.*
+
+**CreatAi**（Maven 构件 `yu-ai-father`）是一个中文界面的全栈应用。用户写下需求后，系统调用兼容 OpenAI 协议的大模型生成前端代码，在对话页里用 SSE 流式预览，并可以继续用对话或点选元素修改。生成成功后，服务端把结果发布到本机静态目录，返回可分享链接，并异步截取封面；源码也可以打包下载。
+
+仓库里没有产品截图。界面入口是登录 / 注册、首页、对话生成、我的作品、精选应用、个人中心，以及管理员后台。
 
 ---
 
-## 演示截图
+## 能做什么
 
-| 登录页 | 首页 | 对话生成 |
-|--------|------|---------|
-| Vercel 极简风格，带打字机动效 | 大标题 + 输入框 + 横向 Chip | 左侧对话 + 右侧实时预览 |
+- **按需求选择产物。** 创建应用时，模型在三种类型里选一种：`html`（单个 HTML 文件）、`multi_file`（多文件前端）、`vue_project`（带路由的 Vue 项目）。
+- **对话式修改。** 生成页可以继续描述修改。预览里的 HTML 会注入选元素脚本，点中的标签、选择器和片段会交给增量编辑。
+- **本地发布是默认分享路径。** 一次成功的生成结束后，服务端调用与「部署」按钮相同的本地部署：写入 `deployKey`（`{codeGenType}_{appId}`），Vue 项目先执行构建。访问地址是 `{APP_DEPLOY_BASE_URL}/{deployKey}/`，默认 `http://localhost:8123/api/static/html_1/` 这种形式。静态服务在目录里存在 `dist/` 时以 `dist` 为根。增量编辑只有真正写出新页面时才会自动部署。部署失败会保留已生成的代码，并在流里给出警告。
+- **封面截图。** 部署成功后用 headless Chrome 截图，图片落在本机静态目录并写回应用封面。截图失败只记日志，不影响链接访问。本机需要可用的 Chrome；本地默认允许 WebDriverManager 准备驱动。
+- **下载源码。** 应用所有者可以把生成目录打成 ZIP。
+- **精选应用。** 优先级 `priority = 99` 的应用出现在首页和「精选应用」页。管理员在后台把优先级改成 99 即可。
+- **质量模式与额度。** 前端可选 `low_cost`（快速）、`standard`（标准）、`high_quality`（高质量）。服务端把该选择当作意图：先按需求复杂度调整，再按套餐封顶，最后按当日额度降级。
+- **管理后台。** 管理员可以管理用户、应用、对话记录和设计指纹。普通注册用户的角色是 `user`。
+
+默认生成链路是经典生成器。多 Agent 流水线默认关闭，见下文。
 
 ---
 
@@ -20,154 +31,161 @@
 
 | 类别 | 技术 |
 |------|------|
-| 运行时 | Java **21**（虚拟线程） |
-| 框架 | Spring Boot **3.2** · WebFlux（SSE） · Spring AOP |
-| 持久化 | **MyBatis-Flex** + MySQL |
-| 缓存 / 会话 | **Redis**（Spring Session） |
-| 限流 | **Redisson** + 自定义 `@RateLimit` 注解 |
-| AI | **LangChain4j**（兼容 OpenAI 协议，支持 DeepSeek 等） |
-| 对象存储 | 腾讯云 **COS** |
-| 其他 | Knife4j · Hutool · Caffeine · Selenium |
+| 运行时 | Java 21 |
+| 框架 | Spring Boot 3.2.10（Spring MVC；生成接口返回 Reactor SSE） |
+| 持久化 | MyBatis-Flex 1.11 + MySQL 8（库名 `yu_ai_code_mother`） |
+| 会话 | Spring Session + Redis |
+| 限流 | Redisson |
+| 模型 | LangChain4j 1.1（OpenAI 兼容接口，示例为 DeepSeek） |
+| 截图 | Selenium 4 + WebDriverManager |
+| 其他 | Knife4j、Hutool、Caffeine |
+
+进程启动时会创建腾讯云 COS 客户端。可分享链接由本机静态服务提供。只有 `AGENT_DEPLOY_ENABLED=true` 时，V2 流水线末尾的 DeployTool 才会把 Vue `dist` 上传到 COS。该开关默认是 `false`。
+
+向量检索默认关闭，本地不必安装 PostgreSQL。生产手册把向量存在 MySQL 表里。
 
 ### 前端
 
 | 类别 | 技术 |
 |------|------|
-| 框架 | **Vue 3** + TypeScript |
-| UI | **Ant Design Vue 4** + `@ant-design/icons-vue` |
-| 路由 | **Vue Router 4** |
-| 状态管理 | **Pinia** |
-| 构建 | **Vite 5** + vue-tsc |
-| HTTP | **Axios**（`withCredentials` + 响应拦截） |
-| 实时流 | 原生 **EventSource**（SSE）|
+| 框架 | Vue 3 + TypeScript |
+| 构建 | Vite 5、vue-tsc |
+| 路由 / 状态 | Vue Router 4、Pinia |
+| 请求 | Axios（`withCredentials`）、原生 EventSource |
+| 界面 | 仓库内组件 `frontend/src/components/ui` |
 
 ---
 
-## 核心功能
+## 生成、套餐与图片
 
-### 🤖 AI 代码生成（三种模式自动路由）
+### 三种代码类型
 
-系统根据用户需求自动判断最优生成类型：
+| 值 | 适用情况 | 预览 |
+|----|----------|------|
+| `html` | 单页小工具、落地页 | 生成后即可通过静态目录预览 |
+| `multi_file` | 多文件、无路由的前端 | 同上 |
+| `vue_project` | 多页面、需要路由的应用 | 需本机 Node/npm 构建出 `dist` 后才能从静态目录打开 |
 
-| 类型 | 适用场景 | 说明 |
-|------|---------|------|
-| `HTML` | 单页小工具（计算器、待办等）| 生成单个 HTML 文件，快速轻量 |
-| `MULTI_FILE` | 多文件前端（无路由跳转）| 生成组件化多文件结构 |
-| `VUE_PROJECT` | 多页面路由应用（博客、商城、管理后台）| 生成完整 Vue 项目 + 路由配置 |
+首页还可以选择视觉风格、布局和差异度。这些选项会写进创建应用时的提示词，没有单独的接口字段。
 
-### 🖼️ 图片语义占位符
+### 质量模式
 
-生成代码时 AI 输出语义化图片占位符，生成完成后自动替换为真实图片：
+模式始终会参与决策，并记入当日额度。`low_cost` 使用更短的设计上下文，`high_quality` 会带上完整项目品牌信息。
 
-```html
-<img src="{{IMG:coffee shop interior warm light}}" alt="咖啡厅内景">
-<!-- 自动替换为 Unsplash / Pexels 真实图片 URL -->
-```
+V2 流水线（见下一节）打开后，三种模式的编排不同：
 
-搜图链路：**Unsplash → Pexels → picsum 兜底**，支持并发搜图（可配置并发数）。
+| 模式 | V2 行为 |
+|------|---------|
+| `low_cost` | 规划 → 精简设计上下文 → 单次页面生成 → 规则检查。不调用 LLM 质检。 |
+| `standard` | 规划 → 设计上下文 → 代码与样式并发生成 → 规则检查。规则未通过时最多 1 轮 LLM 质检。 |
+| `high_quality` | 规划 → 完整设计上下文 → 代码与样式并发 → 规则检查 → 最多 3 轮 LLM 质检。 |
 
-### 💬 对话式迭代修改
+请求里的模式只是意图。提示词命中「改颜色」「改一下」等简单修改关键词时降到 `low_cost`，命中「多页面」「整站」「动效」「后台管理」等关键词时升到 `high_quality`，最后不得超过套餐上限。
 
-生成后可在对话框中继续描述修改需求，AI 实时更新代码并刷新预览。支持**可视化元素选择**：在预览页点击元素，AI 精准修改对应组件。
+### 套餐与每日额度
 
-### 🚀 部署 & 下载
+配置在 `src/main/resources/application.yml` 的 `generation.entitlements`。未写的每日上限视为不限制。额度用尽时向更低模式降级；三种都用尽后仍落到 `low_cost`。`ADMIN` 不记额度。
 
-- **一键部署**：将生成产物通过后端静态资源服务发布，获得可分享的访问链接
-- **ZIP 下载**：下载完整源码压缩包，本地继续开发
+| 套餐 | 默认模式 | 最高模式 | 每日上限 |
+|------|----------|----------|----------|
+| `FREE` | `low_cost` | `low_cost` | 快速 10 次 |
+| `PRO` | `standard` | `standard` | 标准 50 次 |
+| `PREMIUM` | `standard` | `high_quality` | 标准 100 次，高质量 10 次 |
+| `ENTERPRISE` | `high_quality` | `high_quality` | 高质量 100 次 |
+| `ADMIN` | `high_quality` | `high_quality` | 不限制 |
+
+已执行迁移 `docs/sql/migrations/007_user_plan_type.sql` 时，`user.planType` 默认是 `FREE`。字段为空时，管理员角色按 `ADMIN`，其他已登录用户按 `PRO`。用户不能在个人资料里自行修改套餐。
+
+### 图片占位符
+
+生成代码使用 `@@IMG:english keywords@@`。生成结束后按关键词替换成图片 URL。关键词会清洗成小写英文字母、数字和空格。
+
+查找顺序：
+
+1. Pixabay（`PIXABAY_API_KEY`，未配置则跳过；连续失败会短时熔断）
+2. Unsplash（`UNSPLASH_ACCESS_KEY`）
+3. Pexels（`PEXELS_API_KEY`）
+4. 文生图（`IMAGE_FALLBACK_ENABLED=true` 且配置了 `IMAGE_TEXT2IMG_API_KEY` 才启用，默认关闭；图片保存到本机静态目录）
+5. loremflickr
+6. picsum
+
+返回的搜图 URL 必须是 HTTPS，且主机在白名单内；解析后的私网地址会被拒绝。
 
 ---
 
 ## 多 Agent 流水线（可选）
 
-通过环境变量 `AGENT_ORCHESTRATOR_V2_ENABLED=true` 启用，默认关闭，仅对 `VUE_PROJECT` 生效；V2 失败时仍会按策略降级到 Classic。
+环境变量 `AGENT_ORCHESTRATOR_V2_ENABLED=true` 后，**仅 `vue_project`** 走 `GenerationOrchestrator`。默认关闭。V2 失败且 `generation.pipeline.allow-classic-fallback=true`（默认开启）时，降级到经典生成器。`html` 与 `multi_file` 始终走经典生成器。
 
 ```
-用户 Prompt
-  │
-  ├─① PlanningAgent       ── 需求与架构规划 → RequirementDoc / GenerationPlan
-  ├─② DesignContext       ── 装配偏好、品牌、设计规范和受控检索证据
-  ├─③ PageGenerateAgent   ── low_cost 单次生成并安全落盘
-  │   或 CoderAgent ∥ StyleAgent ── standard / high_quality 生成代码和样式
-  ├─④ RuleCriticTool      ── 确定性文件与占位符检查
-  ├─⑤ CriticAgent         ── 按策略执行 LLM 质检和有限轮修复
-  ├─⑥ DeployTool          ── 可选构建与部署（AGENT_DEPLOY_ENABLED=true）
-  └─⑦ GenerationRecordTool ── 保存生成运行与设计证据记录
+用户提示词
+  ├─ PlanningAgent          需求与计划
+  ├─ DesignContext          偏好、品牌和检索证据
+  ├─ low_cost：PageGenerateAgent
+  │  standard / high_quality：CoderAgent 与 StyleAgent
+  ├─ RuleCriticTool         空内容、占位符残留、P0 文件
+  ├─ CriticAgent            按模式决定是否做 LLM 质检
+  ├─ DeployTool             仅 AGENT_DEPLOY_ENABLED=true 时构建并上传 COS
+  └─ GenerationRecordTool   保存生成记录
 ```
 
-各 Agent 通过线程安全的 **Blackboard（黑板）** 传递 `GeneratedArtifact` 等中间产物，全程以 `Flux<AgentEvent>` 事件流推送；V2 异常按策略降级 Classic。
+规则检查把 `package.json`、`index.html`、`src/main.js`、`src/App.vue` 视为必需文件。中间结果放在 Blackboard 上，进度以 `Flux<AgentEvent>` 推送。
 
-**Critic 质检分级**：
-- **P0 核心文件**（`package.json` / `index.html` / `src/main.js` / `src/App.vue`）缺失 → 强制重新生成
-- **P1 推荐文件**（`vite.config.js` / 全局样式）缺失 → 仅记录警告，不阻塞流水线
+生成结束后的本地自动部署不读取 `AGENT_DEPLOY_ENABLED`。该开关只控制上面的 COS 上传。
 
 ---
 
 ## 项目结构
 
 ```
-CreatAi/
-├── frontend/                          # 前端（Vue 3 + TypeScript）
-│   └── src/
-│       ├── api/                       # Axios 接口封装（user / app / chatHistory）
-│       ├── components/                # 公共组件（AppCard 等）
-│       ├── layouts/                   # BasicLayout（左侧边栏 + 右侧内容区）
-│       ├── pages/                     # 页面（HomePage / AppChatPage / 登录注册）
-│       ├── router/                    # 路由守卫（登录鉴权）
-│       ├── stores/                    # Pinia 状态（loginUser）
-│       ├── styles/                    # 全局样式（Vercel Design Token）
-│       ├── types/                     # TypeScript 类型定义
-│       └── utils/                     # SSE 工具、可视化编辑器
-│
-└── src/main/java/com/yu/yuaifather/   # 后端（Spring Boot）
-    ├── controller/                    # REST：用户 / 应用 / 对话历史 / 静态资源
-    ├── service/                       # 业务逻辑（AppServiceImpl 为核心入口）
-    ├── mapper/                        # MyBatis-Flex Mapper
-    ├── model/                         # 实体、VO、枚举
-    ├── agent/                         # ★ 多 Agent 流水线
-    │   ├── core/                      # Agent 接口、AgentContext、AgentEvent、Blackboard
-    │   ├── service/                   # AgentAiService 及其工厂
-    │   └── pipeline/                  # Planning / PageGenerate / Coder / Style / Critic
-    ├── codegen/                       # 代码生成、解析、保存、流处理和文件工具
-    │   ├── service/                   # 代码生成服务与 Facade
-    │   ├── routing/                   # 代码类型路由
-    │   ├── parser/                    # HTML / 多文件解析
-    │   ├── saver/                     # 代码文件保存
-    │   ├── stream/                    # SSE 流处理与消息模型
-    │   ├── tools/                     # 增量编辑文件工具
-    │   └── build/                     # Vue 项目构建
-    ├── service/design/                # 设计上下文与离线指纹提取
-    ├── service/generation/            # 生成策略、配额、GenerationOrchestrator
-    ├── config/                        # Redis 对话记忆、流式模型、COS、图片、Redisson
-    ├── ratelimiter/                   # 限流注解与 AOP（客户端配置在 config）
-    ├── exception/                     # 全局异常处理与错误码
-    └── constant/                      # AppConstant（生成目录、部署目录）
+yu-CreatAi/
+├── frontend/                         # Vue 3 界面
+│   ├── src/pages/                    # 首页、对话、作品、精选、个人中心、管理后台
+│   ├── src/components/ui/            # 界面组件
+│   └── mock/                         # npm run dev:mock 使用的离线数据
+├── src/main/java/com/yu/yuaifather/
+│   ├── controller/                   # 用户、应用、对话、静态资源、设计指纹
+│   ├── codegen/                      # 经典生成：类型路由、解析、保存、SSE、Vue 构建
+│   ├── service/generation/           # 模式、额度、V2 编排
+│   ├── service/deploy/               # 生成成功后的本地自动部署
+│   ├── agent/                        # V2：规划、页面、代码、样式、质检
+│   ├── tool/                         # 搜图、规则检查、可选 COS 上传
+│   └── media/                        # 封面截图与本地图片
+├── src/main/resources/               # application.yml、提示词、设计规范
+└── docs/
+    ├── deploy/                       # 生产手册、systemd、Nginx、运维脚本
+    └── sql/                          # 增量迁移，不含 user/app 的完整基线
 ```
+
+生成代码写在进程工作目录下的 `tmp/code_output/{codeGenType}_{appId}/`。
 
 ---
 
 ## 快速开始
 
-### 环境要求
+### 环境
 
-- **JDK 21+** · **Maven 3.6+**
-- **MySQL**（默认库名 `yu_ai_code_mother`）
-- **Redis**
-- **Node.js 18+**（前端开发 / Vue 项目构建）
+- JDK 21+、Maven 3.6+（仓库自带 `./mvnw`）
+- MySQL 8，库名 `yu_ai_code_mother`
+- Redis（登录 Session；限流默认也走 Redis）
+- Node.js 18+（前端开发）。后端构建生成的 Vue 项目时，同一台机器还要有 npm。生产手册使用 Node.js 20。
+- 封面截图需要 Chrome。没有浏览器时部署链接仍然可用，只是封面不会更新。
 
-### 后端启动
+`docs/sql/migrations/` 只有增量脚本，**没有** `user`、`app`、`chat_history` 的初始建表语句。本地库需要先有一份与当前实体一致的基线结构，再按编号执行尚未应用的迁移。脚本分类见 [docs/sql/README.md](docs/sql/README.md)。`seed/`、`dev/`、`test/` 不要放进日常启动。PostgreSQL 脚本只在向量后端为 `pg` 且检索已打开时使用。
 
-**1. 复制并填写本地配置**
+生产环境如何导出基线并补跑迁移，见 [docs/deploy/README.md](docs/deploy/README.md) 第 6 节。
 
-```bash
-cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
-```
+### 本地配置
 
-编辑 `application-local.yml`，填写数据库密码、Redis 密码和 LLM API Key（默认支持 DeepSeek，可替换为任意 OpenAI 兼容服务）：
+`spring.profiles.active` 已是 `local`。敏感项写在 **已被 gitignore 的** `src/main/resources/application-local.yml`，或通过环境变量注入。仓库没有提交这份示例文件，请在本机新建，不要把真实密钥提交进 Git。
 
 ```yaml
 spring:
   datasource:
     password: "your-mysql-password"
+  data:
+    redis:
+      password: "your-redis-password"
 
 langchain4j:
   open-ai:
@@ -179,115 +197,100 @@ langchain4j:
       base-url: https://api.deepseek.com/v1
       api-key: "your-llm-api-key"
       model-name: deepseek-chat
+
+# 启动时会创建 COS 客户端，五项都不能是空。
+# 不使用对象存储时保留下面的占位值，并保持 AGENT_DEPLOY_ENABLED 为 false。
+cos:
+  client:
+    host: https://example.invalid
+    secretId: local-placeholder
+    secretKey: local-placeholder
+    region: ap-guangzhou
+    bucket: local-placeholder
 ```
 
-**2. 启动后端**
+数据库地址默认 `jdbc:mysql://localhost:3306/yu_ai_code_mother`，用户名默认 `root`，密码默认为空。Redis 默认 `localhost:6379`、无密码。大模型地址和密钥没有默认值，不填写就无法生成。可换成任意 OpenAI 兼容服务。同一批配置项也可以用 Spring Boot 的环境变量覆盖，不必写进 yml。
+
+### 启动
 
 ```bash
 ./mvnw spring-boot:run
-# 或跳过测试打包后运行
-./mvnw -q -DskipTests package && java -jar target/yu-ai-father-*.jar
 ```
 
-后端默认运行在 `http://localhost:8123`，API 前缀 `/api`。
-
-**3. 查看 API 文档**
-
-启动后访问：[http://localhost:8123/api/doc.html](http://localhost:8123/api/doc.html)
-
-### 前端启动
+后端监听 `http://localhost:8123`，上下文路径 `/api`。接口文档：<http://localhost:8123/api/doc.html>。健康检查：<http://localhost:8123/api/actuator/health>。
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
-# 默认运行在 http://localhost:5173
 ```
 
-Vite 已配置代理，`/api` 请求自动转发到后端 `localhost:8123`，无需手动处理跨域。
+前端默认 `http://localhost:5173`。Vite 把 `/api` 代理到 `localhost:8123`，Session Cookie 可以带上。只看界面、不接后端时用 `npm run dev:mock`。
+
+在页面注册账号（账号至少 4 位，密码至少 8 位）后即可从首页输入需求。需要管理员时，把对应用户的 `userRole` 更新为 `admin` 并重新登录。
 
 ---
 
-## 环境变量参考
+## 环境变量
 
-所有敏感配置仅通过环境变量注入，**禁止硬编码到代码或 yml 中**。
+下列变量都在 `src/main/resources/application.yml` 里有默认值。大模型密钥和 `cos.client.*` 不在该文件中，按上一节放到 `application-local.yml`。
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `MYSQL_URL` | MySQL 连接串 | `jdbc:mysql://localhost:3306/yu_ai_code_mother` |
-| `MYSQL_USERNAME` | 数据库用户名 | `root` |
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `MYSQL_URL` | JDBC 连接串 | `jdbc:mysql://localhost:3306/yu_ai_code_mother` |
+| `MYSQL_USERNAME` | 数据库用户 | `root` |
 | `MYSQL_PASSWORD` | 数据库密码 | 空 |
-| `REDIS_HOST` | Redis 地址 | `localhost` |
+| `REDIS_HOST` | Redis 主机 | `localhost` |
 | `REDIS_PORT` | Redis 端口 | `6379` |
 | `REDIS_PASSWORD` | Redis 密码 | 空 |
-| `UNSPLASH_ACCESS_KEY` | Unsplash 搜图 API Key | 空（跳过该提供商） |
-| `PEXELS_API_KEY` | Pexels 搜图 API Key | 空（跳过该提供商） |
-| `PIXABAY_API_KEY` | Pixabay 搜图 API Key（首选搜图源） | 空（跳过该提供商） |
-| `APP_DEPLOY_BASE_URL` | 部署访问基础 URL | `http://localhost:8123/api/static` |
-| `CORS_ALLOWED_ORIGINS` | 跨域允许来源（逗号分隔）| `http://localhost:5173,...` |
-| `AGENT_ORCHESTRATOR_ENABLED` | 启用多 Agent 流水线 | `false` |
-| `AGENT_DEPLOY_ENABLED` | 启用 DeployAgent 自动构建上传 | `false` |
-| `IMAGE_FALLBACK_ENABLED` | 搜图无结果时启用文生图兜底 | `false` |
-| `IMAGE_TEXT2IMG_BASE_URL` | 文生图端点（OpenAI 兼容 /images/generations） | `https://open.bigmodel.cn/api/paas/v4` |
-| `IMAGE_TEXT2IMG_API_KEY` | 文生图服务 API Key（启用兜底时必填） | 空（禁用文生图） |
-| `IMAGE_TEXT2IMG_MODEL` | 文生图模型名 | `cogview-3-flash` |
+| `REDIS_DATABASE` | Redis 库号 | `0` |
+| `PIXABAY_API_KEY` | Pixabay，搜图第一顺位 | 空（跳过） |
+| `UNSPLASH_ACCESS_KEY` | Unsplash | 空（跳过） |
+| `PEXELS_API_KEY` | Pexels | 空（跳过） |
+| `IMAGE_FALLBACK_ENABLED` | 搜图失败后是否文生图 | `false` |
+| `IMAGE_TEXT2IMG_BASE_URL` | 文生图端点 | 智谱 OpenAI 兼容地址 |
+| `IMAGE_TEXT2IMG_API_KEY` | 文生图密钥 | 空 |
+| `IMAGE_TEXT2IMG_MODEL` | 文生图模型 | `cogview-3-flash` |
+| `APP_DEPLOY_BASE_URL` | 静态站点前缀，截图也会打开这个地址 | `http://localhost:8123/api/static` |
+| `CORS_ALLOWED_ORIGINS` | 允许的浏览器来源，逗号分隔 | `localhost:5173` 等 |
+| `AGENT_ORCHESTRATOR_V2_ENABLED` | V2 流水线，仅 `vue_project` | `false` |
+| `AGENT_DEPLOY_ENABLED` | V2 末尾上传 COS | `false` |
+| `GENERATION_MODE` | 无请求模式时的默认模式 | `standard` |
+| `AGENT_PERSONALIZATION_ENABLED` | 是否注入用户设计偏好 | `true` |
+| `AGENT_RETRIEVE_ENABLED` | 设计指纹检索 | `false` |
+| `AGENT_RETRIEVE_VECTOR_ENABLED` | 向量检索 | `false` |
+| `AGENT_RETRIEVE_VECTOR_STORE` | `pg` 或 `mysql` | `pg` |
 
----
-
-## 分阶段上线指引
-
-### 第 1 步：基础功能（默认开启）
-
-无需额外配置，启动即可使用 HTML / MULTI_FILE / VUE_PROJECT 三种模式生成代码。
-
-### 第 2 步：启用语义图片替换
-
-```bash
-export UNSPLASH_ACCESS_KEY=your_key   # 推荐
-export PEXELS_API_KEY=your_key        # 备选
-```
-
-### 第 3 步：灰度启用多 Agent 流水线
-
-```bash
-export AGENT_ORCHESTRATOR_ENABLED=true
-```
-
-VUE_PROJECT 类型将走 7 Agent 流水线 + Critic 质检循环（最多 3 轮）。
-
-### 第 4 步：开启自动部署到 COS
-
-```bash
-export AGENT_DEPLOY_ENABLED=true
-# 同时确保 application-local.yml 中 COS 配置已填写
-```
-
----
-
-## 安全说明
-
-- **SSRF 防护**：`ImageSearchTool` 对外部图片 URL 做 HTTPS 校验 + 域名白名单 + 私有网段拒绝
-- **路径穿越防护**：所有文件写入操作前均做 `path.startsWith(projectRoot)` 校验
-- **SQL 注入防护**：MyBatis-Flex 参数绑定，排序字段白名单过滤
-- **接口限流**：SSE 生成接口按用户维度限流（5次/60秒），防止滥用
-- **权限校验**：`@AuthCheck` AOP 注解 + Session Cookie，管理员接口单独鉴权
-- **密钥安全**：所有 API Key 仅经环境变量注入，禁止写入代码或 yml 明文
-
----
-
-## License
-
-MIT
+向量检索打开且 `AGENT_RETRIEVE_VECTOR_STORE=pg` 时，才需要 `PGVECTOR_URL`、`PGVECTOR_USERNAME`、`PGVECTOR_PASSWORD`。
 
 ---
 
 ## 生产部署
 
-2 核 4G 单机（Ubuntu 24.04 + MySQL 8 + Redis 7 + Nginx + JDK 21 + Node 20 + headless Chrome，**无需 PostgreSQL**）的完整部署手册见 [docs/deploy/README.md](docs/deploy/README.md)。
+官方支持的单机规格写在 [docs/deploy/README.md](docs/deploy/README.md)：**2 vCPU / 4 GiB 内存 / 50 GiB 系统盘 / Ubuntu 24.04 LTS**，安装 MySQL 8、Redis 7、Nginx、JDK 21、Node.js 20 和 headless Chrome。该手册明确不安装 PostgreSQL，向量检索使用 `agent.retrieve.vector.store=mysql`。
 
-配套工件：
+生产密钥放在服务器上的 `/opt/creat-ai/config/application-prod.yml`（由示例复制后替换占位符），不要提交进 Git。示例里的 V2 流水线是打开的，COS 上传仍然关闭。
 
-- 生产外置配置示例：[docs/deploy/application-prod.yml.example](docs/deploy/application-prod.yml.example)
-- systemd 服务单元：[docs/deploy/systemd/creat-ai.service](docs/deploy/systemd/creat-ai.service)
-- Nginx 站点配置：[docs/deploy/nginx/creat-ai.conf](docs/deploy/nginx/creat-ai.conf)
-- 运维脚本（Chrome 安装 / 备份 / 清理）：[docs/deploy/scripts/](docs/deploy/scripts/)
+配套文件：
+
+- [docs/deploy/application-prod.yml.example](docs/deploy/application-prod.yml.example)
+- [docs/deploy/systemd/creat-ai.service](docs/deploy/systemd/creat-ai.service)
+- [docs/deploy/nginx/creat-ai.conf](docs/deploy/nginx/creat-ai.conf)
+- [docs/deploy/scripts/](docs/deploy/scripts/)（Chrome 安装、备份、清理）
+
+---
+
+## 安全说明
+
+- 登录态是 Redis Session Cookie。管理员接口使用 `@AuthCheck`。
+- 生成和增量编辑的 SSE 按用户限流，每 60 秒 5 次。
+- 应用列表和用户列表的排序字段有白名单；查询参数由 MyBatis-Flex 绑定。
+- 写文件和静态资源读取都会确认目标路径仍在项目目录内。
+- 搜图 URL 限制为 HTTPS 白名单主机，并拒绝私网地址。封面截图的目标必须与 `app.deploy.base-url` 同源。
+- 密钥放在 gitignore 的 `application-local.yml` 或环境变量中。打包前如果工作区里有这份本地文件，它会被打进 jar；生产用 `prod` profile 不会加载它，构建前仍应移走，避免开发凭据随制品扩散。
+
+---
+
+## 许可证
+
+仓库根目录没有 `LICENSE` 文件，这里不声明开源许可证。
