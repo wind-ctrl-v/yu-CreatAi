@@ -1,0 +1,54 @@
+# =============================================================================
+# 本地开发配置示例
+# -----------------------------------------------------------------------------
+# 复制后再改，不要把填好的文件提交进 Git：
+#   cp src/main/resources/application-local.yml.example \
+#      src/main/resources/application-local.yml
+#
+# application.yml 已设置 spring.profiles.active=local，Spring Boot 会加载
+# application-local.yml。这里只写本地需要覆盖的键；没写的键沿用 application.yml。
+# 本文件里的值全是占位符，没有任何可用的密钥。
+#
+# 不想把某项写进这份文件时，删掉对应键，继续用 application.yml 里的占位
+# （例如 MYSQL_PASSWORD、REDIS_PASSWORD）。写在这里的字面量会取代那些占位。
+# =============================================================================
+
+spring:
+  datasource:
+    # 地址和用户名默认 jdbc:mysql://localhost:3306/yu_ai_code_mother / root
+    password: CHANGE_ME_MYSQL_PASSWORD
+  data:
+    redis:
+      # 本地 Redis 无密码时留空。需要密码再改成自己的值。
+      # 若改用环境变量 REDIS_PASSWORD，删掉下面这一行。
+      password: ""
+
+# 大模型（OpenAI 兼容）。示例为 DeepSeek，可换成任意兼容服务。
+# chat-model：同步调用（类型路由等）。Vue 生成用的推理流式客户端也只读这里的
+# base-url / api-key，模型名在代码里固定为 deepseek-chat，不读下面的 model-name。
+# streaming-chat-model：HTML / 多文件的 SSE 生成，会使用这里的 model-name。
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: https://api.deepseek.com/v1
+      api-key: CHANGE_ME_LLM_API_KEY
+      model-name: deepseek-chat
+    streaming-chat-model:
+      base-url: https://api.deepseek.com/v1
+      api-key: CHANGE_ME_LLM_API_KEY
+      model-name: deepseek-chat
+
+# CosClientConfig 启动时总会创建客户端，五项都不能空。
+# 不使用对象存储时保留占位即可。封面和生成页面默认在本机静态目录。
+# 只有 AGENT_DEPLOY_ENABLED=true 时，V2 流水线末尾才会把 Vue dist 上传到 COS（默认 false）。
+cos:
+  client:
+    host: https://CHANGE_ME_BUCKET.cos.CHANGE_ME_REGION.myqcloud.com
+    secretId: CHANGE_ME_COS_SECRET_ID
+    secretKey: CHANGE_ME_COS_SECRET_KEY
+    region: CHANGE_ME_REGION
+    bucket: CHANGE_ME_BUCKET
+
+# 管理员在后台新建用户时写入的初始密码。必须换成强密码，不要保留占位符。
+user:
+  default-password: CHANGE_ME_DEFAULT_USER_PASSWORD
