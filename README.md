@@ -8,6 +8,15 @@
 
 仓库里没有产品截图。界面入口是登录 / 注册、首页、对话生成、我的作品、精选应用、个人中心，以及管理员后台。
 
+## 项目亮点
+
+- **自然语言生成，并能接着改。** 创建时在 HTML、多文件和 Vue 项目之间路由；之后可以继续对话，也可以在预览里点选元素，把选择器和片段交给增量编辑。
+- **生成成功后自动本地部署，并截封面。** 服务端调用与「部署」按钮相同的本地静态发布，再异步截图。部署或截图失败不回滚已生成的代码。可分享链接不依赖 COS；`AGENT_DEPLOY_ENABLED` 默认 `false`，只有 V2 流水线末尾的上传才会用到对象存储。
+- **V2 流水线、质量模式和套餐额度。** 多 Agent 默认关闭，打开后只作用于 `vue_project`，失败可降级经典生成。`low_cost` / `standard` / `high_quality` 决定是否并发生成、是否做 LLM 质检以及轮次；套餐封顶最高模式，当日次数用尽后降到更低模式，三种都用尽仍落到 `low_cost`。
+- **对话记忆有压缩和字符预算。** 模型看到的是 JVM 内存窗口：最近轮次保留全文，更早的消息按规则压缩，超出 `agent.memory.char-budget`（默认 80000）则从最早的消息丢弃。Redis 只保存压缩快照，不读回模型上下文。
+- **有请求限流，并发上限可选。** 生成和增量编辑的 SSE 按用户每 60 秒 5 次。`app.limits.generation.max-concurrent` 和 `app.limits.deploy.max-concurrent` 可限制同时执行数，默认 `0` 表示不限制。
+- **单机生产手册。** 2 核 4G 上的 MySQL、Redis、Nginx、JDK 21、Node.js 20 和 headless Chrome 步骤见 [docs/deploy/README.md](docs/deploy/README.md)。
+
 ---
 
 ## 能做什么
@@ -177,39 +186,15 @@ yu-CreatAi/
 
 ### 本地配置
 
-`spring.profiles.active` 已是 `local`。敏感项写在 **已被 gitignore 的** `src/main/resources/application-local.yml`，或通过环境变量注入。仓库没有提交这份示例文件，请在本机新建，不要把真实密钥提交进 Git。
+`spring.profiles.active` 已是 `local`。敏感项写在 **已被 gitignore 的** `src/main/resources/application-local.yml`，或通过环境变量注入。仓库只提交占位示例，复制后再改，不要把填好的本地文件提交进 Git：
 
-```yaml
-spring:
-  datasource:
-    password: "your-mysql-password"
-  data:
-    redis:
-      password: "your-redis-password"
-
-langchain4j:
-  open-ai:
-    chat-model:
-      base-url: https://api.deepseek.com/v1
-      api-key: "your-llm-api-key"
-      model-name: deepseek-chat
-    streaming-chat-model:
-      base-url: https://api.deepseek.com/v1
-      api-key: "your-llm-api-key"
-      model-name: deepseek-chat
-
-# 启动时会创建 COS 客户端，五项都不能是空。
-# 不使用对象存储时保留下面的占位值，并保持 AGENT_DEPLOY_ENABLED 为 false。
-cos:
-  client:
-    host: https://example.invalid
-    secretId: local-placeholder
-    secretKey: local-placeholder
-    region: ap-guangzhou
-    bucket: local-placeholder
+```bash
+cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
 ```
 
-数据库地址默认 `jdbc:mysql://localhost:3306/yu_ai_code_mother`，用户名默认 `root`，密码默认为空。Redis 默认 `localhost:6379`、无密码。大模型地址和密钥没有默认值，不填写就无法生成。可换成任意 OpenAI 兼容服务。同一批配置项也可以用 Spring Boot 的环境变量覆盖，不必写进 yml。
+把示例里的 `CHANGE_ME_*` 换成自己的值。至少要改 MySQL 密码、大模型 API Key，以及 `user.default-password`（管理员新建用户的初始密码）。Redis 无密码时保持密码为空。COS 五项即使不用对象存储也不能空着，否则启动创建客户端会失败；保持 `AGENT_DEPLOY_ENABLED` 为 `false`（默认）就不会上传。不想把某项写进 yml 时，删掉示例里的对应键，继续用 `application.yml` 已经接好的环境变量。
+
+数据库地址默认 `jdbc:mysql://localhost:3306/yu_ai_code_mother`，用户名默认 `root`，密码默认为空。Redis 默认 `localhost:6379`、无密码。大模型地址和密钥没有默认值，不填写就无法生成。可换成任意 OpenAI 兼容服务。
 
 ### 启动
 
@@ -233,7 +218,7 @@ npm run dev
 
 ## 环境变量
 
-下列变量都在 `src/main/resources/application.yml` 里有默认值。大模型密钥和 `cos.client.*` 不在该文件中，按上一节放到 `application-local.yml`。
+下列变量都在 `src/main/resources/application.yml` 里有默认值。大模型密钥、`cos.client.*` 和 `user.default-password` 不在该文件中，按上一节复制示例后再填。
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
@@ -293,4 +278,4 @@ npm run dev
 
 ## 许可证
 
-仓库根目录没有 `LICENSE` 文件，这里不声明开源许可证。
+本项目采用 [MIT License](LICENSE)。

@@ -1,5 +1,7 @@
 ### CUSTOM ###
 application-local.yml
+# 示例文件需要入库；上面的规则只忽略填好的本地配置
+!application-local.yml.example
 tmp/
 *.log
 # 本地构建用的 Maven 仓库副本（沙箱/CI 内构建用，避免写系统级 ~/.m2）
