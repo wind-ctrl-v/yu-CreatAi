@@ -1,99 +1,38 @@
 # CreatAi
 
-用自然语言生成可预览、可修改、可分享的网站。
-
 *AI website generator: describe a page, preview it, and share a local static link.*
 
-**CreatAi**（Maven 构件 `yu-ai-father`）是一个中文界面的全栈应用。用户写下需求后，系统调用兼容 OpenAI 协议的大模型生成前端代码，在对话页里用 SSE 流式预览，并可以继续用对话或点选元素修改。生成成功后，服务端把结果发布到本机静态目录，返回可分享链接，并异步截取封面；源码也可以打包下载。
+基于 Java 21、Spring Boot 3.2.10（Spring MVC，生成接口返回 Reactor SSE）、MyBatis-Flex 1.11、MySQL 8（库名 `yu_ai_code_mother`）、Redis Session、Vue 3 + TypeScript + Vite 5（Vue Router 4、Pinia、Axios、原生 EventSource）的中文全栈 AI 网站生成器（Maven 构件 `yu-ai-father`），支持 `html` / `multi_file` / `vue_project` 生成、SSE 流式预览、对话与点选增量编辑、本地静态部署、封面截图、源码下载和套餐额度；可选 V2 多 Agent 只作用于 `vue_project`，失败回退经典生成，COS 上传由 `AGENT_DEPLOY_ENABLED` 控制且默认 `false`。
 
-仓库里没有产品截图。界面入口是登录 / 注册、首页、对话生成、我的作品、精选应用、个人中心，以及管理员后台。
+## 功能
 
-## 项目亮点
-
-- **自然语言生成，并能接着改。** 创建时在 HTML、多文件和 Vue 项目之间路由；之后可以继续对话，也可以在预览里点选元素，把选择器和片段交给增量编辑。
-- **生成成功后自动本地部署，并截封面。** 服务端调用与「部署」按钮相同的本地静态发布，再异步截图。部署或截图失败不回滚已生成的代码。可分享链接不依赖 COS；`AGENT_DEPLOY_ENABLED` 默认 `false`，只有 V2 流水线末尾的上传才会用到对象存储。
-- **V2 流水线、质量模式和套餐额度。** 多 Agent 默认关闭，打开后只作用于 `vue_project`，失败可降级经典生成。`low_cost` / `standard` / `high_quality` 决定是否并发生成、是否做 LLM 质检以及轮次；套餐封顶最高模式，当日次数用尽后降到更低模式，三种都用尽仍落到 `low_cost`。
-- **对话记忆有压缩和字符预算。** 模型看到的是 JVM 内存窗口：最近轮次保留全文，更早的消息按规则压缩，超出 `agent.memory.char-budget`（默认 80000）则从最早的消息丢弃。Redis 只保存压缩快照，不读回模型上下文。
-- **有请求限流，并发上限可选。** 生成和增量编辑的 SSE 按用户每 60 秒 5 次。`app.limits.generation.max-concurrent` 和 `app.limits.deploy.max-concurrent` 可限制同时执行数，默认 `0` 表示不限制。
-- **单机生产手册。** 2 核 4G 上的 MySQL、Redis、Nginx、JDK 21、Node.js 20 和 headless Chrome 步骤见 [docs/deploy/README.md](docs/deploy/README.md)。
-
----
-
-## 能做什么
-
-- **按需求选择产物。** 创建应用时，模型在三种类型里选一种：`html`（单个 HTML 文件）、`multi_file`（多文件前端）、`vue_project`（带路由的 Vue 项目）。
-- **对话式修改。** 生成页可以继续描述修改。预览里的 HTML 会注入选元素脚本，点中的标签、选择器和片段会交给增量编辑。
-- **本地发布是默认分享路径。** 一次成功的生成结束后，服务端调用与「部署」按钮相同的本地部署：写入 `deployKey`（`{codeGenType}_{appId}`），Vue 项目先执行构建。访问地址是 `{APP_DEPLOY_BASE_URL}/{deployKey}/`，默认 `http://localhost:8123/api/static/html_1/` 这种形式。静态服务在目录里存在 `dist/` 时以 `dist` 为根。增量编辑只有真正写出新页面时才会自动部署。部署失败会保留已生成的代码，并在流里给出警告。
-- **封面截图。** 部署成功后用 headless Chrome 截图，图片落在本机静态目录并写回应用封面。截图失败只记日志，不影响链接访问。本机需要可用的 Chrome；本地默认允许 WebDriverManager 准备驱动。
-- **下载源码。** 应用所有者可以把生成目录打成 ZIP。
-- **精选应用。** 优先级 `priority = 99` 的应用出现在首页和「精选应用」页。管理员在后台把优先级改成 99 即可。
-- **质量模式与额度。** 前端可选 `low_cost`（快速）、`standard`（标准）、`high_quality`（高质量）。服务端把该选择当作意图：先按需求复杂度调整，再按套餐封顶，最后按当日额度降级。
-- **管理后台。** 管理员可以管理用户、应用、对话记录和设计指纹。普通注册用户的角色是 `user`。
-
-默认生成链路是经典生成器。多 Agent 流水线默认关闭，见下文。
-
----
-
-## 技术栈
-
-### 后端
-
-| 类别 | 技术 |
+| 模块 | 功能 |
 |------|------|
-| 运行时 | Java 21 |
-| 框架 | Spring Boot 3.2.10（Spring MVC；生成接口返回 Reactor SSE） |
-| 持久化 | MyBatis-Flex 1.11 + MySQL 8（库名 `yu_ai_code_mother`） |
-| 会话 | Spring Session + Redis |
-| 限流 | Redisson |
-| 模型 | LangChain4j 1.1（OpenAI 兼容接口，示例为 DeepSeek） |
-| 截图 | Selenium 4 + WebDriverManager |
-| 其他 | Knife4j、Hutool、Caffeine |
+| 生成 | `html`（单页）、`multi_file`（多文件、无路由）、`vue_project`（带路由，需本机 npm 构建出 `dist`）；SSE 流式预览；质量模式 `low_cost` / `standard` / `high_quality` |
+| 编辑 | 继续对话修改；预览 HTML 注入选元素脚本，把标签、选择器和片段交给增量编辑 |
+| 部署 | 生成成功后自动本地静态发布（与「部署」按钮同一路径），`deployKey` 为 `{codeGenType}_{appId}`；存在 `dist/` 时以 dist 为根；增量编辑只有写出新页面才自动部署；失败保留已生成代码 |
+| 封面 | 部署成功后用 headless Chrome 异步截图，图片落在本机静态目录并写回封面；截图失败只记日志，链接仍可访问 |
+| 流水线 | 默认经典生成。`AGENT_ORCHESTRATOR_V2_ENABLED=true` 后仅 `vue_project` 走 V2：规划 → 设计上下文 → 页面生成或代码/样式并发 → 规则检查（`package.json`、`index.html`、`src/main.js`、`src/App.vue`）→ 按模式 LLM 质检 → 仅 `AGENT_DEPLOY_ENABLED=true` 时上传 COS → 保存记录。`html` / `multi_file` 始终经典生成。`generation.pipeline.allow-classic-fallback` 默认开启 |
+| 套餐 | `FREE` / `PRO` / `PREMIUM` / `ENTERPRISE` / `ADMIN` 封顶模式与每日额度；请求模式先按复杂度调整，再按套餐封顶，额度用尽向更低模式降级，三种都用尽仍落到 `low_cost` |
+| 记忆 | JVM 内存窗口：最近轮次保留全文，更早的消息按规则压缩，超出 `agent.memory.char-budget`（默认 80000）从最早的消息丢弃。Redis 只保存压缩快照，不读回模型上下文 |
+| 限流 | 生成与增量编辑 SSE 按用户每 60 秒 5 次。`app.limits.generation.max-concurrent` 与 `app.limits.deploy.max-concurrent` 默认 `0`（不限制） |
+| 图片 | 生成代码使用 `@@IMG:english keywords@@`，关键词清洗为小写英文字母、数字和空格。查找顺序：Pixabay → Unsplash → Pexels → 文生图（默认关闭，结果存本机静态目录）→ loremflickr → picsum。返回的搜图 URL 必须是 HTTPS 且主机在白名单内，解析后的私网地址会被拒绝 |
+| 账号 | 注册、登录、登出、当前用户、改昵称/头像/简介、套餐能力。登录态是 Redis Session Cookie。普通注册角色为 `user` |
+| 精选 | `priority = 99` 的应用出现在首页和「精选应用」。管理员在后台把优先级改为 99 即可 |
+| 管理 | 管理员管理用户、应用、对话记录和设计指纹 |
+| 工程 | Redisson 限流、Knife4j、Hutool、Caffeine、Selenium。向量检索默认关闭，本地不必安装 PostgreSQL |
 
-进程启动时会创建腾讯云 COS 客户端。可分享链接由本机静态服务提供。只有 `AGENT_DEPLOY_ENABLED=true` 时，V2 流水线末尾的 DeployTool 才会把 Vue `dist` 上传到 COS。该开关默认是 `false`。
+首页的视觉风格、布局和差异度会写进创建应用时的提示词，没有单独的接口字段。`low_cost` 使用更短的设计上下文，`high_quality` 会带上完整项目品牌信息。模式始终参与决策并记入当日额度。提示词命中「改颜色」「改一下」等简单修改关键词时降到 `low_cost`，命中「多页面」「整站」「动效」「后台管理」等关键词时升到 `high_quality`，最后不得超过套餐上限。
 
-向量检索默认关闭，本地不必安装 PostgreSQL。生产手册把向量存在 MySQL 表里。
+V2 打开后的编排：
 
-### 前端
-
-| 类别 | 技术 |
+| 模式 | 行为 |
 |------|------|
-| 框架 | Vue 3 + TypeScript |
-| 构建 | Vite 5、vue-tsc |
-| 路由 / 状态 | Vue Router 4、Pinia |
-| 请求 | Axios（`withCredentials`）、原生 EventSource |
-| 界面 | 仓库内组件 `frontend/src/components/ui` |
+| `low_cost` | 规划 → 精简设计上下文 → 单次页面生成 → 规则检查。不调用 LLM 质检 |
+| `standard` | 规划 → 设计上下文 → 代码与样式并发生成 → 规则检查。规则未通过时最多 1 轮 LLM 质检 |
+| `high_quality` | 规划 → 完整设计上下文 → 代码与样式并发 → 规则检查 → 最多 3 轮 LLM 质检 |
 
----
-
-## 生成、套餐与图片
-
-### 三种代码类型
-
-| 值 | 适用情况 | 预览 |
-|----|----------|------|
-| `html` | 单页小工具、落地页 | 生成后即可通过静态目录预览 |
-| `multi_file` | 多文件、无路由的前端 | 同上 |
-| `vue_project` | 多页面、需要路由的应用 | 需本机 Node/npm 构建出 `dist` 后才能从静态目录打开 |
-
-首页还可以选择视觉风格、布局和差异度。这些选项会写进创建应用时的提示词，没有单独的接口字段。
-
-### 质量模式
-
-模式始终会参与决策，并记入当日额度。`low_cost` 使用更短的设计上下文，`high_quality` 会带上完整项目品牌信息。
-
-V2 流水线（见下一节）打开后，三种模式的编排不同：
-
-| 模式 | V2 行为 |
-|------|---------|
-| `low_cost` | 规划 → 精简设计上下文 → 单次页面生成 → 规则检查。不调用 LLM 质检。 |
-| `standard` | 规划 → 设计上下文 → 代码与样式并发生成 → 规则检查。规则未通过时最多 1 轮 LLM 质检。 |
-| `high_quality` | 规划 → 完整设计上下文 → 代码与样式并发 → 规则检查 → 最多 3 轮 LLM 质检。 |
-
-请求里的模式只是意图。提示词命中「改颜色」「改一下」等简单修改关键词时降到 `low_cost`，命中「多页面」「整站」「动效」「后台管理」等关键词时升到 `high_quality`，最后不得超过套餐上限。
-
-### 套餐与每日额度
-
-配置在 `src/main/resources/application.yml` 的 `generation.entitlements`。未写的每日上限视为不限制。额度用尽时向更低模式降级；三种都用尽后仍落到 `low_cost`。`ADMIN` 不记额度。
+套餐配置在 `src/main/resources/application.yml` 的 `generation.entitlements`。未写的每日上限视为不限制。`ADMIN` 不记额度。已执行 `docs/sql/migrations/007_user_plan_type.sql` 时，`user.planType` 默认 `FREE`；字段为空时，管理员角色按 `ADMIN`，其他已登录用户按 `PRO`。用户不能在个人资料里自行修改套餐。
 
 | 套餐 | 默认模式 | 最高模式 | 每日上限 |
 |------|----------|----------|----------|
@@ -103,90 +42,9 @@ V2 流水线（见下一节）打开后，三种模式的编排不同：
 | `ENTERPRISE` | `high_quality` | `high_quality` | 高质量 100 次 |
 | `ADMIN` | `high_quality` | `high_quality` | 不限制 |
 
-已执行迁移 `docs/sql/migrations/007_user_plan_type.sql` 时，`user.planType` 默认是 `FREE`。字段为空时，管理员角色按 `ADMIN`，其他已登录用户按 `PRO`。用户不能在个人资料里自行修改套餐。
+## 本地配置
 
-### 图片占位符
-
-生成代码使用 `@@IMG:english keywords@@`。生成结束后按关键词替换成图片 URL。关键词会清洗成小写英文字母、数字和空格。
-
-查找顺序：
-
-1. Pixabay（`PIXABAY_API_KEY`，未配置则跳过；连续失败会短时熔断）
-2. Unsplash（`UNSPLASH_ACCESS_KEY`）
-3. Pexels（`PEXELS_API_KEY`）
-4. 文生图（`IMAGE_FALLBACK_ENABLED=true` 且配置了 `IMAGE_TEXT2IMG_API_KEY` 才启用，默认关闭；图片保存到本机静态目录）
-5. loremflickr
-6. picsum
-
-返回的搜图 URL 必须是 HTTPS，且主机在白名单内；解析后的私网地址会被拒绝。
-
----
-
-## 多 Agent 流水线（可选）
-
-环境变量 `AGENT_ORCHESTRATOR_V2_ENABLED=true` 后，**仅 `vue_project`** 走 `GenerationOrchestrator`。默认关闭。V2 失败且 `generation.pipeline.allow-classic-fallback=true`（默认开启）时，降级到经典生成器。`html` 与 `multi_file` 始终走经典生成器。
-
-```
-用户提示词
-  ├─ PlanningAgent          需求与计划
-  ├─ DesignContext          偏好、品牌和检索证据
-  ├─ low_cost：PageGenerateAgent
-  │  standard / high_quality：CoderAgent 与 StyleAgent
-  ├─ RuleCriticTool         空内容、占位符残留、P0 文件
-  ├─ CriticAgent            按模式决定是否做 LLM 质检
-  ├─ DeployTool             仅 AGENT_DEPLOY_ENABLED=true 时构建并上传 COS
-  └─ GenerationRecordTool   保存生成记录
-```
-
-规则检查把 `package.json`、`index.html`、`src/main.js`、`src/App.vue` 视为必需文件。中间结果放在 Blackboard 上，进度以 `Flux<AgentEvent>` 推送。
-
-生成结束后的本地自动部署不读取 `AGENT_DEPLOY_ENABLED`。该开关只控制上面的 COS 上传。
-
----
-
-## 项目结构
-
-```
-yu-CreatAi/
-├── frontend/                         # Vue 3 界面
-│   ├── src/pages/                    # 首页、对话、作品、精选、个人中心、管理后台
-│   ├── src/components/ui/            # 界面组件
-│   └── mock/                         # npm run dev:mock 使用的离线数据
-├── src/main/java/com/yu/yuaifather/
-│   ├── controller/                   # 用户、应用、对话、静态资源、设计指纹
-│   ├── codegen/                      # 经典生成：类型路由、解析、保存、SSE、Vue 构建
-│   ├── service/generation/           # 模式、额度、V2 编排
-│   ├── service/deploy/               # 生成成功后的本地自动部署
-│   ├── agent/                        # V2：规划、页面、代码、样式、质检
-│   ├── tool/                         # 搜图、规则检查、可选 COS 上传
-│   └── media/                        # 封面截图与本地图片
-├── src/main/resources/               # application.yml、提示词、设计规范
-└── docs/
-    ├── deploy/                       # 生产手册、systemd、Nginx、运维脚本
-    └── sql/                          # 增量迁移，不含 user/app 的完整基线
-```
-
-生成代码写在进程工作目录下的 `tmp/code_output/{codeGenType}_{appId}/`。
-
----
-
-## 快速开始
-
-### 环境
-
-- JDK 21+、Maven 3.6+（仓库自带 `./mvnw`）
-- MySQL 8，库名 `yu_ai_code_mother`
-- Redis（登录 Session；限流默认也走 Redis）
-- Node.js 18+（前端开发）。后端构建生成的 Vue 项目时，同一台机器还要有 npm。生产手册使用 Node.js 20。
-- 封面截图需要 Chrome。没有浏览器时部署链接仍然可用，只是封面不会更新。
-
-`docs/sql/migrations/` 只有增量脚本，**没有** `user`、`app`、`chat_history` 的初始建表语句。本地库需要先有一份与当前实体一致的基线结构，再按编号执行尚未应用的迁移。脚本分类见 [docs/sql/README.md](docs/sql/README.md)。`seed/`、`dev/`、`test/` 不要放进日常启动。PostgreSQL 脚本只在向量后端为 `pg` 且检索已打开时使用。
-
-生产环境如何导出基线并补跑迁移，见 [docs/deploy/README.md](docs/deploy/README.md) 第 6 节。
-
-### 本地配置
-
-`spring.profiles.active` 已是 `local`。敏感项写在 **已被 gitignore 的** `src/main/resources/application-local.yml`，或通过环境变量注入。仓库只提交占位示例，复制后再改，不要把填好的本地文件提交进 Git：
+`spring.profiles.active` 已是 `local`。敏感项写在已被 gitignore 的 `src/main/resources/application-local.yml`，或通过环境变量注入。仓库只提交占位示例：
 
 ```bash
 cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
@@ -194,9 +52,13 @@ cp src/main/resources/application-local.yml.example src/main/resources/applicati
 
 把示例里的 `CHANGE_ME_*` 换成自己的值。至少要改 MySQL 密码、大模型 API Key，以及 `user.default-password`（管理员新建用户的初始密码）。Redis 无密码时保持密码为空。COS 五项即使不用对象存储也不能空着，否则启动创建客户端会失败；保持 `AGENT_DEPLOY_ENABLED` 为 `false`（默认）就不会上传。不想把某项写进 yml 时，删掉示例里的对应键，继续用 `application.yml` 已经接好的环境变量。
 
-数据库地址默认 `jdbc:mysql://localhost:3306/yu_ai_code_mother`，用户名默认 `root`，密码默认为空。Redis 默认 `localhost:6379`、无密码。大模型地址和密钥没有默认值，不填写就无法生成。可换成任意 OpenAI 兼容服务。
+数据库地址默认 `jdbc:mysql://localhost:3306/yu_ai_code_mother`，用户名默认 `root`，密码默认为空。Redis 默认 `localhost:6379`、无密码。大模型地址和密钥没有默认值。示例为 DeepSeek，可换成任意 OpenAI 兼容服务。Vue 项目用的推理流式客户端只读 `langchain4j.open-ai.chat-model` 的 `base-url` / `api-key`，模型名在代码里固定为 `deepseek-chat`；HTML / 多文件的 SSE 使用 `streaming-chat-model` 的 `model-name`。
 
-### 启动
+## 本地开发
+
+JDK 21+、Maven 3.6+（仓库自带 `./mvnw`）、MySQL 8、Redis、Node.js 18+（生产手册使用 Node.js 20）。封面截图需要 Chrome；没有浏览器时部署链接仍然可用，只是封面不会更新。
+
+`docs/sql/migrations/` 只有增量脚本，没有 `user`、`app`、`chat_history` 的初始建表语句。本地库需要先有一份与当前实体一致的基线结构，再按编号执行尚未应用的迁移。分类见 [docs/sql/README.md](docs/sql/README.md)。`seed/`、`dev/`、`test/` 不要放进日常启动。PostgreSQL 脚本只在向量后端为 `pg` 且检索已打开时使用。
 
 ```bash
 ./mvnw spring-boot:run
@@ -214,67 +76,200 @@ npm run dev
 
 在页面注册账号（账号至少 4 位，密码至少 8 位）后即可从首页输入需求。需要管理员时，把对应用户的 `userRole` 更新为 `admin` 并重新登录。
 
----
+单机生产（2 vCPU / 4 GiB / 50 GiB / Ubuntu 24.04 LTS，MySQL 8、Redis 7、Nginx、JDK 21、Node.js 20、headless Chrome；不安装 PostgreSQL，向量检索使用 `agent.retrieve.vector.store=mysql`）见 [docs/deploy/README.md](docs/deploy/README.md)。外置配置由 [docs/deploy/application-prod.yml.example](docs/deploy/application-prod.yml.example) 复制到服务器 `/opt/creat-ai/config/application-prod.yml` 后替换占位符。示例里的 V2 流水线是打开的，COS 上传仍然关闭。
+
+## 接口清单
+
+上下文路径为 `/api`。登录态是 Redis Session Cookie（前端 Axios / EventSource 使用 `withCredentials`）。`管理员` 表示方法上有 `@AuthCheck(mustRole = admin)`。
+
+### 用户
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/api/user/register` | 否 | 注册（账号至少 4 位，密码至少 8 位） |
+| POST | `/api/user/login` | 否 | 登录，写入 Redis Session |
+| GET | `/api/user/get/login` | Session | 当前登录用户 |
+| POST | `/api/user/logout` | Session | 登出 |
+| GET | `/api/user/plan` | Session | 当前套餐、最高模式、可用模式 |
+| POST | `/api/user/update/me` | Session | 更新自己的昵称、头像、简介 |
+| GET | `/api/user/get/vo` | 否 | 按 id 获取用户包装信息 |
+| POST | `/api/user/add` | 管理员 | 新建用户（初始密码取 `user.default-password`） |
+| POST | `/api/user/delete` | 管理员 | 删除用户 |
+| POST | `/api/user/update` | 管理员 | 更新用户 |
+| GET | `/api/user/get` | 管理员 | 按 id 获取用户 |
+| POST | `/api/user/list/page/vo` | 管理员 | 分页查询用户 |
+| POST | `/api/user/save` | 管理员 | 保存用户 |
+| DELETE | `/api/user/remove/{id}` | 管理员 | 按主键删除用户 |
+| PUT | `/api/user/update` | 管理员 | 按主键更新用户 |
+| GET | `/api/user/list` | 管理员 | 查询全部用户 |
+| GET | `/api/user/getInfo/{id}` | 管理员 | 按主键获取用户 |
+| GET | `/api/user/page` | 管理员 | 分页查询用户 |
+
+### 应用
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/api/app/add` | Session | 创建应用，返回 appId |
+| POST | `/api/app/update` | Session | 所有者改应用名称 |
+| POST | `/api/app/delete` | Session | 删除应用（所有者或管理员） |
+| GET | `/api/app/get/vo` | 否 | 按 id 获取应用详情 |
+| POST | `/api/app/my/list/page/vo` | Session | 我的应用，每页最多 20 条 |
+| POST | `/api/app/good/list/page/vo` | 否 | 精选应用（`priority = 99`），每页最多 20 条 |
+| GET | `/api/app/chat/gen/code` | Session | SSE 生成。查询参数 `appId`、`message`、可选 `mode`。所有者。限流每用户 60 秒 5 次 |
+| GET | `/api/app/incremental-edit-stream` | Session | SSE 增量编辑。查询参数 `appId`、`instruction`。所有者。限流每用户 60 秒 5 次 |
+| POST | `/api/app/incremental-edit` | Session | 同步增量编辑。所有者。成功后尝试本地部署 |
+| POST | `/api/app/deploy` | Session | 手动本地部署，返回访问 URL。所有者 |
+| GET | `/api/app/download/{appId}` | Session | 下载生成目录 ZIP。所有者 |
+| POST | `/api/app/admin/delete` | 管理员 | 删除任意应用 |
+| POST | `/api/app/admin/update` | 管理员 | 更新任意应用（含优先级） |
+| POST | `/api/app/admin/list/page/vo` | 管理员 | 分页查询全部应用 |
+| GET | `/api/app/admin/get/vo` | 管理员 | 按 id 获取应用详情 |
+
+### 对话
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/chatHistory/app/{appId}` | Session | 某应用对话历史，游标分页。`pageSize` 默认 10，可选 `lastCreateTime` |
+| POST | `/api/chatHistory/admin/list/page/vo` | 管理员 | 分页查询全部对话 |
+
+### 偏好
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/api/preference/feedback/dislike` | Session | 点踩。Body：`appId`、可选 `reason`、`tags` |
+| POST | `/api/preference/feedback/event` | Session | 负反馈。`eventType` 为 `undo`、`revert_to_generated`、`abandon`、`reject_suggestion`、`explicit_dislike` |
+
+### 设计指纹
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/api/fingerprint/admin/list/page` | 管理员 | 分页查询指纹。可按 styleProfile、status、sourceType、tone 过滤，每页最多 50 条 |
+| GET | `/api/fingerprint/admin/get` | 管理员 | 指纹详情。查询参数 `id` |
+| POST | `/api/fingerprint/admin/approve` | 管理员 | 审核通过（CANDIDATE → APPROVED） |
+| POST | `/api/fingerprint/admin/reject` | 管理员 | 拒绝指纹 |
+| POST | `/api/fingerprint/admin/archive` | 管理员 | 归档（APPROVED → ARCHIVED） |
+| POST | `/api/fingerprint/admin/vector/resync` | 管理员 | 重同步向量。可选查询参数 `limit`，默认且不超过 `resync-max` |
+| POST | `/api/fingerprint/admin/ingest-external` | 管理员 | 抓取外部页面 HTML 并入库为待审核指纹。Body：`url`、可选 `styleProfileHint` |
+
+### 静态资源
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/static/{deployKey}/**` | 否 | 本地静态站点。目录访问会补上斜杠，`/` 返回 `index.html`。HTML 注入选元素脚本。存在 `dist/` 时以其为根 |
+
+### 健康与监控
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/health/` | 否 | 返回 `ok` |
+| GET | `/api/actuator/health` | 否 | Actuator 健康检查，不展示详情 |
+| GET | `/api/actuator/info` | 管理员 | 应用信息 |
+| GET | `/api/actuator/prometheus` | 管理员 | Prometheus 指标 |
 
 ## 环境变量
 
-下列变量都在 `src/main/resources/application.yml` 里有默认值。大模型密钥、`cos.client.*` 和 `user.default-password` 不在该文件中，按上一节复制示例后再填。
+下列变量都在 `src/main/resources/application.yml` 里有默认值。空表示未配置时跳过或使用空字符串。大模型密钥、`cos.client.*` 和 `user.default-password` 不在该文件中，见本节后的配置键。
 
-| 变量 | 说明 | 默认 |
-|------|------|------|
-| `MYSQL_URL` | JDBC 连接串 | `jdbc:mysql://localhost:3306/yu_ai_code_mother` |
-| `MYSQL_USERNAME` | 数据库用户 | `root` |
-| `MYSQL_PASSWORD` | 数据库密码 | 空 |
-| `REDIS_HOST` | Redis 主机 | `localhost` |
-| `REDIS_PORT` | Redis 端口 | `6379` |
-| `REDIS_PASSWORD` | Redis 密码 | 空 |
-| `REDIS_DATABASE` | Redis 库号 | `0` |
-| `PIXABAY_API_KEY` | Pixabay，搜图第一顺位 | 空（跳过） |
-| `UNSPLASH_ACCESS_KEY` | Unsplash | 空（跳过） |
-| `PEXELS_API_KEY` | Pexels | 空（跳过） |
-| `IMAGE_FALLBACK_ENABLED` | 搜图失败后是否文生图 | `false` |
-| `IMAGE_TEXT2IMG_BASE_URL` | 文生图端点 | 智谱 OpenAI 兼容地址 |
-| `IMAGE_TEXT2IMG_API_KEY` | 文生图密钥 | 空 |
-| `IMAGE_TEXT2IMG_MODEL` | 文生图模型 | `cogview-3-flash` |
-| `APP_DEPLOY_BASE_URL` | 静态站点前缀，截图也会打开这个地址 | `http://localhost:8123/api/static` |
-| `CORS_ALLOWED_ORIGINS` | 允许的浏览器来源，逗号分隔 | `localhost:5173` 等 |
-| `AGENT_ORCHESTRATOR_V2_ENABLED` | V2 流水线，仅 `vue_project` | `false` |
-| `AGENT_DEPLOY_ENABLED` | V2 末尾上传 COS | `false` |
-| `GENERATION_MODE` | 无请求模式时的默认模式 | `standard` |
-| `AGENT_PERSONALIZATION_ENABLED` | 是否注入用户设计偏好 | `true` |
-| `AGENT_RETRIEVE_ENABLED` | 设计指纹检索 | `false` |
-| `AGENT_RETRIEVE_VECTOR_ENABLED` | 向量检索 | `false` |
-| `AGENT_RETRIEVE_VECTOR_STORE` | `pg` 或 `mysql` | `pg` |
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MYSQL_URL` | `jdbc:mysql://localhost:3306/yu_ai_code_mother` | JDBC 连接串 |
+| `MYSQL_USERNAME` | `root` | 数据库用户 |
+| `MYSQL_PASSWORD` | 空 | 数据库密码 |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Redis 地址 |
+| `REDIS_PASSWORD` | 空 | Redis 密码 |
+| `REDIS_DATABASE` | `0` | Redis DB |
+| `PGVECTOR_URL` | `jdbc:postgresql://localhost:5432/yu_ai_vector` | 仅向量后端为 `pg` 且检索打开时需要 |
+| `PGVECTOR_USERNAME` / `PGVECTOR_PASSWORD` | `postgres` / 空 | 同上 |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:5174,http://localhost:3000` | 允许的浏览器来源，逗号分隔 |
+| `LANGCHAIN4J_CHAT_MODEL_TIMEOUT` | `300s` | 同步 ChatModel 超时 |
+| `LANGCHAIN4J_CHAT_MODEL_MAX_RETRIES` | `2` | 同步 ChatModel 重试次数 |
+| `LANGCHAIN4J_STREAMING_CHAT_MODEL_TIMEOUT` | `300s` | 流式模型超时 |
+| `PIXABAY_API_KEY` | 空 | Pixabay，搜图第一顺位；未配置则跳过，连续失败会短时熔断 |
+| `UNSPLASH_ACCESS_KEY` | 空 | Unsplash，未配置则跳过 |
+| `PEXELS_API_KEY` | 空 | Pexels，未配置则跳过 |
+| `IMAGE_FALLBACK_ENABLED` | `false` | 搜图失败后是否文生图 |
+| `IMAGE_TEXT2IMG_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | 文生图端点 |
+| `IMAGE_TEXT2IMG_API_KEY` | 空 | 文生图密钥 |
+| `IMAGE_TEXT2IMG_MODEL` | `cogview-3-flash` | 文生图模型 |
+| `APP_DEPLOY_BASE_URL` | `http://localhost:8123/api/static` | 静态站点前缀，截图也会打开这个地址 |
+| `APP_SCREENSHOT_CHROME_BINARY` | 空 | headless Chrome 路径 |
+| `APP_SCREENSHOT_DRIVER_PATH` | 空 | chromedriver 路径 |
+| `APP_SCREENSHOT_USE_WDM` | `true` | 是否允许 WebDriverManager 准备驱动 |
+| `APP_SCREENSHOT_EXECUTOR_CORE` / `APP_SCREENSHOT_EXECUTOR_MAX` / `APP_SCREENSHOT_EXECUTOR_QUEUE` | `2` / `4` / `20` | 截图线程池 |
+| `APP_LIMITS_GENERATION_MAX_CONCURRENT` | `0` | 生成并发上限，`0` 表示不限制 |
+| `APP_LIMITS_DEPLOY_MAX_CONCURRENT` | `0` | 部署并发上限，`0` 表示不限制 |
+| `CODE_OUTPUT_ROOT_DIR` | `${user.dir}/tmp/code_output` | 生成代码与静态资源根目录 |
+| `CODEGEN_BUILD_LOCK_WAIT_SECONDS` | `300` | Vue 构建串行锁等待 |
+| `CODEGEN_BUILD_INSTALL_TIMEOUT_SECONDS` | `300` | npm install 超时 |
+| `CODEGEN_BUILD_TIMEOUT_SECONDS` | `180` | npm run build 超时 |
+| `CODEGEN_BUILD_CLEANUP_NODE_MODULES` | `false` | 构建后是否删除 `node_modules` |
+| `GENERATION_MODE` | `standard` | 请求未带模式时的默认模式 |
+| `AGENT_ORCHESTRATOR_V2_ENABLED` | `false` | V2 流水线，仅 `vue_project` |
+| `AGENT_DEPLOY_ENABLED` | `false` | V2 末尾上传 COS。本地自动部署不读取此开关 |
+| `AGENT_PERSONALIZATION_ENABLED` | `true` | 是否注入用户设计偏好 |
+| `AGENT_RERANK_ENABLED` | `true` | 检索重排 |
+| `AGENT_RETRIEVE_ENABLED` | `false` | 设计指纹检索 |
+| `AGENT_RETRIEVE_TOP_K` | `2` | 召回条数（最大不超过 3） |
+| `AGENT_RETRIEVE_VECTOR_ENABLED` | `false` | 向量检索 |
+| `AGENT_RETRIEVE_VECTOR_STORE` | `pg` | `pg` 或 `mysql`。生产手册使用 `mysql` |
+| `AGENT_RETRIEVE_VECTOR_MIN_SIMILARITY` | `0.7` | 向量最低相似度 |
+| `AGENT_RETRIEVE_VECTOR_RELOAD_MS` | `300000` | MySQL 向量快照重载间隔，`0` 关闭定时重载 |
+| `AGENT_RETRIEVE_VECTOR_EXPECTED_DIM` | `0` | 期望向量维度，`0` 为自动探测 |
+| `AGENT_RETRIEVE_VECTOR_MAX_ENTRIES` | `20000` | 内存快照最大条目 |
+| `AGENT_RETRIEVE_VECTOR_RESYNC_MAX` | `100` | 管理员重同步单次上限 |
+| `AGENT_RETRIEVE_SYNTH_ENABLED` | `false` | 检索未命中时是否用 LLM 合成设计规范 |
+| `AGENT_RETRIEVE_SYNTH_MISS_THRESHOLD` | `2` | 触发合成的未命中次数 |
+| `AGENT_FINGERPRINT_EXTERNAL_CRAWL_ENABLED` | `false` | 外部种子页面爬取 |
+| `AGENT_FINGERPRINT_EXTERNAL_CRAWL_INTERVAL_MS` | `86400000` | 外部爬取间隔 |
+| `AGENT_FINGERPRINT_EXTERNAL_CRAWL_URLS` | 空 | 外部种子 URL |
+| `AGENT_FINGERPRINT_EXTERNAL_CRAWL_RENDER_ENABLED` | `true` | 外部爬取是否渲染页面 |
+| `AGENT_FINGERPRINT_EXTERNAL_CRAWL_REQUEST_INTERVAL_MS` | `5000` | 外部请求间隔 |
+| `AGENT_MEMORY_MAX_MESSAGES` | `60` | JVM 内存窗口最大消息条数 |
+| `AGENT_MEMORY_FULL_TEXT_TURNS` | `2` | 发给模型时保持全文的最近轮次 |
+| `AGENT_MEMORY_FULL_TEXT_MAX_MESSAGES` | `24` | 全文段条数上限 |
+| `AGENT_MEMORY_CHAR_BUDGET` | `80000` | 上下文字符预算，超出则从最早消息丢弃 |
+| `AGENT_MEMORY_HARD_MAX_MESSAGE_CHARS` | `200000` | 单条消息入内存前的硬截断 |
+| `AGENT_MEMORY_SNAPSHOT_EVERY` | `5` | 每累积多少条消息向 Redis 落一次压缩快照 |
+| `DESIGN_EXTRACTOR_VISION_ENABLED` | `false` | 指纹截图视觉解析。默认只走 HTML 摘要 |
+| `VITE_API_BASE_URL` | `/api` | 前端接口基址，见 `frontend/.env.development` |
 
-向量检索打开且 `AGENT_RETRIEVE_VECTOR_STORE=pg` 时，才需要 `PGVECTOR_URL`、`PGVECTOR_USERNAME`、`PGVECTOR_PASSWORD`。
+下列键写在示例文件或 `@Value` 默认值里，`application.yml` 没有对应的 `${...}`。示例中的密钥都是 `CHANGE_ME_*` 占位：
 
----
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `spring.datasource.password` | `CHANGE_ME_MYSQL_PASSWORD` | 示例文件中的库密码，会覆盖 `MYSQL_PASSWORD` |
+| `langchain4j.open-ai.chat-model.base-url` | `https://api.deepseek.com/v1` | 同步模型与 Vue 推理流式客户端的地址 |
+| `langchain4j.open-ai.chat-model.api-key` | `CHANGE_ME_LLM_API_KEY` | 同步模型与 Vue 推理流式客户端的密钥 |
+| `langchain4j.open-ai.chat-model.model-name` | `deepseek-chat` | 同步调用的模型名。Vue 推理流不读此键 |
+| `langchain4j.open-ai.streaming-chat-model.base-url` | `https://api.deepseek.com/v1` | HTML / 多文件 SSE 的地址 |
+| `langchain4j.open-ai.streaming-chat-model.api-key` | `CHANGE_ME_LLM_API_KEY` | HTML / 多文件 SSE 的密钥 |
+| `langchain4j.open-ai.streaming-chat-model.model-name` | `deepseek-chat` | HTML / 多文件 SSE 的模型名 |
+| `cos.client.host` / `secretId` / `secretKey` / `region` / `bucket` | `CHANGE_ME_*` | 启动时创建 COS 客户端，五项都不能空。不上传时保留占位 |
+| `user.default-password` | `CHANGE_ME_DEFAULT_USER_PASSWORD` | 管理员在后台新建用户时的初始密码 |
+| `agent.embedding.use-openai` | `false` | 代码默认走 SHA-256 哈希兜底。生产示例设为 `true` 后使用下面的 embedding 模型 |
+| `langchain4j.open-ai.embedding-model.base-url` | 空 | 生产示例为 `https://open.bigmodel.cn/api/paas/v4` |
+| `langchain4j.open-ai.embedding-model.api-key` | `CHANGE_ME_EMBEDDING_API_KEY` | 语义向量密钥，仅 `use-openai=true` 时使用 |
+| `langchain4j.open-ai.embedding-model.model-name` | `text-embedding-3-small` | 代码默认。生产示例为 `embedding-2`（1024 维，需与 `AGENT_RETRIEVE_VECTOR_EXPECTED_DIM` 一致） |
 
-## 生产部署
+生产单元 `docs/deploy/systemd/creat-ai.service` 里的环境变量：
 
-官方支持的单机规格写在 [docs/deploy/README.md](docs/deploy/README.md)：**2 vCPU / 4 GiB 内存 / 50 GiB 系统盘 / Ubuntu 24.04 LTS**，安装 MySQL 8、Redis 7、Nginx、JDK 21、Node.js 20 和 headless Chrome。该手册明确不安装 PostgreSQL，向量检索使用 `agent.retrieve.vector.store=mysql`。
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `SPRING_PROFILES_ACTIVE` | `prod` | 加载外置 `application-prod.yml` |
+| `TZ` | `Asia/Shanghai` | 进程时区 |
+| `HOME` | `/opt/creat-ai` | npm 缓存与配置目录 |
+| `NODE_OPTIONS` | `--max-old-space-size=768` | 限制后端 fork 出的 Node 堆 |
+| `NPM_CONFIG_REGISTRY` | `https://registry.npmmirror.com` | 生成 Vue 项目时的 npm 源 |
 
-生产密钥放在服务器上的 `/opt/creat-ai/config/application-prod.yml`（由示例复制后替换占位符），不要提交进 Git。示例里的 V2 流水线是打开的，COS 上传仍然关闭。
+## 运维与可观测性
 
-配套文件：
-
-- [docs/deploy/application-prod.yml.example](docs/deploy/application-prod.yml.example)
-- [docs/deploy/systemd/creat-ai.service](docs/deploy/systemd/creat-ai.service)
-- [docs/deploy/nginx/creat-ai.conf](docs/deploy/nginx/creat-ai.conf)
-- [docs/deploy/scripts/](docs/deploy/scripts/)（Chrome 安装、备份、清理）
-
----
-
-## 安全说明
-
-- 登录态是 Redis Session Cookie。管理员接口使用 `@AuthCheck`。
-- 生成和增量编辑的 SSE 按用户限流，每 60 秒 5 次。
-- 应用列表和用户列表的排序字段有白名单；查询参数由 MyBatis-Flex 绑定。
-- 写文件和静态资源读取都会确认目标路径仍在项目目录内。
-- 搜图 URL 限制为 HTTPS 白名单主机，并拒绝私网地址。封面截图的目标必须与 `app.deploy.base-url` 同源。
-- 密钥放在 gitignore 的 `application-local.yml` 或环境变量中。打包前如果工作区里有这份本地文件，它会被打进 jar；生产用 `prod` profile 不会加载它，构建前仍应移走，避免开发凭据随制品扩散。
-
----
+- `GET /api/health/` 返回 `ok`。`GET /api/actuator/health` 保持开放，且 `show-details` 为 `never`。`/api/actuator/info` 与 `/api/actuator/prometheus` 需要管理员 Session。
+- 生成和增量编辑的 SSE 按用户限流，每 60 秒 5 次。并发上限见 `APP_LIMITS_GENERATION_MAX_CONCURRENT`、`APP_LIMITS_DEPLOY_MAX_CONCURRENT`，默认不限制。
+- 生成代码写在 `tmp/code_output/{codeGenType}_{appId}/`。可分享链接为 `{APP_DEPLOY_BASE_URL}/{deployKey}/`。封面与文生图落在本机静态目录，访问路径为 `/api/static/_generated_images/...`。
+- 日志级别行带 `requestId`、`generationId`、`appId`（无 MDC 时为空）。
+- 应用列表和用户列表的排序字段有白名单；查询参数由 MyBatis-Flex 绑定。写文件和静态资源读取都会确认目标路径仍在项目目录内。封面截图的目标必须与 `app.deploy.base-url` 同源。
+- 打包前如果工作区里有 `application-local.yml`，它会被打进 jar。生产用 `prod` profile 不会加载它；构建前仍应移走，避免开发凭据随制品扩散。
+- 单机生产步骤、systemd、Nginx，以及 Chrome 安装、备份、清理脚本见 [docs/deploy/README.md](docs/deploy/README.md)。
 
 ## 许可证
 
