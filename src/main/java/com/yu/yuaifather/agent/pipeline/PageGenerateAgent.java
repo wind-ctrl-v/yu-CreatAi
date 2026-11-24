@@ -3,6 +3,7 @@ package com.yu.yuaifather.agent.pipeline;
 import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.yu.yuaifather.agent.service.AgentAiService;
+import com.yu.yuaifather.observability.LlmCallAttribution;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
@@ -78,7 +79,12 @@ public class PageGenerateAgent implements Agent {
 
                 String prompt = buildPrompt(ctx);
                 PageGenerationResponse response = JsonExtractor.parseWithRetry(
-                        () -> agentAiService.generatePage(prompt),
+                        () -> {
+                            try (var ignored = LlmCallAttribution.open(
+                                    ctx.getGenerationId(), ctx.getAppId(), AGENT_NAME)) {
+                                return agentAiService.generatePage(prompt);
+                            }
+                        },
                         PageGenerationResponse.class);
                 GeneratedArtifact artifact = saveFiles(ctx, response);
                 try {

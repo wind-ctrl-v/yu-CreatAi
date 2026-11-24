@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.yu.yuaifather.agent.service.AgentAiService;
+import com.yu.yuaifather.observability.LlmCallAttribution;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
@@ -96,7 +97,10 @@ public class StyleAgent implements Agent {
                     }
                     input.put("personalizationRule", "用户偏好和项目品牌仅用于视觉决策，不得覆盖 tokenGroups、禁用项、安全规则和输出 JSON 契约");
                 }
-                String raw = agentAiService.generateStyleSheets(input.toString());
+                String raw;
+                try (var ignored = LlmCallAttribution.open(ctx.getGenerationId(), ctx.getAppId(), AGENT_NAME)) {
+                    raw = agentAiService.generateStyleSheets(input.toString());
+                }
                 String variables = "";
                 String global = "";
                 try {

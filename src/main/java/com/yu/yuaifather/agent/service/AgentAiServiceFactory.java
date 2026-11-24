@@ -1,5 +1,6 @@
 package com.yu.yuaifather.agent.service;
 
+import com.yu.yuaifather.observability.AttributingChatModel;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
 import jakarta.annotation.Resource;
@@ -18,7 +19,7 @@ public class AgentAiServiceFactory {
     @Bean
     public AgentAiService agentAiService() {
         return AiServices.builder(AgentAiService.class)
-                .chatModel(chatModel)
+                .chatModel(AttributingChatModel.wrap(chatModel))
                 .build();
     }
 }

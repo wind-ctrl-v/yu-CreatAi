@@ -7,6 +7,10 @@ import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
 import com.yu.yuaifather.model.dto.generation.GenerationPolicy;
 import com.yu.yuaifather.model.entity.GenerationRun;
+import com.yu.yuaifather.observability.GenerationTokenUsageService;
+import com.yu.yuaifather.observability.LlmCallAttribution;
+import com.yu.yuaifather.observability.LlmSteps;
+import com.yu.yuaifather.observability.TokenUsageReport;
 import com.yu.yuaifather.service.design.DesignContext;
 import com.yu.yuaifather.service.design.DesignContextAssembler;
 import com.yu.yuaifather.service.design.DesignContextInput;
@@ -23,12 +27,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -65,6 +69,7 @@ public class GenerationPipelineRouter {
     private final QuotaService quotaService;
     private final MeterRegistry meterRegistry;
     private final DesignContextAssembler designContextAssembler;
+    private final GenerationTokenUsageService tokenUsageService;
 
     @Autowired
     public GenerationPipelineRouter(GenerationOrchestrator generationOrchestrator,
@@ -73,7 +78,8 @@ public class GenerationPipelineRouter {
                                     GenerationRunService generationRunService,
                                     QuotaService quotaService,
                                     MeterRegistry meterRegistry,
-                                    DesignContextAssembler designContextAssembler) {
+                                    DesignContextAssembler designContextAssembler,
+                                    GenerationTokenUsageService tokenUsageService) {
         this.generationOrchestrator = generationOrchestrator;
         this.aiCodeGeneratorFacade = aiCodeGeneratorFacade;
         this.modeResolver = modeResolver;
@@ -81,6 +87,7 @@ public class GenerationPipelineRouter {
         this.quotaService = quotaService;
         this.meterRegistry = meterRegistry;
         this.designContextAssembler = designContextAssembler;
+        this.tokenUsageService = tokenUsageService;
     }
 
     /**
@@ -92,15 +99,16 @@ public class GenerationPipelineRouter {
      * @param requestedMode 前端请求模式（不可信意图，可为 null），由 Resolver 按套餐封顶
      * @param loginUser     当前登录用户
      * @param codeGenType   代码生成类型
-     * @return SSE 文本流
+     * @return 代码内容流，以及并行的 token 用量流（独立 SSE 事件，不进入产物）
      */
-    public Flux<String> route(Long appId, String message, String requestedMode,
-                              User loginUser, CodeGenTypeEnum codeGenType) {
+    public CodeGenStream route(Long appId, String message, String requestedMode,
+                               User loginUser, CodeGenTypeEnum codeGenType) {
         // 决策：身份/套餐/额度/复杂度统一收敛于此，得到不可变策略
         GenerationPolicy policy = modeResolver.resolve(requestedMode, loginUser, message, codeGenType);
 
         // 本次生成的全局追踪 ID（贯穿各 attempt）
-        String generationId = "gen_" + UUID.randomUUID().toString().replace("-", "");
+        String generationId = tokenUsageService.newGenerationId();
+        Flux<TokenUsageReport> tokenUsage = tokenUsageService.open(generationId, appId);
         Long userId = loginUser == null ? null : loginUser.getId();
         // 日志串联：generationId / appId 入 MDC（reactive 流内跨线程不保证传播，尽力而为）
         MDC.put("generationId", generationId);
@@ -126,8 +134,10 @@ public class GenerationPipelineRouter {
                         return Mono.just(message);
                     })
                     .flatMapMany(personalizedMessage ->
-                            aiCodeGeneratorFacade.generateAndSaveCodeStream(
-                                    personalizedMessage, codeGenType, appId));
+                            LlmCallAttribution.scopedFlux(
+                                    aiCodeGeneratorFacade.generateAndSaveCodeStream(
+                                            personalizedMessage, codeGenType, appId),
+                                    generationId, appId, LlmSteps.classic(codeGenType)));
         });
 
         Flux<String> chosen;
@@ -169,17 +179,27 @@ public class GenerationPipelineRouter {
             result = Flux.concat(Flux.just(startedPayload(generationId, policy)), chosen);
         }
 
-        return result
+        Flux<String> content = result
                 .doOnComplete(() -> {
                     generationRunService.success(run, activePipeline.get(), fallbackOccurred.get());
                     quotaService.recordUsage(loginUser, policy.getGenerationMode());
                 })
                 .doOnError(e -> generationRunService.fail(run, e.getMessage()))
-                // 流终止时清理 MDC，避免污染复用线程
+                // 流终止时落部分用量（取消不会走到 success/fail）、关闭用量会话，并清理 MDC
                 .doFinally(signal -> {
+                    try {
+                        if (signal == SignalType.CANCEL) {
+                            generationRunService.attachTokens(run);
+                        }
+                    } catch (Exception e) {
+                        log.warn("取消时写入 token 用量失败 generationId={}: {}", generationId, e.getMessage());
+                    }
+                    // 放到另一线程，避免在 Flux.merge 处理内容完成时同步结束用量流。
+                    Schedulers.boundedElastic().schedule(() -> tokenUsageService.complete(generationId));
                     MDC.remove("generationId");
                     MDC.remove("appId");
                 });
+        return new CodeGenStream(content, tokenUsage);
     }
 
     /**
@@ -196,7 +216,9 @@ public class GenerationPipelineRouter {
                     .currentProjectId(appId)
                     .generationMode(policy.getGenerationMode().getValue())
                     .build();
-            DesignContext designContext = designContextAssembler.assemble(
+            DesignContext designContext;
+            try (var ignored = LlmCallAttribution.open(generationId, appId, LlmSteps.DYNAMIC_SPEC)) {
+                designContext = designContextAssembler.assemble(
                     DesignContextInput.builder()
                             .userId(userId)
                             .projectId(appId)
@@ -207,6 +229,7 @@ public class GenerationPipelineRouter {
                             .build(),
                     toolContext,
                     "Classic-" + codeGenType.name());
+            }
             String designPrompt = designContext == null || designContext.getPromptContext() == null
                     ? null : designContext.getPromptContext().getFullPrompt();
             if (designPrompt == null || designPrompt.isBlank()) {

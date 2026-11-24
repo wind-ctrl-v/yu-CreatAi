@@ -115,8 +115,9 @@ npm run dev
 | GET | `/api/app/get/vo` | 否 | 按 id 获取应用详情 |
 | POST | `/api/app/my/list/page/vo` | Session | 我的应用，每页最多 20 条 |
 | POST | `/api/app/good/list/page/vo` | 否 | 精选应用（`priority = 99`），每页最多 20 条 |
-| GET | `/api/app/chat/gen/code` | Session | SSE 生成。查询参数 `appId`、`message`、可选 `mode`。所有者。限流每用户 60 秒 5 次 |
-| GET | `/api/app/incremental-edit-stream` | Session | SSE 增量编辑。查询参数 `appId`、`instruction`。所有者。限流每用户 60 秒 5 次 |
+| GET | `/api/app/chat/gen/code` | Session | SSE 生成。查询参数 `appId`、`message`、可选 `mode`。所有者。限流每用户 60 秒 5 次。另有 `token-usage` 事件，载荷为分步 token |
+| GET | `/api/app/generation/token-usage` | Session | 回读分步 token。查询参数 `appId`、可选 `generationId`。所有者。不传 generationId 时返回该应用最近一次已记账的运行 |
+| GET | `/api/app/incremental-edit-stream` | Session | SSE 增量编辑。查询参数 `appId`、`instruction`。所有者。限流每用户 60 秒 5 次。同样发送 `token-usage` 事件 |
 | POST | `/api/app/incremental-edit` | Session | 同步增量编辑。所有者。成功后尝试本地部署 |
 | POST | `/api/app/deploy` | Session | 手动本地部署，返回访问 URL。所有者 |
 | GET | `/api/app/download/{appId}` | Session | 下载生成目录 ZIP。所有者 |

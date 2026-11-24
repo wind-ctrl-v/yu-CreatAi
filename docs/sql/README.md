@@ -30,6 +30,7 @@
 - `migrations/021_design_fingerprint_vector_mysql.sql`：MySQL 向量后端建表（`agent.retrieve.vector.store=mysql` 时使用）
 - `migrations/022_design_fingerprint_usage_count_compat.sql`：把 `usageCount` / `usage_count` 对齐到实体使用的驼峰列，保留已有计数
 - `migrations/023_user_preference_evidence_count_compat.sql`：把偏好权重表的证据列对齐到驼峰列，保留已有证据
+- `migrations/024_generation_run_token_usage.sql`：给 `generation_run` 增加分步 token 合计与 `token_usage_json`
 
 编号 `009` 当前为空缺，不得回填；新迁移使用大于现有最大编号的新版本，并放在 `migrations/`。
 

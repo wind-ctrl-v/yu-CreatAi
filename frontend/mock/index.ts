@@ -34,6 +34,75 @@ const goodApps: MockApp[] = [...GOOD_APPS]
 const allUsers = [...DEMO_ACCOUNTS, ...EXTRA_USERS]
 const fingerprints = [...FINGERPRINTS]
 let seq = 0
+const tokenUsageByApp = new Map<string, Record<string, unknown>>()
+
+function writeTokenUsage(res: ServerResponse, payload: Record<string, unknown>) {
+  res.write(`event: token-usage\ndata: ${JSON.stringify(payload)}\n\n`)
+}
+
+function toStoredUsage(payload: Record<string, unknown>) {
+  const totals = (payload.totals ?? payload) as Record<string, unknown>
+  return {
+    generationId: payload.generationId,
+    status: 'SUCCESS',
+    pipelineType: payload.step === 'IncrementalEdit' ? 'INCREMENTAL' : 'V2',
+    inputTokens: totals.inputTokens,
+    outputTokens: totals.outputTokens,
+    totalTokens: totals.totalTokens,
+    callCount: totals.callCount,
+    unknownUsageCalls: totals.unknownUsageCalls ?? 0,
+    steps: payload.steps,
+  }
+}
+
+function demoTokenUsage(appId: string, generationId: string, phase: 'partial' | 'final') {
+  const planning = {
+    step: 'PlanningAgent',
+    inputTokens: 1480,
+    outputTokens: 620,
+    totalTokens: 2100,
+    callCount: 2,
+    unknownUsageCalls: 0,
+    model: 'deepseek-chat',
+  }
+  const coder = {
+    step: 'CoderAgent',
+    inputTokens: 4200,
+    outputTokens: 1800,
+    totalTokens: 6000,
+    callCount: 4,
+    unknownUsageCalls: 0,
+    model: 'deepseek-chat',
+  }
+  const steps = phase === 'partial' ? [planning] : [planning, coder]
+  const totals = steps.reduce(
+    (acc, step) => ({
+      inputTokens: acc.inputTokens + step.inputTokens,
+      outputTokens: acc.outputTokens + step.outputTokens,
+      totalTokens: acc.totalTokens + step.totalTokens,
+      callCount: acc.callCount + step.callCount,
+      unknownUsageCalls: 0,
+    }),
+    { inputTokens: 0, outputTokens: 0, totalTokens: 0, callCount: 0, unknownUsageCalls: 0 },
+  )
+  const current = steps[steps.length - 1]
+  return {
+    event: 'token_usage',
+    generationId,
+    appId,
+    step: current.step,
+    inputTokens: current.inputTokens,
+    outputTokens: current.outputTokens,
+    totalTokens: current.totalTokens,
+    callCount: current.callCount,
+    unknownUsageCalls: 0,
+    model: current.model,
+    totals,
+    steps,
+  }
+}
+
+tokenUsageByApp.set('9001', toStoredUsage(demoTokenUsage('9001', 'gen_demo_previous', 'final')))
 
 /* ── 工具 ── */
 
@@ -441,6 +510,12 @@ export function devMockPlugin(): Plugin {
         /* ── 偏好埋点 ── */
         if (path.startsWith('/preference/')) return ok(res, null)
 
+        if (path === '/app/generation/token-usage' && method === 'GET') {
+          if (!me) return fail(res, 40100, '未登录')
+          const appId = query.get('appId') ?? ''
+          return ok(res, tokenUsageByApp.get(appId) ?? null)
+        }
+
         /* ── SSE：完整生成 ── */
         if (path === '/app/chat/gen/code') {
           if (!me) {
@@ -460,8 +535,16 @@ export function devMockPlugin(): Plugin {
             fallbackEnabled: true,
           })
           res.write(`data: ${JSON.stringify({ d: `\n[生成] ${started}\n` })}\n\n`)
+          const appKey = query.get('appId') ?? ''
+          const generationId = JSON.parse(started).generationId as string
+          writeTokenUsage(res, demoTokenUsage(appKey, generationId, 'partial'))
           const frames = generationScript(prompt).flatMap((seg) => chunkText(seg, 12))
-          streamFrames(res, frames, 60, undefined, () => markDemoDeployed(query.get('appId')))
+          streamFrames(res, frames, 60, undefined, () => {
+            const finalUsage = demoTokenUsage(appKey, generationId, 'final')
+            tokenUsageByApp.set(appKey, toStoredUsage(finalUsage))
+            writeTokenUsage(res, finalUsage)
+            markDemoDeployed(query.get('appId'))
+          })
           return
         }
 
@@ -469,6 +552,40 @@ export function devMockPlugin(): Plugin {
         if (path === '/app/incremental-edit-stream') {
           sseHead(res)
           const instruction = query.get('instruction') ?? ''
+          const appKey = query.get('appId') ?? ''
+          const generationId = `gen_edit_${Date.now()}`
+          const editStep = (input: number, output: number, calls: number) => ({
+            step: 'IncrementalEdit',
+            inputTokens: input,
+            outputTokens: output,
+            totalTokens: input + output,
+            callCount: calls,
+            unknownUsageCalls: 0,
+            model: 'deepseek-chat',
+          })
+          const editEvent = (input: number, output: number, calls: number) => {
+            const step = editStep(input, output, calls)
+            return {
+              event: 'token_usage',
+              generationId,
+              step: step.step,
+              inputTokens: step.inputTokens,
+              outputTokens: step.outputTokens,
+              totalTokens: step.totalTokens,
+              callCount: step.callCount,
+              unknownUsageCalls: 0,
+              model: step.model,
+              totals: {
+                inputTokens: step.inputTokens,
+                outputTokens: step.outputTokens,
+                totalTokens: step.totalTokens,
+                callCount: step.callCount,
+                unknownUsageCalls: 0,
+              },
+              steps: [step],
+            }
+          }
+          writeTokenUsage(res, editEvent(240, 30, 1))
           const script = [
             ...EDIT_TOOL_SEQUENCE,
             {
@@ -476,9 +593,12 @@ export function devMockPlugin(): Plugin {
               data: `已按「${instruction.slice(0, 40)}」完成调整，右侧预览已刷新。\n`,
             },
           ]
-          streamFrames(res, script.map((m) => JSON.stringify(m)), 320, undefined, () =>
-            markDemoDeployed(query.get('appId')),
-          )
+          streamFrames(res, script.map((m) => JSON.stringify(m)), 320, undefined, () => {
+            const finalUsage = editEvent(860, 140, 3)
+            tokenUsageByApp.set(appKey, toStoredUsage(finalUsage))
+            writeTokenUsage(res, finalUsage)
+            markDemoDeployed(query.get('appId'))
+          })
           return
         }
 
