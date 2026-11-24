@@ -46,14 +46,25 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import com.yu.yuaifather.model.entity.App;
+import com.yu.yuaifather.model.entity.GenerationRun;
+import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
+import com.yu.yuaifather.model.vo.GenerationTokenUsageVO;
+import com.yu.yuaifather.observability.GenerationTokenUsageService;
+import com.yu.yuaifather.observability.TokenUsageReport;
+import com.yu.yuaifather.observability.TokenUsageSse;
 import com.yu.yuaifather.service.AppService;
+import com.yu.yuaifather.service.generation.CodeGenStream;
+import com.yu.yuaifather.service.generation.GenerationRunService;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -92,6 +103,12 @@ public class AppController {
 
     @Autowired
     private LocalAutoDeployService localAutoDeployService;
+
+    @Autowired
+    private GenerationRunService generationRunService;
+
+    @Autowired
+    private GenerationTokenUsageService tokenUsageService;
 
     @Autowired
     @Qualifier("preferenceExecutor")
@@ -344,11 +361,27 @@ public class AppController {
         User loginUser = userService.getLoginUser(request);
         appAccessService.requireOwner(appId, loginUser.getId());
         // 调用服务生成代码（流式）。mode 为前端请求模式（不可信意图），由服务端按套餐封顶。
-        Flux<String> contentFlux = appService.chatToGenCode(appId, message, mode, loginUser);
+        CodeGenStream generated = appService.chatToGenCode(appId, message, mode, loginUser);
         // 生成流正常结束后走本地部署（HTML / MULTI_FILE / VUE_PROJECT 同一路径）。
         // 失败只追加警告事件，不把生成标成失败。
-        Flux<ServerSentEvent<String>> contentEvents = contentFlux.map(this::toDataEvent);
+        // token 用量走独立事件，不能混进 HTML / 多文件正文。
+        Flux<ServerSentEvent<String>> contentEvents = withTokenUsage(
+                generated.content().map(this::toDataEvent), generated.tokenUsage());
         return finishWithLocalDeploy(contentEvents, () -> true, appId, loginUser);
+    }
+
+    /**
+     * 回读某次生成的分步 token。不传 generationId 时返回该应用最近一条已记账的运行；
+     * 生成进行中则返回内存中的实时快照。
+     */
+    @GetMapping("/generation/token-usage")
+    public BaseResponse<GenerationTokenUsageVO> generationTokenUsage(@RequestParam Long appId,
+                                                                     @RequestParam(required = false) String generationId,
+                                                                     HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
+        User loginUser = userService.getLoginUser(request);
+        appAccessService.requireOwner(appId, loginUser.getId());
+        return ResultUtils.success(generationRunService.findTokenUsage(appId, generationId));
     }
 
     /**
@@ -366,7 +399,8 @@ public class AppController {
         User loginUser = userService.getLoginUser(request);
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
         ThrowUtils.throwIf(StrUtil.isBlank(instruction), ErrorCode.PARAMS_ERROR, "修改指令不能为空");
-        appAccessService.requireOwner(appId, loginUser.getId());
+        App app = appAccessService.requireOwner(appId, loginUser.getId());
+        IncrementalSession session = beginIncremental(app, loginUser);
 
         // 保存用户消息到对话历史
         try {
@@ -389,12 +423,16 @@ public class AppController {
         // 收集 AI 响应的完整文本，用于流结束后持久化
         StringBuilder aiResponseBuffer = new StringBuilder();
         IncrementalPageChange pageChange = new IncrementalPageChange();
-        Flux<String> contentFlux = incrementalEditService.incrementalEditStream(appId, instruction);
-        Flux<ServerSentEvent<String>> contentEvents = contentFlux.map(chunk -> {
+        AtomicReference<String> editError = new AtomicReference<>();
+        Flux<String> contentFlux = incrementalEditService.incrementalEditStream(
+                        appId, instruction, session.generationId())
+                .doOnError(e -> editError.set(e.getMessage()))
+                .doFinally(signal -> finishIncremental(session, signal, editError.get()));
+        Flux<ServerSentEvent<String>> contentEvents = withTokenUsage(contentFlux.map(chunk -> {
             collectAiText(chunk, aiResponseBuffer);
             pageChange.observe(chunk);
             return toDataEvent(chunk);
-        });
+        }), session.tokens());
         // 只有写出了新页面才自动部署；编辑失败不部署，也不影响本次对话落库。
         // doFinally 覆盖完成与取消：自动部署期间用户离开页面时，已生成的回复仍要落库。
         return finishWithLocalDeploy(contentEvents, pageChange::shouldAutoDeploy, appId, loginUser)
@@ -486,9 +524,23 @@ public class AppController {
         Long appId = body.get("appId") != null ? Long.valueOf(body.get("appId").toString()) : null;
         String instruction = (String) body.get("instruction");
         ThrowUtils.throwIf(appId == null || StrUtil.isBlank(instruction), ErrorCode.PARAMS_ERROR);
-        appAccessService.requireOwner(appId, loginUser.getId());
+        App app = appAccessService.requireOwner(appId, loginUser.getId());
+        IncrementalSession session = beginIncremental(app, loginUser);
 
-        String result = incrementalEditService.incrementalEdit(appId, instruction);
+        String result;
+        try {
+            result = incrementalEditService.incrementalEdit(appId, instruction, session.generationId());
+            if (result != null && (result.startsWith("编辑失败") || result.startsWith("项目目录不存在"))) {
+                generationRunService.fail(session.run(), result);
+            } else {
+                generationRunService.success(session.run(), null, false);
+            }
+        } catch (RuntimeException e) {
+            generationRunService.fail(session.run(), e.getMessage());
+            throw e;
+        } finally {
+            tokenUsageService.complete(session.generationId());
+        }
         Map<String, Object> data = new java.util.HashMap<>();
         boolean success = appBehaviorService.judgeIncrementalEditSuccess(result);
         data.put("success", success);
@@ -517,6 +569,47 @@ public class AppController {
                         () -> localAutoDeployService.tryDeploy(appId, loginUser),
                         localAutoDeployService.executor())
                 .concatWith(Mono.just(doneEvent()));
+    }
+
+    private IncrementalSession beginIncremental(App app, User loginUser) {
+        String generationId = tokenUsageService.newGenerationId();
+        Flux<TokenUsageReport> tokens = tokenUsageService.open(generationId, app.getId());
+        CodeGenTypeEnum codeGenType = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        GenerationRun run = generationRunService.start(generationId, app.getId(),
+                loginUser == null ? null : loginUser.getId(),
+                null, null, GenerationRunService.PIPELINE_INCREMENTAL, codeGenType);
+        return new IncrementalSession(generationId, run, tokens);
+    }
+
+    private void finishIncremental(IncrementalSession session, SignalType signal, String errorMessage) {
+        try {
+            if (signal == SignalType.ON_COMPLETE) {
+                generationRunService.success(session.run(), null, false);
+            } else if (signal == SignalType.ON_ERROR) {
+                generationRunService.fail(session.run(), errorMessage);
+            } else if (signal == SignalType.CANCEL) {
+                generationRunService.attachTokens(session.run());
+            }
+        } catch (Exception e) {
+            log.warn("增量编辑 token 落库失败 generationId={}: {}", session.generationId(), e.getMessage());
+        } finally {
+            Schedulers.boundedElastic().schedule(() -> tokenUsageService.complete(session.generationId()));
+        }
+    }
+
+    private Flux<ServerSentEvent<String>> withTokenUsage(Flux<ServerSentEvent<String>> content,
+                                                         Flux<TokenUsageReport> tokens) {
+        Flux<TokenUsageReport> usage = tokens == null ? Flux.empty() : tokens;
+        Flux<ServerSentEvent<String>> tokenEvents = usage
+                .map(TokenUsageSse::toEvent)
+                .onErrorResume(e -> {
+                    log.warn("token SSE 编码失败: {}", e.getMessage());
+                    return Flux.empty();
+                });
+        return Flux.merge(content, tokenEvents);
+    }
+
+    private record IncrementalSession(String generationId, GenerationRun run, Flux<TokenUsageReport> tokens) {
     }
 
     private ServerSentEvent<String> toDataEvent(String chunk) {

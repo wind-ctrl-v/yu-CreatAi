@@ -2,6 +2,7 @@ package com.yu.yuaifather.agent.pipeline;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.yu.yuaifather.agent.service.AgentAiService;
+import com.yu.yuaifather.observability.LlmCallAttribution;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
@@ -47,7 +48,12 @@ public class PlanningAgent implements Agent {
             sink.next(AgentEvent.status(AGENT_NAME, "解析需求并规划设计"));
             try {
                 RequirementDoc doc = JsonExtractor.parseWithRetry(
-                        () -> agentAiService.generateRequirementDoc(ctx.getUserPrompt()),
+                        () -> {
+                            try (var ignored = LlmCallAttribution.open(
+                                    ctx.getGenerationId(), ctx.getAppId(), AGENT_NAME)) {
+                                return agentAiService.generateRequirementDoc(ctx.getUserPrompt());
+                            }
+                        },
                         RequirementDoc.class);
                 ctx.getBlackboard().putRequirementDoc(doc);
                 sink.next(AgentEvent.builder()
@@ -75,7 +81,12 @@ public class PlanningAgent implements Agent {
                 input.put("techStack", ctx.getCodeGenType() == null
                         ? "vue_project" : ctx.getCodeGenType().getValue());
                 GenerationPlan plan = JsonExtractor.parseWithRetry(
-                        () -> agentAiService.generatePlan(input.toString()),
+                        () -> {
+                            try (var ignored = LlmCallAttribution.open(
+                                    ctx.getGenerationId(), ctx.getAppId(), AGENT_NAME)) {
+                                return agentAiService.generatePlan(input.toString());
+                            }
+                        },
                         GenerationPlan.class);
                 ctx.getBlackboard().putPlan(plan);
                 sink.next(AgentEvent.builder()

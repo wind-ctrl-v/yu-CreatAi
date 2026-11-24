@@ -1,5 +1,12 @@
 import request, { API_BASE_URL } from '../request'
-import type { AppQueryRequest, AppVO, BaseResponse, DeleteReason, Page } from '../types'
+import type {
+  AppQueryRequest,
+  AppVO,
+  BaseResponse,
+  DeleteReason,
+  GenerationTokenUsage,
+  Page,
+} from '../types'
 
 /** 创建应用（返回 appId） */
 export function addApp(params: { initPrompt: string }) {
@@ -34,6 +41,13 @@ export function deleteApp(id: string, reason: DeleteReason = 'unknown') {
 /** 部署应用，返回访问 URL */
 export function deployApp(appId: string) {
   return request.post<any, BaseResponse<string>>('/app/deploy', { appId })
+}
+
+/** 回读某次生成的分步 token。不传 generationId 时取该应用最近一次已记账的运行。 */
+export function getGenerationTokenUsage(appId: string, generationId?: string) {
+  return request.get<any, BaseResponse<GenerationTokenUsage | null>>('/app/generation/token-usage', {
+    params: { appId, generationId },
+  })
 }
 
 /** 构建下载 ZIP 的直链（GET，浏览器带 Cookie 直接访问） */

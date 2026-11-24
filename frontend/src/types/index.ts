@@ -215,6 +215,54 @@ export interface PipelineFallbackEvent {
   reason: string
 }
 
+/** 单个生成步骤的累计 token */
+export interface StepTokenUsage {
+  step: string
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  callCount: number
+  unknownUsageCalls?: number
+  model?: string
+}
+
+/** 一次生成的合计，SSE 放在 totals 里，查询接口放在顶层 */
+export interface TokenUsageTotals {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  callCount: number
+  unknownUsageCalls?: number
+}
+
+/**
+ * 生成中的 token 用量事件。SSE 事件名是 `token-usage`，
+ * JSON 的 event 字段是 `token_usage`。顶层计数属于 `step`，合计在 `totals`。
+ */
+export interface TokenUsageEvent extends TokenUsageTotals {
+  event: 'token_usage'
+  generationId: string
+  appId?: number
+  step: string
+  model?: string
+  totals: TokenUsageTotals
+  steps: StepTokenUsage[]
+}
+
+/** GET /app/generation/token-usage 的响应 data */
+export interface GenerationTokenUsage {
+  generationId: string
+  appId?: number
+  status?: string
+  pipelineType?: string
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  callCount: number
+  unknownUsageCalls?: number
+  steps: StepTokenUsage[]
+}
+
 // ==================== 用户套餐 ====================
 
 /** 套餐中文名映射 */

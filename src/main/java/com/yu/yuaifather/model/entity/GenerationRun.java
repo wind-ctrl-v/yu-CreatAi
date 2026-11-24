@@ -78,4 +78,28 @@ public class GenerationRun implements Serializable {
 
     @Column("error_message")
     private String errorMessage;
+
+    /** 已知输入 token 合计。上游未返回 usage 的调用不计入。 */
+    @Column("input_tokens")
+    private Long inputTokens;
+
+    /** 已知输出 token 合计。 */
+    @Column("output_tokens")
+    private Long outputTokens;
+
+    /** 已知总 token 合计。 */
+    @Column("total_tokens")
+    private Long totalTokens;
+
+    /** 已完成的模型调用次数（含上游未返回 usage 的调用）。 */
+    @Column("token_call_count")
+    private Integer tokenCallCount;
+
+    /** 上游未返回 token usage 的调用次数。 */
+    @Column("unknown_usage_calls")
+    private Integer unknownUsageCalls;
+
+    /** 按步骤汇总的 token JSON：{@code {"steps":[...]}}。 */
+    @Column("token_usage_json")
+    private String tokenUsageJson;
 }

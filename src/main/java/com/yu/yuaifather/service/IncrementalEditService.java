@@ -12,6 +12,10 @@ import com.yu.yuaifather.codegen.stream.model.AiResponseMessage;
 import com.yu.yuaifather.codegen.stream.model.ToolExecutedMessage;
 import com.yu.yuaifather.codegen.stream.model.ToolRequestMessage;
 import com.yu.yuaifather.exception.BusinessException;
+import com.yu.yuaifather.observability.AttributingChatModel;
+import com.yu.yuaifather.observability.AttributingStreamingChatModel;
+import com.yu.yuaifather.observability.LlmCallAttribution;
+import com.yu.yuaifather.observability.LlmSteps;
 import com.yu.yuaifather.exception.ErrorCode;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.memory.ChatMemory;
@@ -139,6 +143,10 @@ public class IncrementalEditService {
      * 对已生成的项目执行增量修改（同步，非流式）。
      */
     public String incrementalEdit(Long appId, String instruction) {
+        return incrementalEdit(appId, instruction, null);
+    }
+
+    public String incrementalEdit(Long appId, String instruction, String generationId) {
         Optional<LocatedProject> project = projectDirectory.locateExisting(appId);
         if (project.isEmpty()) {
             return MISSING_PROJECT_MESSAGE;
@@ -146,7 +154,7 @@ public class IncrementalEditService {
 
         IncrementalEditAi ai = getEditAi(appId);
 
-        try {
+        try (var ignored = LlmCallAttribution.open(generationId, appId, LlmSteps.INCREMENTAL_EDIT)) {
             String result = ai.edit(appId, composeInstruction(project.get().type(), instruction));
             log.info("增量编辑完成 appId={} type={}", appId, project.get().type().getValue());
             return result;
@@ -166,7 +174,7 @@ public class IncrementalEditService {
     private IncrementalEditAi createEditAi(Long appId) {
         ChatMemory chatMemory = createEditMemory(appId);
         return AiServices.builder(IncrementalEditAi.class)
-                .chatModel(chatModel)
+                .chatModel(AttributingChatModel.wrap(chatModel))
                 .chatMemoryProvider(memoryId -> chatMemory)
                 .tools((Object[]) toolManager.getAllTools())
                 .build();
@@ -191,7 +199,7 @@ public class IncrementalEditService {
     private IncrementalEditStreamAi createEditStreamAi(Long appId) {
         ChatMemory chatMemory = createEditMemory(appId);
         return AiServices.builder(IncrementalEditStreamAi.class)
-                .streamingChatModel(reasoningStreamingChatModel)
+                .streamingChatModel(AttributingStreamingChatModel.wrap(reasoningStreamingChatModel))
                 .chatMemoryProvider(memoryId -> chatMemory)
                 .tools((Object[]) toolManager.getAllTools())
                 .build();
@@ -202,6 +210,10 @@ public class IncrementalEditService {
      * 返回 Flux<String>，每条数据为 JSON 字符串，包含 ai_response / tool_request / tool_executed 类型。
      */
     public Flux<String> incrementalEditStream(Long appId, String instruction) {
+        return incrementalEditStream(appId, instruction, null);
+    }
+
+    public Flux<String> incrementalEditStream(Long appId, String instruction, String generationId) {
         Optional<LocatedProject> project = projectDirectory.locateExisting(appId);
         if (project.isEmpty()) {
             return Flux.just("{\"type\":\"error\",\"message\":\"" + MISSING_PROJECT_MESSAGE + "\"}");
@@ -212,6 +224,7 @@ public class IncrementalEditService {
         try {
             TokenStream tokenStream = ai.editStream(appId, composeInstruction(project.get().type(), instruction));
             return Flux.<String>create(sink -> {
+                try (var ignored = LlmCallAttribution.open(generationId, appId, LlmSteps.INCREMENTAL_EDIT)) {
                 tokenStream
                     .onPartialResponse((String partialResponse) -> {
                         AiResponseMessage msg = new AiResponseMessage(partialResponse);
@@ -233,6 +246,7 @@ public class IncrementalEditService {
                         sink.error(error);
                     })
                     .start();
+                }
             })
             .timeout(Duration.ofMinutes(5), Flux.error(
                     new BusinessException(ErrorCode.SYSTEM_ERROR, "增量编辑超时，请重试")))

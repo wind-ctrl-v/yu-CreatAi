@@ -6,6 +6,7 @@ import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
 import com.yu.yuaifather.service.design.ImagePlaceholderReplacer;
 import com.yu.yuaifather.codegen.service.AiCodeGeneratorService;
+import com.yu.yuaifather.observability.LlmCallAttribution;
 import com.yu.yuaifather.codegen.service.AiCodeGeneratorServiceFactory;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.model.dto.agent.CriticReport;
@@ -62,6 +63,7 @@ public class CoderAgent implements Agent {
             AiCodeGeneratorService service = factory.getAiCodeGeneratorService(
                     ctx.getAppId(), CodeGenTypeEnum.VUE_PROJECT);
             TokenStream stream = service.generateVueProjectCodeStream(ctx.getAppId(), userMessage);
+            try (var ignored = LlmCallAttribution.open(ctx.getGenerationId(), ctx.getAppId(), AGENT_NAME)) {
             stream.onPartialResponse(partial -> sink.next(AgentEvent.builder()
                             .type(AgentEvent.EventType.TEXT_CHUNK)
                             .agentName(AGENT_NAME)
@@ -104,6 +106,7 @@ public class CoderAgent implements Agent {
                         sink.error(err);
                     })
                     .start();
+            }
         });
     }
 

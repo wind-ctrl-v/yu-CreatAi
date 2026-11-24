@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../request'
-import type { GenerationStartedEvent, PipelineFallbackEvent } from '../types'
+import type { GenerationStartedEvent, PipelineFallbackEvent, TokenUsageEvent } from '../types'
 
 export interface SSECallbacks {
   /** 收到一个内容片段（已解析出的 d 字段） */
@@ -14,6 +14,8 @@ export interface SSECallbacks {
   onGenerationStarted?: (event: GenerationStartedEvent) => void
   /** 链路降级：解析自 `[降级] {json}` 结构化事件 */
   onPipelineFallback?: (event: PipelineFallbackEvent) => void
+  /** 某一步模型调用完成，载荷是该步骤和整次生成的累计 token */
+  onTokenUsage?: (event: TokenUsageEvent) => void
   /** 重连中：retriesLeft 为剩余重试次数，delayMs 为等待毫秒数 */
   onReconnecting?: (retriesLeft: number, delayMs: number) => void
   /** 重连成功（重新建立 SSE 后触发） */
@@ -96,6 +98,7 @@ export function connectChatSSE(
     })
 
     bindAutoDeployEvents(source, callbacks)
+    bindTokenUsage(source, callbacks.onTokenUsage)
 
     source.addEventListener('done', () => {
       doneReceived = true
@@ -134,6 +137,8 @@ export interface IncrementalEditCallbacks {
   onAutoDeployStarted?: () => void
   /** 本地自动部署失败，修改结果仍保留 */
   onAutoDeployFailed?: (message: string) => void
+  /** 增量编辑的模型调用完成 */
+  onTokenUsage?: (event: TokenUsageEvent) => void
 }
 
 /**
@@ -189,6 +194,7 @@ export function connectIncrementalEditSSE(
     }
 
     bindAutoDeployEvents(source, callbacks)
+    bindTokenUsage(source, callbacks.onTokenUsage)
 
     source.addEventListener('done', () => {
       doneReceived = true
@@ -231,6 +237,22 @@ function bindAutoDeployEvents(
       /* 使用默认提示 */
     }
     callbacks.onAutoDeployFailed?.(text)
+  })
+}
+
+function bindTokenUsage(
+  source: EventSource,
+  onTokenUsage?: (event: TokenUsageEvent) => void,
+) {
+  source.addEventListener('token-usage', (e: Event) => {
+    const me = e as MessageEvent
+    if (!me.data) return
+    try {
+      const parsed = JSON.parse(me.data) as TokenUsageEvent
+      if (parsed.event === 'token_usage') onTokenUsage?.(parsed)
+    } catch (err) {
+      console.warn('token-usage 事件解析失败：', err, me.data)
+    }
   })
 }
 

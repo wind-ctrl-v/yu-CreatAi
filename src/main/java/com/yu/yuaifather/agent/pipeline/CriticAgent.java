@@ -4,6 +4,7 @@ import cn.hutool.core.io.FileUtil;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.yu.yuaifather.agent.service.AgentAiService;
+import com.yu.yuaifather.observability.LlmCallAttribution;
 import com.yu.yuaifather.agent.core.Agent;
 import com.yu.yuaifather.agent.core.AgentContext;
 import com.yu.yuaifather.agent.core.AgentEvent;
@@ -139,7 +140,12 @@ public class CriticAgent implements Agent {
                 CriticReport report;
                 try {
                     report = JsonExtractor.parseWithRetry(
-                            () -> agentAiService.review(reviewInput.toString()),
+                            () -> {
+                                try (var ignored = LlmCallAttribution.open(
+                                        ctx.getGenerationId(), ctx.getAppId(), AGENT_NAME)) {
+                                    return agentAiService.review(reviewInput.toString());
+                                }
+                            },
                             CriticReport.class);
                 } catch (Exception llmFail) {
                     log.warn("CriticAgent LLM 评分失败，退化为静态判定 appId={} msg={}",

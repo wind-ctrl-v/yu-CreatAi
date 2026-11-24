@@ -26,6 +26,7 @@ import com.yu.yuaifather.service.AppService;
 import com.yu.yuaifather.service.ChatHistoryService;
 import com.yu.yuaifather.media.screenshot.ScreenshotService;
 import com.yu.yuaifather.service.UserService;
+import com.yu.yuaifather.service.generation.CodeGenStream;
 import com.yu.yuaifather.service.generation.GenerationPipelineRouter;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -170,7 +171,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
 
     @Override
-    public Flux<String> chatToGenCode(Long appId, String message, String requestedMode, User loginUser) {
+    public CodeGenStream chatToGenCode(Long appId, String message, String requestedMode, User loginUser) {
 
         // 1. 参数校验
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
@@ -197,8 +198,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         }
         // 6. 路由到生成链路：V2 → Classic 两级降级由 GenerationPipelineRouter 统一编排，
         //    本方法仅保留参数校验、鉴权、写历史与 doExecuteStream 收口。
-        Flux<String> codeStream = generationPipelineRouter.route(appId, message, requestedMode, loginUser, codeGenTypeEnum);
-        return doExecuteStream(codeStream, appId, loginUser, codeGenTypeEnum);
+        CodeGenStream routed = generationPipelineRouter.route(appId, message, requestedMode, loginUser, codeGenTypeEnum);
+        return new CodeGenStream(
+                doExecuteStream(routed.content(), appId, loginUser, codeGenTypeEnum),
+                routed.tokenUsage());
 
     }
 

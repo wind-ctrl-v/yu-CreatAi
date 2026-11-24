@@ -6,6 +6,7 @@ import {
   buildPreviewUrl,
   deployApp,
   getAppVOById,
+  getGenerationTokenUsage,
 } from '../api/app'
 import { listAppChatHistory } from '../api/chatHistory'
 import { getPlanCapabilities } from '../api/user'
@@ -24,10 +25,11 @@ import {
   buildEditContext,
   type PickedElement,
 } from '../utils/visualEditor'
-import type { AppVO } from '../types'
+import type { AppVO, GenerationTokenUsage, TokenUsageEvent } from '../types'
 import { type PlanCapabilities } from '../types'
 import { dislike, recordNegativeEvent } from '../api/preference'
 import DislikeFeedbackModal from '../components/app-chat/DislikeFeedbackModal.vue'
+import TokenUsagePanel from '../components/app-chat/TokenUsagePanel.vue'
 
 interface ChatMessage {
   id: number
@@ -92,6 +94,9 @@ const reconnectHint = ref('')
 const genMode = ref<string>('standard')
 // 本轮生成的结构化运行信息（生效模式/链路/降级提示），由 SSE 结构化事件填充
 const runInfo = ref<GenerationRunInfo | null>(null)
+// 本轮或最近一次生成的分步 token。生成中由 SSE 替换，结束后再向接口对账。
+const tokenUsage = ref<GenerationTokenUsage | null>(null)
+let tokenLoadSeq = 0
 // 套餐能力（拉取一次，整个会话复用）
 const planCaps = ref<PlanCapabilities | null>(null)
 
@@ -234,6 +239,47 @@ async function loadApp() {
   }
 }
 
+function applyTokenEvent(event: TokenUsageEvent) {
+  const totals = event.totals ?? event
+  tokenUsage.value = {
+    generationId: event.generationId,
+    status: 'RUNNING',
+    inputTokens: totals.inputTokens ?? 0,
+    outputTokens: totals.outputTokens ?? 0,
+    totalTokens: totals.totalTokens ?? 0,
+    callCount: totals.callCount ?? 0,
+    unknownUsageCalls: totals.unknownUsageCalls ?? 0,
+    steps: event.steps ?? [],
+  }
+}
+
+function blankTokenUsage(): GenerationTokenUsage {
+  return {
+    generationId: '',
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    callCount: 0,
+    unknownUsageCalls: 0,
+    steps: [],
+  }
+}
+
+function beginTokenTracking() {
+  tokenLoadSeq += 1
+  tokenUsage.value = blankTokenUsage()
+}
+
+async function loadTokenUsage() {
+  if (generating.value) return
+  const seq = ++tokenLoadSeq
+  const res = await getGenerationTokenUsage(appId.value).catch(() => null)
+  if (seq !== tokenLoadSeq || generating.value) return
+  if (res && res.code === 0 && res.data) {
+    tokenUsage.value = res.data
+  }
+}
+
 async function loadHistory() {
   const res = await listAppChatHistory(appId.value, 20).catch(() => null)
   if (res && res.code === 0) {
@@ -259,6 +305,7 @@ function sendMessage(content: string, displayText?: string) {
   generating.value = true
   // 重置上一轮的结构化运行信息
   runInfo.value = null
+  beginTokenTracking()
   reconnecting.value = false
   reconnectHint.value = ''
   scrollToBottom()
@@ -279,6 +326,7 @@ function sendMessage(content: string, displayText?: string) {
         fallbackText: runInfo.value?.fallbackText,
       }
     },
+    onTokenUsage: applyTokenEvent,
     onPipelineFallback: (event) => {
       const reason = (event.reason || '').slice(0, 60)
       const text = `已从 ${event.from} 链路自动切换至 ${event.to} 链路${
@@ -303,6 +351,7 @@ function sendMessage(content: string, displayText?: string) {
       deploying.value = false
       // 本地部署（含 Vue 构建与封面截图）已在 done 之前由后端完成
       refreshPreview()
+      loadTokenUsage()
     },
     onBusinessError: ({ code, message: errMsg }) => {
       generating.value = false
@@ -363,6 +412,7 @@ function doIncrementalEdit(instruction: string, userDisplay?: string) {
   hasEdited.value = true
 
   generating.value = true
+  beginTokenTracking()
   closeSSE = connectIncrementalEditSSE(
     appId.value,
     instruction,
@@ -405,6 +455,7 @@ function doIncrementalEdit(instruction: string, userDisplay?: string) {
       onAutoDeployFailed: (text) => {
         message.warning(text)
       },
+      onTokenUsage: applyTokenEvent,
       onDone: () => {
         generating.value = false
         deploying.value = false
@@ -413,6 +464,7 @@ function doIncrementalEdit(instruction: string, userDisplay?: string) {
         }
         messages.value[aiIndex].content = toolLines.join('\n')
         refreshPreview()
+        loadTokenUsage()
       },
     },
   )
@@ -483,6 +535,7 @@ async function init() {
   previewUrl.value = ''
   deployUrl.value = ''
   runInfo.value = null
+  tokenUsage.value = null
   reconnecting.value = false
   reconnectHint.value = ''
   hasEdited.value = false
@@ -503,6 +556,7 @@ async function init() {
 
   await loadApp()
   await loadHistory()
+  await loadTokenUsage()
   // 从首页带 init=1 进入：自动发起首轮生成
   // 显式取出当前应用，避免 TS 因前面 app.value=null 的控制流收窄误判为 never
   const loadedApp = app.value as AppVO | null
@@ -577,6 +631,13 @@ onBeforeUnmount(() => {
     <div class="body">
       <!-- ── 左：对话 ── -->
       <section class="panel conv">
+        <TokenUsagePanel
+          v-if="tokenUsage || generating"
+          class="conv__tokens"
+          :usage="tokenUsage"
+          :active="generating"
+        />
+
         <div ref="chatListRef" class="conv__list">
           <div v-if="runInfo?.fallbackText" class="notice">
             <CIcon name="alert-triangle" :size="14" />
@@ -856,6 +917,11 @@ onBeforeUnmount(() => {
 .preview { flex: 1; }
 
 /* ── 消息列表 ── */
+.conv__tokens {
+  flex: none;
+  margin: 12px 12px 0;
+}
+
 .conv__list {
   flex: 1;
   overflow-y: auto;

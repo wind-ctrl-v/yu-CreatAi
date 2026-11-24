@@ -104,6 +104,7 @@ public void onResponse(ChatModelResponse response) {
 ### 4.4 取舍说明
 
 - `generation_run` 表**暂不扩 token 字段**：流式工具调用单轮含多次模型调用，按 generationId 聚合需要额外归因链路，阶段一先日志 + 指标看总量趋势；确有按应用归因需求再开独立迭代
+- 后续已落地：`024_generation_run_token_usage.sql` 写入分步合计，`TokenUsageChatModelListener` 用 listener attributes（不用 MDC）归因，生成 SSE 另发 `token-usage` 事件
 - 不改 `AiCodeGeneratorService` 任何接口签名
 
 ### 4.5 改动清单

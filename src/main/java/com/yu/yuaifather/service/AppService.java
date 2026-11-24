@@ -7,7 +7,7 @@ import com.yu.yuaifather.model.dto.app.AppQueryRequest;
 import com.yu.yuaifather.model.entity.App;
 import com.yu.yuaifather.model.entity.User;
 import com.yu.yuaifather.model.vo.AppVO;
-import reactor.core.publisher.Flux;
+import com.yu.yuaifather.service.generation.CodeGenStream;
 
 import java.util.List;
 
@@ -31,8 +31,8 @@ public interface AppService extends IService<App> {
 
     QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest);
 
-    //调用ai大模型接口
-    Flux<String> chatToGenCode(Long appId, String message, String requestedMode, User loginUser);
+    //调用ai大模型接口。内容流与 token 用量流分开，用量不进入代码产物。
+    CodeGenStream chatToGenCode(Long appId, String message, String requestedMode, User loginUser);
 
     //部署应用
     String deployApp(Long appId, User loginUser);

@@ -3,6 +3,8 @@ package com.yu.yuaifather.codegen.service;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.yu.yuaifather.codegen.memory.ChatMemoryFactory;
+import com.yu.yuaifather.observability.AttributingChatModel;
+import com.yu.yuaifather.observability.AttributingStreamingChatModel;
 import com.yu.yuaifather.codegen.memory.ChatMemoryIds;
 import com.yu.yuaifather.model.enums.CodeGenTypeEnum;
 import com.yu.yuaifather.codegen.tools.*;
@@ -126,7 +128,7 @@ public class AiCodeGeneratorServiceFactory {
         return switch (codeGenType) {
             // Vue 项目生成使用推理模型
             case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
-                    .streamingChatModel(reasoningStreamingChatModel)
+                    .streamingChatModel(AttributingStreamingChatModel.wrap(reasoningStreamingChatModel))
                     .chatMemoryProvider(memoryId -> chatMemory)
                     .tools(toolManager.getAllTools())
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(
@@ -137,8 +139,8 @@ public class AiCodeGeneratorServiceFactory {
             // HTML 和多文件生成使用默认模型
             // 修复：使用 chatMemoryProvider 与 @MemoryId 配合
             case HTML, MULTI_FILE -> AiServices.builder(AiCodeGeneratorService.class)
-                    .chatModel(chatModel)
-                    .streamingChatModel(openAiStreamingChatModel)
+                    .chatModel(AttributingChatModel.wrap(chatModel))
+                    .streamingChatModel(AttributingStreamingChatModel.wrap(openAiStreamingChatModel))
                     .chatMemoryProvider(memoryId -> chatMemory)
                     .build();
             default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR,

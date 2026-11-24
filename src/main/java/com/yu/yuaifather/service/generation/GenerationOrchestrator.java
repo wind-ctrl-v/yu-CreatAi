@@ -8,6 +8,8 @@ import com.yu.yuaifather.model.dto.agent.CriticReport;
 import com.yu.yuaifather.model.dto.agent.DesignEvidence;
 import com.yu.yuaifather.model.dto.agent.DesignSpec;
 import com.yu.yuaifather.model.dto.generation.GenerationPolicy;
+import com.yu.yuaifather.observability.LlmCallAttribution;
+import com.yu.yuaifather.observability.LlmSteps;
 import com.yu.yuaifather.model.enums.GenerationMode;
 import com.yu.yuaifather.model.enums.PipelineType;
 import com.yu.yuaifather.service.design.DesignContext;
@@ -229,7 +231,8 @@ public class GenerationOrchestrator {
     }
 
     private DesignContext doAssemble(AgentContext ctx, ToolContext toolContext, GenerationPolicy policy, String targetAgent) {
-        return assembler.assemble(
+        try (var ignored = LlmCallAttribution.open(ctx.getGenerationId(), ctx.getAppId(), LlmSteps.DYNAMIC_SPEC)) {
+            return assembler.assemble(
                 DesignContextInput.builder()
                         .userId(toolContext.getCurrentUserId())
                         .projectId(toolContext.getCurrentProjectId())
@@ -242,6 +245,7 @@ public class GenerationOrchestrator {
                         .build(),
                 toolContext,
                 targetAgent);
+        }
     }
 
     /** 规则检查（零 LLM）：调用真实 {@link RuleCriticTool}，结果写入 holder 供后续决策。 */
