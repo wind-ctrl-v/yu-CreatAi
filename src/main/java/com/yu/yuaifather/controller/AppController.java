@@ -380,7 +380,8 @@ public class AppController {
                                                                      HttpServletRequest request) {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
         User loginUser = userService.getLoginUser(request);
-        appAccessService.requireOwner(appId, loginUser.getId());
+        // 用量面板在打开应用页时就会请求。精选示例对登录用户可见，但不能据此获得修改权。
+        appAccessService.requireView(appId, loginUser);
         return ResultUtils.success(generationRunService.findTokenUsage(appId, generationId));
     }
 

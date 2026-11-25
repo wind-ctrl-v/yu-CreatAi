@@ -54,7 +54,7 @@ public final class SafeUrlValidator {
         return uri.normalize();
     }
 
-    static void requirePublicAddress(InetAddress address) {
+    public static void requirePublicAddress(InetAddress address) {
         if (address.isAnyLocalAddress() || address.isLoopbackAddress()
                 || address.isLinkLocalAddress() || address.isSiteLocalAddress()
                 || address.isMulticastAddress()) {
