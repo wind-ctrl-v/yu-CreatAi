@@ -14,43 +14,30 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.UnknownHostException;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 图片搜索引擎：Pixabay → Unsplash → Pexels → 文生图(可选) → loremflickr → picsum 兜底。
  * <p>
  * 由代码生成后的占位符回填器 ImagePlaceholderReplacer 调用，按关键词搜图。
+ * 图床返回的地址（尤其是 Pixabay {@code /get/}）通常只有约 24 小时有效，过期后页面和封面截图都会裂图。
+ * 命中的远程图片会先经 {@link SearchImageArchiver} 转存到本机静态目录，再写入生成代码。
  * <p>
  * 安全要点：
  * <ul>
- *   <li>返回 URL 必须为 https，且域名在白名单内；</li>
- *   <li>解析域名后拒绝私有网段（防 SSRF）。</li>
+ *   <li>远程地址必须为 https，且域名在白名单内；</li>
+ *   <li>解析域名后拒绝私有网段（防 SSRF）；</li>
+ *   <li>转存失败时不把会过期的外链写进页面，继续尝试下一个图源。</li>
  * </ul>
- * 性能：使用 Caffeine 对 keyword 做本地缓存，避免重复请求。
+ * 性能：使用 Caffeine 对 keyword 做本地缓存，避免重复请求。只缓存已转存的高质量结果。
  */
 @Slf4j
 @Component
 public class ImageSearchEngine {
 
-    private static final Set<String> HOST_WHITELIST = Set.of(
-            "pixabay.com",
-            "cdn.pixabay.com",
-            "images.unsplash.com",
-            "images.pexels.com",
-            "source.unsplash.com",
-            "loremflickr.com",
-            "images.pexels.com.cn",
-            "picsum.photos",
-            "fastly.picsum.photos",
-            "i.picsum.photos"
-    );
-
     private final ImageProperties properties;
     private final TextToImageEngine textToImageEngine;
+    private final SearchImageArchiver imageArchiver;
 
     private Cache<String, String> cache;
 
@@ -61,9 +48,12 @@ public class ImageSearchEngine {
     private volatile long pixabayCircuitOpenUntil = 0;
 
     @Autowired
-    public ImageSearchEngine(ImageProperties properties, TextToImageEngine textToImageEngine) {
+    public ImageSearchEngine(ImageProperties properties,
+                             TextToImageEngine textToImageEngine,
+                             SearchImageArchiver imageArchiver) {
         this.properties = properties;
         this.textToImageEngine = textToImageEngine;
+        this.imageArchiver = imageArchiver;
     }
 
     @PostConstruct
@@ -75,10 +65,10 @@ public class ImageSearchEngine {
     }
 
     /**
-     * 根据关键词搜索图片，返回安全可用的 https URL。
+     * 根据关键词搜索图片，优先返回已转存到本机静态目录的 URL。
      *
      * @param keyword 英文关键词
-     * @return 图片 URL（必定非空，最终兜底 picsum）
+     * @return 图片 URL（必定非空；图床全部失败时仍返回 picsum 兜底）
      */
     public String search(String keyword) {
         String key = cleanKeyword(keyword);
@@ -86,20 +76,13 @@ public class ImageSearchEngine {
         if (cached != null) {
             return cached;
         }
-        String url = doSearch(key);
-        // 仅缓存"高质"结果（真实搜图命中 / 文生图落地图）；
-        // loremflickr、picsum 属降级兜底，不缓存，以便后续请求重试真实图源，避免图文不符被长期锁定。
-        if (StrUtil.isNotBlank(url) && !isLowQualityFallback(url)) {
-            cache.put(key, url);
+        SearchHit hit = doSearch(key);
+        // 仅缓存高质量结果（真实搜图或文生图，且已经落到本机）。
+        // loremflickr、picsum 属降级兜底，不缓存，以便后续请求重试真实图源。
+        if (hit.cacheable() && StrUtil.isNotBlank(hit.url())) {
+            cache.put(key, hit.url());
         }
-        return url;
-    }
-
-    /**
-     * 判断是否为低质降级兜底（loremflickr / picsum）——这类结果不进缓存。
-     */
-    private boolean isLowQualityFallback(String url) {
-        return url.contains("loremflickr.com") || url.contains("picsum.photos");
+        return hit.url();
     }
 
     /**
@@ -117,32 +100,62 @@ public class ImageSearchEngine {
         return StrUtil.isBlank(cleaned) ? "default" : cleaned;
     }
 
-    private String doSearch(String keyword) {
-        String url;
-        url = searchPixabay(keyword);
-        if (isSafe(url)) {
-            return url;
+    private SearchHit doSearch(String keyword) {
+        SearchHit hit = host(searchPixabay(keyword), true);
+        if (hit != null) {
+            return hit;
         }
-        url = searchUnsplash(keyword);
-        if (isSafe(url)) {
-            return url;
+        hit = host(searchUnsplash(keyword), true);
+        if (hit != null) {
+            return hit;
         }
-        url = searchPexels(keyword);
-        if (isSafe(url)) {
-            return url;
+        hit = host(searchPexels(keyword), true);
+        if (hit != null) {
+            return hit;
         }
-        // 文生图兜底（可选，需 image.fallback.enabled=true 且配置 api-key）：转存 COS 后返回自有域名 URL，可信直接使用
-        url = textToImageEngine.generate(keyword);
-        if (StrUtil.isNotBlank(url)) {
+        // 文生图兜底（可选）：TextToImageEngine 自己转存到本机静态目录，不再走远程归档。
+        String generated = textToImageEngine.generate(keyword);
+        if (StrUtil.isNotBlank(generated)) {
             log.info("文生图兜底命中 keyword={}", keyword);
-            return url;
+            return new SearchHit(generated, true);
         }
-        // 语义兜底：loremflickr 按关键词 tag 返回相关图片，避免 picsum 完全随机导致图文不符
-        url = loremflickrFallback(keyword);
-        if (isSafe(url)) {
-            return url;
+        // 语义兜底：先尝试转存。转存失败时不把会过期的外链写进页面，最后才退回 picsum 原地址。
+        hit = host(loremflickrFallback(keyword), false);
+        if (hit != null) {
+            return hit;
         }
-        return picsumFallback(keyword);
+        hit = host(picsumFallback(keyword), false);
+        if (hit != null) {
+            return hit;
+        }
+        return new SearchHit(picsumFallback(keyword), false);
+    }
+
+    /**
+     * 只接受白名单内的远程地址，并且必须成功转存到本机。转存失败返回 null，避免把临时外链写进生成代码。
+     */
+    SearchHit host(String remoteUrl, boolean cacheable) {
+        if (!isSafe(remoteUrl)) {
+            return null;
+        }
+        String localUrl = imageArchiver.archive(remoteUrl);
+        if (StrUtil.isBlank(localUrl)) {
+            log.warn("图片转存失败，改试下一个图源 host={}", hostOf(remoteUrl));
+            return null;
+        }
+        return new SearchHit(localUrl, cacheable);
+    }
+
+    private static String hostOf(String url) {
+        try {
+            String host = java.net.URI.create(url).getHost();
+            return host == null ? "unknown" : host;
+        } catch (IllegalArgumentException ex) {
+            return "unknown";
+        }
+    }
+
+    record SearchHit(String url, boolean cacheable) {
     }
 
     /**
@@ -280,43 +293,10 @@ public class ImageSearchEngine {
     }
 
     boolean isSafe(String url) {
-        if (StrUtil.isBlank(url)) {
-            return false;
+        boolean safe = ImageHostPolicy.isEmbeddable(url);
+        if (!safe && StrUtil.isNotBlank(url)) {
+            log.debug("拒绝不可嵌入的图片 URL");
         }
-        URI uri;
-        try {
-            uri = URI.create(url);
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
-        if (!"https".equalsIgnoreCase(uri.getScheme())) {
-            return false;
-        }
-        String host = uri.getHost();
-        if (host == null) {
-            return false;
-        }
-        if (!HOST_WHITELIST.contains(host.toLowerCase())) {
-            log.warn("图片域名不在白名单内: {}", host);
-            return false;
-        }
-        try {
-            InetAddress addr = InetAddress.getByName(host);
-            if (isPrivateAddress(addr)) {
-                log.warn("拒绝私有网段图片 URL: {} -> {}", host, addr.getHostAddress());
-                return false;
-            }
-        } catch (UnknownHostException e) {
-            log.warn("解析图片域名失败: {}", host);
-            return false;
-        }
-        return true;
-    }
-
-    private boolean isPrivateAddress(InetAddress addr) {
-        return addr.isAnyLocalAddress()
-                || addr.isLoopbackAddress()
-                || addr.isLinkLocalAddress()
-                || addr.isSiteLocalAddress();
+        return safe;
     }
 }

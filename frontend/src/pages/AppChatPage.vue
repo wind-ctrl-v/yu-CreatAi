@@ -19,6 +19,7 @@ import CSelect from '../components/ui/CSelect.vue'
 import CTag from '../components/ui/CTag.vue'
 import CTextarea from '../components/ui/CTextarea.vue'
 import { message } from '../components/ui/toast'
+import { useLoginUserStore } from '../stores/loginUser'
 import { connectChatSSE, connectIncrementalEditSSE } from '../utils/sse'
 import {
   attachElementPicker,
@@ -76,6 +77,9 @@ interface GenerationRunInfo {
 
 const route = useRoute()
 const router = useRouter()
+const loginStore = useLoginUserStore()
+/** 与后端 AppConstant.GOOD_APP_PRIORITY 一致：精选示例 */
+const FEATURED_PRIORITY = 99
 // 用 computed 让应用切换（路由参数变化）时能够响应
 // 注意：后端雪花 ID 为 18 位，JS Number 会丢失精度，必须用 String
 const appId = computed(() => String(route.params.id))
@@ -211,6 +215,14 @@ function onIframeLoad() {
 
 const appName = computed(() => app.value?.appName || `应用 #${appId.value}`)
 const canPreview = computed(() => !!previewUrl.value)
+/** 生成、修改、部署、下载只留给作者。管理员走管理接口，不在这个页面改精选示例。 */
+const canMutate = computed(() => {
+  const me = loginStore.loginUser
+  const ownerId = app.value?.userId
+  if (!me || ownerId == null || ownerId === '') return false
+  return String(me.id) === String(ownerId)
+})
+const isFeaturedSample = computed(() => app.value?.priority === FEATURED_PRIORITY)
 
 function scrollToBottom() {
   nextTick(() => {
@@ -472,6 +484,7 @@ function doIncrementalEdit(instruction: string, userDisplay?: string) {
 }
 
 async function handleSend() {
+  if (!canMutate.value) return
   const userText = input.value.trim()
   input.value = ''
   if (picked.value) {
@@ -497,6 +510,7 @@ async function handleSend() {
 const deployedOpen = ref(false)
 
 async function handleDeploy() {
+  if (!canMutate.value) return
   deploying.value = true
   const res = await deployApp(appId.value).catch(() => null)
   deploying.value = false
@@ -519,6 +533,7 @@ async function copyDeployUrl() {
 const PICK_PREFIX = '已选中 '
 
 function handleDownload() {
+  if (!canMutate.value) return
   window.open(buildDownloadUrl(appId.value), '_blank')
 }
 
@@ -613,10 +628,11 @@ onBeforeUnmount(() => {
         <CButton v-if="hasEdited" variant="ghost" size="sm" icon="undo" @click="handleRevert">
           还原
         </CButton>
-        <CButton variant="secondary" size="sm" icon="download" @click="handleDownload">
+        <CButton v-if="canMutate" variant="secondary" size="sm" icon="download" @click="handleDownload">
           下载代码
         </CButton>
         <CButton
+          v-if="canMutate"
           variant="primary"
           size="sm"
           icon="rocket"
@@ -681,8 +697,8 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <!-- 输入区 -->
-        <div class="composer">
+        <!-- 输入区：精选示例对访客只读，避免误触后弹出无权限提示 -->
+        <div v-if="canMutate" class="composer">
           <div v-if="picked" class="picked">
             <CIcon name="wand" :size="13" class="picked__icon" />
             <span class="picked__tag">{{ picked.tagName }}</span>
@@ -743,6 +759,10 @@ onBeforeUnmount(() => {
               发送
             </CButton>
           </div>
+        </div>
+        <div v-else-if="app" class="composer is-readonly">
+          <p v-if="isFeaturedSample">这是精选示例，可以查看对话和预览。生成、修改、部署和下载仅限作者。</p>
+          <p v-else>只有作者可以继续生成或修改这个应用。</p>
         </div>
       </section>
 
@@ -1027,6 +1047,16 @@ onBeforeUnmount(() => {
   padding: 12px 14px;
   border-top: 1px solid var(--border-subtle);
   background: var(--n-25);
+}
+
+.composer.is-readonly {
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.composer.is-readonly p {
+  margin: 0;
 }
 
 .composer__bar {

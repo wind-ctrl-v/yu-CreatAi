@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Locale;
 
 @RestController
 @RequestMapping("/static")
@@ -182,7 +183,7 @@ public class StaticResourceController {
             }
             Resource resource = new FileSystemResource(file);
             return ResponseEntity.ok()
-                    .header("Content-Type", getContentTypeWithCharset(file.getPath()))
+                    .header("Content-Type", contentType(file.getPath()))
                     .body(resource);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -208,14 +209,20 @@ public class StaticResourceController {
     }
 
     /**
-     * 根据文件扩展名返回带字符编码的 Content-Type
+     * 根据文件扩展名返回 Content-Type。位图必须带图片类型，否则浏览器会把转存下来的
+     * webp / gif 当成下载流，页面里仍然显示裂图。SVG 保持二进制，避免同域脚本。
      */
-    private String getContentTypeWithCharset(String filePath) {
-        if (filePath.endsWith(".html")) return "text/html; charset=UTF-8";
-        if (filePath.endsWith(".css")) return "text/css; charset=UTF-8";
-        if (filePath.endsWith(".js")) return "application/javascript; charset=UTF-8";
-        if (filePath.endsWith(".png")) return "image/png";
-        if (filePath.endsWith(".jpg")) return "image/jpeg";
+    static String contentType(String filePath) {
+        String path = filePath == null ? "" : filePath.toLowerCase(Locale.ROOT);
+        if (path.endsWith(".html")) return "text/html; charset=UTF-8";
+        if (path.endsWith(".css")) return "text/css; charset=UTF-8";
+        if (path.endsWith(".js")) return "application/javascript; charset=UTF-8";
+        if (path.endsWith(".png")) return "image/png";
+        if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+        if (path.endsWith(".gif")) return "image/gif";
+        if (path.endsWith(".webp")) return "image/webp";
+        if (path.endsWith(".avif")) return "image/avif";
+        if (path.endsWith(".ico")) return "image/x-icon";
         return "application/octet-stream";
     }
 }
